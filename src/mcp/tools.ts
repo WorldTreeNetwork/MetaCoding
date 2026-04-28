@@ -95,6 +95,44 @@ export async function graphNeighbors(
   return out.slice(0, limit);
 }
 
+// ---------- graph_callers ----------
+
+export interface GraphCallersInput {
+  symbol: string;       // target id or qualified_name
+  limit?: number;
+}
+
+export async function graphCallers(
+  store: Store,
+  input: GraphCallersInput,
+): Promise<NeighborRow[]> {
+  return graphNeighbors(store, {
+    symbol: input.symbol,
+    direction: "in",
+    edge_kinds: ["CALLS", "REFERENCES"],
+    limit: input.limit,
+  });
+}
+
+// ---------- graph_implementers ----------
+
+export interface GraphImplementersInput {
+  symbol: string;       // interface or class id / qualified_name
+  limit?: number;
+}
+
+export async function graphImplementers(
+  store: Store,
+  input: GraphImplementersInput,
+): Promise<NeighborRow[]> {
+  return graphNeighbors(store, {
+    symbol: input.symbol,
+    direction: "in",
+    edge_kinds: ["IMPLEMENTS", "EXTENDS"],
+    limit: input.limit,
+  });
+}
+
 // ---------- code_search ----------
 
 const VALID_TOKEN_KINDS: ReadonlyArray<TokenKind> = [
@@ -160,6 +198,30 @@ export interface ToolDescription {
 }
 
 export const TOOL_DESCRIPTIONS: ToolDescription[] = [
+  {
+    name: "graph_callers",
+    summary: "Find symbols that call or reference the given symbol (incoming CALLS/REFERENCES edges). Convenience wrapper over graph_neighbors. Useful for 'who depends on this'.",
+    input_schema: {
+      type: "object",
+      required: ["symbol"],
+      properties: {
+        symbol: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+      },
+    },
+  },
+  {
+    name: "graph_implementers",
+    summary: "Find symbols that implement or extend the given interface/class (incoming IMPLEMENTS/EXTENDS edges). The interface-consumer trick from the paper.",
+    input_schema: {
+      type: "object",
+      required: ["symbol"],
+      properties: {
+        symbol: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+      },
+    },
+  },
   {
     name: "graph_neighbors",
     summary: "Walk one hop from a symbol along typed edges. Use for 'what does this contain', 'what extends this', 'who calls this'.",

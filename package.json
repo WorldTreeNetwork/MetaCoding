@@ -7,10 +7,11 @@
     "metacoding": "src/cli/main.ts"
   },
   "scripts": {
-    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts"
+    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "protobufjs": "^8.0.3"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -18,6 +19,8 @@
   "dependencies": {
     "@ladybugdb/core": "^0.15.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@sourcegraph/scip-typescript": "^0.4.0",
+    "google-protobuf": "^4.0.2",
     "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "0.22.6"
   },

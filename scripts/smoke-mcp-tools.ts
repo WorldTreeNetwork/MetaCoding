@@ -30,15 +30,19 @@ async function main(): Promise<void> {
   try {
     await indexDirectory(store, "src");
 
-    // 1. describe_api returns the four tools.
+    // 1. describe_api returns all six tools.
     const desc = describeApi();
-    if (desc.tools.length !== 4) {
-      throw new Error(`expected 4 tools, got ${desc.tools.length}`);
-    }
     const names = desc.tools.map((t) => t.name).sort();
-    const expected = ["code_search", "describe_api", "graph_cypher", "graph_neighbors"];
+    const expected = [
+      "code_search",
+      "describe_api",
+      "graph_callers",
+      "graph_cypher",
+      "graph_implementers",
+      "graph_neighbors",
+    ];
     if (JSON.stringify(names) !== JSON.stringify(expected)) {
-      throw new Error(`tool names mismatch: ${JSON.stringify(names)}`);
+      throw new Error(`tool names mismatch: got ${JSON.stringify(names)}`);
     }
 
     // 2. graph_neighbors on the Store class -> its methods.

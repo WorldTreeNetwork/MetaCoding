@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { Store } from "../store";
 import { indexDirectory } from "../extractor";
 import { serveMcp } from "../mcp/server";
+import { runScipTypescript, loadScip } from "../scip";
 
 const DEFAULT_DATA_DIR = ".metacoding";
 
@@ -44,9 +45,13 @@ function usage(): never {
   console.error(`metacoding 0.1.0 — local-first code-graph DB
 
 Usage:
-  metacoding index <path> [--data-dir <dir>] [--branch <name>]
+  metacoding index <path> [--data-dir <dir>] [--branch <name>] [--scip]
   metacoding serve         [--data-dir <dir>]
   metacoding query <cypher> [--data-dir <dir>]
+
+Flags:
+  --scip       run scip-typescript after the Tree-sitter pass to layer
+               in resolved-symbol edges (CALLS/REFERENCES/IMPLEMENTS).
 
 Defaults:
   --data-dir   .metacoding
@@ -59,11 +64,22 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   if (!target) usage();
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
   const branch = args.flags["branch"] ?? "main";
+  const runScip = args.flags["scip"] === "true";
 
   const store = await Store.open(dataDir);
   try {
-    const stats = await indexDirectory(store, resolve(target), { branch });
-    console.log(JSON.stringify({ dataDir, branch, ...stats }, null, 2));
+    const tsStats = await indexDirectory(store, resolve(target), { branch });
+    const result: Record<string, unknown> = { dataDir, branch, treeSitter: tsStats };
+
+    if (runScip) {
+      const { scipPath, durationMs: scipRunMs } = await runScipTypescript({
+        targetRepo: resolve(target),
+      });
+      const scipStats = await loadScip(store, scipPath, { branch });
+      result["scip"] = { ...scipStats, indexerDurationMs: scipRunMs };
+    }
+
+    console.log(JSON.stringify(result, null, 2));
   } finally {
     await store.close();
   }

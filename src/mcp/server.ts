@@ -9,6 +9,8 @@ import { z } from "zod";
 import { Store } from "../store";
 import {
   graphNeighbors,
+  graphCallers,
+  graphImplementers,
   codeSearch,
   graphCypher,
   describeApi,
@@ -34,6 +36,40 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
   const TOKEN_KIND = z.enum([
     "literal", "identifier", "comment", "annotation_arg", "config_value",
   ]);
+
+  server.registerTool(
+    "graph_callers",
+    {
+      description:
+        "Find symbols that call or reference the given symbol (incoming CALLS/REFERENCES edges). " +
+        "Available after a SCIP pass; before that, this returns nothing because Tree-sitter alone can't resolve cross-file references.",
+      inputSchema: {
+        symbol: z.string().min(1),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    async (args) => {
+      const rows = await graphCallers(store, args);
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "graph_implementers",
+    {
+      description:
+        "Find symbols that implement or extend the given interface/class (incoming IMPLEMENTS/EXTENDS edges). " +
+        "This is the interface-consumer query from the 2026 paper — the thing pure vector search can't do.",
+      inputSchema: {
+        symbol: z.string().min(1),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    async (args) => {
+      const rows = await graphImplementers(store, args);
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
 
   server.registerTool(
     "graph_neighbors",
