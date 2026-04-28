@@ -7,6 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { Store } from "../store";
+import { LspService } from "../lsp";
 import {
   graphNeighbors,
   graphCallers,
@@ -15,14 +16,22 @@ import {
   graphCypher,
   describeApi,
 } from "./tools";
+import {
+  lspHover,
+  lspDefinition,
+  lspReferences,
+  lspDiagnostics,
+} from "./lsp-tools";
 import type { EdgeKind, TokenKind } from "../store/types";
 
 export interface ServeOpts {
   dataDir: string;
+  workspace: string;
 }
 
 export async function serveMcp(opts: ServeOpts): Promise<void> {
   const store = await Store.open(opts.dataDir);
+  const lsp = new LspService({ rootDir: opts.workspace });
 
   const server = new McpServer(
     { name: "metacoding", version: "0.1.0" },
@@ -151,12 +160,83 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     },
   );
 
+  // ---------- LSP tools (live, dirty-buffer-aware) ----------
+
+  server.registerTool(
+    "lsp_hover",
+    {
+      description:
+        "Live hover info from the language server: type, signature, docstring. " +
+        "Reflects current file content (including unsaved edits made via the LSP didChange path). " +
+        "Position is 0-indexed.",
+      inputSchema: {
+        file: z.string().min(1),
+        line: z.number().int().min(0),
+        col: z.number().int().min(0),
+      },
+    },
+    async (args) => {
+      const r = await lspHover(lsp, opts.workspace, args);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "lsp_definition",
+    {
+      description: "Live go-to-definition from the language server. Position is 0-indexed.",
+      inputSchema: {
+        file: z.string().min(1),
+        line: z.number().int().min(0),
+        col: z.number().int().min(0),
+      },
+    },
+    async (args) => {
+      const rows = await lspDefinition(lsp, opts.workspace, args);
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "lsp_references",
+    {
+      description:
+        "Live find-all-references from the language server. Use when graph_callers might be stale (file was edited after indexing). Position is 0-indexed.",
+      inputSchema: {
+        file: z.string().min(1),
+        line: z.number().int().min(0),
+        col: z.number().int().min(0),
+        include_declaration: z.boolean().optional(),
+      },
+    },
+    async (args) => {
+      const rows = await lspReferences(lsp, opts.workspace, args);
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "lsp_diagnostics",
+    {
+      description:
+        "Current type errors / lints for a file from the language server. Opens the file (didOpen) if not already, then waits up to wait_ms (default 3000) for the first diagnostics push.",
+      inputSchema: {
+        file: z.string().min(1),
+        wait_ms: z.number().int().min(0).max(30000).optional(),
+      },
+    },
+    async (args) => {
+      const rows = await lspDiagnostics(lsp, opts.workspace, args);
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Graceful shutdown on signal — close Store before process exits so
-  // both stores flush and we don't leave WAL files behind.
+  // Graceful shutdown on signal — close Store and LSP before process exits.
   const shutdown = async () => {
+    try { await lsp.shutdown(); } catch {}
     try { await store.close(); } catch {}
     process.exit(0);
   };

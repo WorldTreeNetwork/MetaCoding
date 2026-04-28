@@ -267,6 +267,58 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
     },
   },
   {
+    name: "lsp_hover",
+    summary: "Live hover info (type, signature, docstring) from the language server. Reflects current/dirty file content.",
+    input_schema: {
+      type: "object",
+      required: ["file", "line", "col"],
+      properties: {
+        file: { type: "string" },
+        line: { type: "integer", minimum: 0 },
+        col: { type: "integer", minimum: 0 },
+      },
+    },
+  },
+  {
+    name: "lsp_definition",
+    summary: "Live go-to-definition from the language server.",
+    input_schema: {
+      type: "object",
+      required: ["file", "line", "col"],
+      properties: {
+        file: { type: "string" },
+        line: { type: "integer", minimum: 0 },
+        col: { type: "integer", minimum: 0 },
+      },
+    },
+  },
+  {
+    name: "lsp_references",
+    summary: "Live find-all-references from the language server. Use when graph_callers might be stale.",
+    input_schema: {
+      type: "object",
+      required: ["file", "line", "col"],
+      properties: {
+        file: { type: "string" },
+        line: { type: "integer", minimum: 0 },
+        col: { type: "integer", minimum: 0 },
+        include_declaration: { type: "boolean", default: false },
+      },
+    },
+  },
+  {
+    name: "lsp_diagnostics",
+    summary: "Current type errors / lints for a file from the language server.",
+    input_schema: {
+      type: "object",
+      required: ["file"],
+      properties: {
+        file: { type: "string" },
+        wait_ms: { type: "integer", minimum: 0, maximum: 30000, default: 3000 },
+      },
+    },
+  },
+  {
     name: "describe_api",
     summary: "Self-describe: returns this tool list with input schemas and usage examples.",
     input_schema: { type: "object", properties: {} },

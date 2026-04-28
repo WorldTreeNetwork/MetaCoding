@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   try {
     await indexDirectory(store, "src");
 
-    // 1. describe_api returns all six tools.
+    // 1. describe_api returns all ten tools (6 graph/text + 4 LSP).
     const desc = describeApi();
     const names = desc.tools.map((t) => t.name).sort();
     const expected = [
@@ -40,6 +40,10 @@ async function main(): Promise<void> {
       "graph_cypher",
       "graph_implementers",
       "graph_neighbors",
+      "lsp_definition",
+      "lsp_diagnostics",
+      "lsp_hover",
+      "lsp_references",
     ];
     if (JSON.stringify(names) !== JSON.stringify(expected)) {
       throw new Error(`tool names mismatch: got ${JSON.stringify(names)}`);

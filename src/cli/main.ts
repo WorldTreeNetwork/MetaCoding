@@ -46,16 +46,18 @@ function usage(): never {
 
 Usage:
   metacoding index <path> [--data-dir <dir>] [--branch <name>] [--scip]
-  metacoding serve         [--data-dir <dir>]
+  metacoding serve         [--data-dir <dir>] [--workspace <path>]
   metacoding query <cypher> [--data-dir <dir>]
 
 Flags:
-  --scip       run scip-typescript after the Tree-sitter pass to layer
-               in resolved-symbol edges (CALLS/REFERENCES/IMPLEMENTS).
+  --scip        run scip-typescript after the Tree-sitter pass to layer
+                in resolved-symbol edges (CALLS/REFERENCES/IMPLEMENTS).
+  --workspace   workspace root the LSP attaches to (defaults to cwd).
 
 Defaults:
-  --data-dir   .metacoding
-  --branch     main`);
+  --data-dir    .metacoding
+  --branch      main
+  --workspace   .`);
   process.exit(2);
 }
 
@@ -101,7 +103,8 @@ async function cmdQuery(args: ParsedArgs): Promise<void> {
 
 async function cmdServe(args: ParsedArgs): Promise<void> {
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
-  await serveMcp({ dataDir });
+  const workspace = resolve(args.flags["workspace"] ?? ".");
+  await serveMcp({ dataDir, workspace });
 }
 
 async function main(): Promise<void> {
