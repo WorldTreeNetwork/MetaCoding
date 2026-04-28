@@ -10,7 +10,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@ladybugdb/core": "^0.15.4"
+    "@ladybugdb/core": "^0.15.4",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "0.22.6"
   },
   "trustedDependencies": [
     "@ladybugdb/core"
