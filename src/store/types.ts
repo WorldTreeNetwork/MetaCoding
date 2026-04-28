@@ -23,6 +23,7 @@ export interface Symbol {
   id: string;
   kind: SymbolKind;
   language: string;
+  repo: string;             // e.g. "cline", "crewAI" — cross-repo dimension
   qualified_name: string;
   short_name: string;
   file: string;
@@ -68,6 +69,7 @@ export type TokenKind =
 export interface TokenRow {
   text: string;
   kind: TokenKind;
+  repo: string;
   file: string;
   line: number;
   col: number;

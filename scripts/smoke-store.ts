@@ -23,6 +23,7 @@ function makeSymbol(id: string, short: string, kind: Symbol["kind"]): Symbol {
     id,
     kind,
     language: "ts",
+    repo: "smoke",
     qualified_name: `pkg.${short}`,
     short_name: short,
     file: "src/example.ts",
@@ -73,9 +74,9 @@ async function main(): Promise<void> {
 
   // FTS round-trip.
   const tokens: TokenRow[] = [
-    { text: "OrderService", kind: "identifier", file: "x.ts", line: 1, col: 0, symbol_id: "b" },
-    { text: "orderService", kind: "literal", file: "y.ts", line: 5, col: 12, symbol_id: null },
-    { text: "find rate-limit logic", kind: "comment", file: "z.ts", line: 9, col: 0, symbol_id: null },
+    { text: "OrderService", kind: "identifier", repo: "smoke", file: "x.ts", line: 1, col: 0, symbol_id: "b" },
+    { text: "orderService", kind: "literal", repo: "smoke", file: "y.ts", line: 5, col: 12, symbol_id: null },
+    { text: "find rate-limit logic", kind: "comment", repo: "smoke", file: "z.ts", line: 9, col: 0, symbol_id: null },
   ];
   s.writeTokens(tokens);
 

@@ -7,7 +7,7 @@
     "metacoding": "src/cli/main.ts"
   },
   "scripts": {
-    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts"
+    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@ladybugdb/core": "^0.15.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@sourcegraph/scip-python": "^0.6.6",
     "@sourcegraph/scip-typescript": "^0.4.0",
     "chokidar": "^5.0.0",
     "google-protobuf": "^4.0.2",

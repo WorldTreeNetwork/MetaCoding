@@ -70,6 +70,7 @@ export class Store {
       `MERGE (n:Symbol {id: $id})
        SET n.kind = $kind,
            n.language = $language,
+           n.repo = $repo,
            n.qualified_name = $qualified_name,
            n.short_name = $short_name,
            n.file = $file,
@@ -100,20 +101,29 @@ export class Store {
   writeTokens(rows: TokenRow[]): void {
     if (rows.length === 0) return;
     const ins = this.fts.prepare(
-      `INSERT INTO tokens(text, kind, file, line, col, symbol_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tokens(text, kind, repo, file, line, col, symbol_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const tx = this.fts.transaction((rs: TokenRow[]) => {
       for (const r of rs) {
-        ins.run(r.text, r.kind, r.file, r.line, r.col, r.symbol_id);
+        ins.run(r.text, r.kind, r.repo, r.file, r.line, r.col, r.symbol_id);
       }
     });
     tx(rows);
   }
 
-  searchTokens(query: string, limit = 50): TokenRow[] {
+  searchTokens(query: string, limit = 50, repo?: string): TokenRow[] {
+    if (repo !== undefined) {
+      const stmt = this.fts.prepare(
+        `SELECT text, kind, repo, file, line, col, symbol_id
+         FROM tokens
+         WHERE tokens MATCH ? AND repo = ?
+         LIMIT ?`,
+      );
+      return stmt.all(query, repo, limit) as unknown as TokenRow[];
+    }
     const stmt = this.fts.prepare(
-      `SELECT text, kind, file, line, col, symbol_id
+      `SELECT text, kind, repo, file, line, col, symbol_id
        FROM tokens
        WHERE tokens MATCH ?
        LIMIT ?`,
@@ -123,32 +133,30 @@ export class Store {
 
   // ----- incremental indexing primitives -----
 
-  /** The previously-recorded content hash for this (file, branch), or null. */
-  async fileHash(file: string, branch: string): Promise<string | null> {
+  /** The previously-recorded content hash for this (repo, file, branch), or null. */
+  async fileHash(repo: string, file: string, branch: string): Promise<string | null> {
     const rows = await this.query<{ h: string | null }>(
       `MATCH (f:Symbol)
-       WHERE f.kind = 'file' AND f.file = $file AND f.branch = $branch
+       WHERE f.kind = 'file' AND f.repo = $repo AND f.file = $file AND f.branch = $branch
        RETURN f.ast_hash AS h`,
-      { file, branch },
+      { repo, file, branch },
     );
     return rows[0]?.h ?? null;
   }
 
   /**
-   * Drop every Symbol/edge/token belonging to (file, branch). Called
+   * Drop every Symbol/edge/token belonging to (repo, file, branch). Called
    * before a re-extraction when the content hash has changed, and on
    * file deletions in watch mode.
    */
-  async deleteFileData(file: string, branch: string): Promise<void> {
-    // Graph: detach-delete every Symbol attached to this file. Edges
-    // incident to those symbols are removed automatically.
+  async deleteFileData(repo: string, file: string, branch: string): Promise<void> {
     await this.query(
-      `MATCH (s:Symbol) WHERE s.file = $file AND s.branch = $branch DETACH DELETE s`,
-      { file, branch },
+      `MATCH (s:Symbol)
+       WHERE s.repo = $repo AND s.file = $file AND s.branch = $branch
+       DETACH DELETE s`,
+      { repo, file, branch },
     );
-    // FTS: drop all tokens for this file (FTS5 has no branch concept;
-    // tokens are repository-scoped to the data dir).
-    this.fts.prepare(`DELETE FROM tokens WHERE file = ?`).run(file);
+    this.fts.prepare(`DELETE FROM tokens WHERE repo = ? AND file = ?`).run(repo, file);
   }
 }
 

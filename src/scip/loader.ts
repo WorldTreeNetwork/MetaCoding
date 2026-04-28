@@ -33,6 +33,9 @@ import {
 
 export interface LoadScipOpts {
   branch: string;
+  repo: string;
+  /** Maps the SCIP scheme/file-extension to one of our `language` codes. */
+  language?: "ts" | "py";
 }
 
 export interface LoadScipStats {
@@ -73,13 +76,15 @@ export async function loadScip(
       const parsed = parseScipSymbol(occ.symbol);
       if (!parsed || parsed.isLocal) continue;
       const qn = qualifiedNameOf(parsed);
-      const id = symbolId("ts", qn);
+      const lang = opts.language ?? guessLanguageFromQn(qn);
+      const id = symbolId(lang, opts.repo, qn);
 
       const info = infoBySymbol.get(occ.symbol);
       const sym: Symbol = {
         id,
         kind: kindOf(parsed, info?.kind),
-        language: "ts",
+        language: lang,
+        repo: opts.repo,
         qualified_name: qn,
         short_name: shortNameOf(parsed),
         file: doc.relative_path,
@@ -130,7 +135,8 @@ export async function loadScip(
       if (!srcDef) continue;
       for (const rel of info.relationships) {
         const tgtDef = defByScip.get(rel.symbol);
-        const dstId = tgtDef?.ourId ?? symbolId("ts", externalQn(rel.symbol));
+        const dstId = tgtDef?.ourId
+          ?? symbolId(opts.language ?? "ts", opts.repo, externalQn(rel.symbol));
         if (rel.is_implementation) enqueue("IMPLEMENTS", srcDef.ourId, dstId);
         if (rel.is_type_definition) enqueue("TYPE_OF", srcDef.ourId, dstId);
       }
@@ -211,4 +217,8 @@ function externalQn(scipSymbol: string): string {
   // The target node may not exist in our graph; that's expected — the agent
   // can still see "this symbol references something external".
   return `external::${scipSymbol}`;
+}
+
+function guessLanguageFromQn(qn: string): "ts" | "py" {
+  return /\.(py|pyi)(::|$)/.test(qn) ? "py" : "ts";
 }

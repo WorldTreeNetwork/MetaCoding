@@ -1,14 +1,15 @@
 // Stable Symbol ID generation.
 //
-// Symbol ID = sha256(language + "|" + qualified_name)[:16].
-// Robust against line/column drift; consistent across re-indexing.
-// 16 hex chars = 64 bits — plenty of headroom for a single repo's symbol set.
+// Symbol ID = sha256(language|repo|qualified_name)[:16].
+// Includes `repo` so the same qualified_name (e.g. "src/main.py::Orchestrator")
+// across two different repos resolves to two distinct ids.
+// 16 hex chars = 64 bits — plenty of headroom even across many repos.
 
 import { createHash } from "node:crypto";
 
-export function symbolId(language: string, qualified_name: string): string {
+export function symbolId(language: string, repo: string, qualified_name: string): string {
   return createHash("sha256")
-    .update(`${language}|${qualified_name}`)
+    .update(`${language}|${repo}|${qualified_name}`)
     .digest("hex")
     .slice(0, 16);
 }

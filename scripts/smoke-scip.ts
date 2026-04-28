@@ -33,7 +33,9 @@ async function main(): Promise<void> {
   try {
     // Lane 1: Tree-sitter pass — walk from project root so file paths
     // (`src/store/index.ts`) align with SCIP's project-root-relative paths.
-    const tsStats = await indexDirectory(store, ".");
+    // Tag everything as repo "MetaCoding" so the lanes reconcile via shared
+    // (language|repo|qn) hash ids.
+    const tsStats = await indexDirectory(store, ".", { repo: "MetaCoding" });
     console.log(`tree-sitter: ${tsStats.symbols} symbols, ${tsStats.edges} edges`);
 
     // Lane 2: SCIP pass.
@@ -43,7 +45,11 @@ async function main(): Promise<void> {
     });
     console.log(`scip-typescript: produced ${scipPath} in ${Math.round(scipMs)}ms`);
 
-    const scipStats = await loadScip(store, scipPath, { branch: "main" });
+    const scipStats = await loadScip(store, scipPath, {
+      branch: "main",
+      repo: "MetaCoding",
+      language: "ts",
+    });
     console.log(
       `scip load: ${scipStats.documents} docs, ${scipStats.symbolsUpserted} upserts, ${scipStats.edgesAdded} edges, ${scipStats.externalRefsSkipped} external refs skipped`,
     );

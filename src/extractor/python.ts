@@ -1,13 +1,12 @@
-// TypeScript extractor.
+// Python extractor.
 //
-// Walks a parsed Tree-sitter tree and emits Symbol / Edge / TokenRow records
-// per the schema in docs/design/schema.md. Phase-1 scope:
-//   - Symbol nodes: file, class, interface, enum, function, method, field,
-//     type_alias.
-//   - CONTAINS edges (file -> top-level, class -> method, etc.).
-//   - Tokens: identifiers, string literals, comments.
-//   - EXTENDS / IMPLEMENTS edges deferred to a later pass that can resolve
-//     cross-file names (Tree-sitter alone can't).
+// Walks a Tree-sitter Python tree and emits Symbol/Edge/TokenRow records.
+// Phase-1-equivalent scope per docs/design/schema.md:
+//   - file, class, function, method symbols.
+//   - CONTAINS edges (file -> top-level, class -> method).
+//   - Tokens: identifiers, string contents, comments.
+//   - EXTENDS / IMPORTS edges deferred to a later pass that resolves
+//     names cross-file (the SCIP lane handles those for Python).
 
 import type Parser from "web-tree-sitter";
 
@@ -23,26 +22,25 @@ export interface ExtractResult {
   tokens: TokenRow[];
 }
 
-export interface ExtractOpts {
+export interface ExtractPyOpts {
   filePath: string;
-  grammar: "typescript" | "tsx";
   branch: string;
   repo: string;
 }
 
-export function extractTypeScript(tree: Tree, opts: ExtractOpts): ExtractResult {
+export function extractPython(tree: Tree, opts: ExtractPyOpts): ExtractResult {
   const result: ExtractResult = { symbols: [], edges: [], tokens: [] };
   const fileSym = makeFileSymbol(opts);
   result.symbols.push(fileSym);
-  walk(tree.rootNode, fileSym, fileSym.qualified_name, result, opts);
+  walk(tree.rootNode, fileSym, fileSym.qualified_name, /* insideClass */ false, result, opts);
   return result;
 }
 
-function makeFileSymbol(opts: ExtractOpts): Symbol {
+function makeFileSymbol(opts: ExtractPyOpts): Symbol {
   return {
-    id: symbolId("ts", opts.repo, opts.filePath),
+    id: symbolId("py", opts.repo, opts.filePath),
     kind: "file",
-    language: "ts",
+    language: "py",
     repo: opts.repo,
     qualified_name: opts.filePath,
     short_name: opts.filePath.split("/").pop() ?? opts.filePath,
@@ -65,18 +63,28 @@ function walk(
   node: Node,
   parent: Symbol,
   parentQn: string,
+  insideClass: boolean,
   result: ExtractResult,
-  opts: ExtractOpts,
+  opts: ExtractPyOpts,
 ): void {
   collectTokens(node, parent.id, opts, result.tokens);
 
-  const decl = recognizeDeclaration(node);
+  // `decorated_definition` wraps a class_definition or function_definition.
+  // We descend to the wrapped `definition` field and treat it as the actual
+  // declaration site, so the symbol's range covers the decorators too.
+  let target = node;
+  if (node.type === "decorated_definition") {
+    const inner = node.childForFieldName("definition");
+    if (inner) target = inner;
+  }
+
+  const decl = recognizeDeclaration(target, insideClass);
   if (decl) {
     const qn = `${parentQn}::${decl.short}`;
     const sym: Symbol = {
-      id: symbolId("ts", opts.repo, qn),
+      id: symbolId("py", opts.repo, qn),
       kind: decl.kind,
-      language: "ts",
+      language: "py",
       repo: opts.repo,
       qualified_name: qn,
       short_name: decl.short,
@@ -86,7 +94,11 @@ function walk(
       end_line: node.endPosition.row,
       end_col: node.endPosition.column,
       signature: null,
-      visibility: null,
+      visibility: decl.short.startsWith("_") && !decl.short.startsWith("__")
+        ? "private"
+        : decl.short.startsWith("__") && !decl.short.endsWith("__")
+        ? "private"
+        : "public",
       is_abstract: false,
       is_static: false,
       ast_hash: null,
@@ -95,53 +107,43 @@ function walk(
     };
     result.symbols.push(sym);
     result.edges.push({ src_id: parent.id, dst_id: sym.id, kind: "CONTAINS" });
-    for (const child of node.namedChildren) {
-      if (child) walk(child, sym, qn, result, opts);
+    const childInsideClass = decl.kind === "class";
+    for (const child of target.namedChildren) {
+      if (child) walk(child, sym, qn, childInsideClass, result, opts);
     }
     return;
   }
 
   for (const child of node.namedChildren) {
-    if (child) walk(child, parent, parentQn, result, opts);
+    if (child) walk(child, parent, parentQn, insideClass, result, opts);
   }
 }
 
-function recognizeDeclaration(node: Node): { kind: SymbolKind; short: string } | null {
+function recognizeDeclaration(
+  node: Node,
+  insideClass: boolean,
+): { kind: SymbolKind; short: string } | null {
   switch (node.type) {
-    case "class_declaration":
-    case "abstract_class_declaration":
-      return nameOf(node, "class");
-    case "interface_declaration":
-      return nameOf(node, "interface");
-    case "enum_declaration":
-      return nameOf(node, "enum");
-    case "function_declaration":
-    case "function_signature":
-      return nameOf(node, "function");
-    case "method_definition":
-    case "method_signature":
-    case "abstract_method_signature":
-      return nameOf(node, "method");
-    case "public_field_definition":
-    case "property_signature":
-      return nameOf(node, "field");
-    case "type_alias_declaration":
-      return nameOf(node, "type_alias");
+    case "class_definition": {
+      const name = node.childForFieldName("name");
+      if (!name) return null;
+      return { kind: "class", short: name.text };
+    }
+    case "function_definition":
+    case "async_function_definition": {
+      const name = node.childForFieldName("name");
+      if (!name) return null;
+      return { kind: insideClass ? "method" : "function", short: name.text };
+    }
     default:
       return null;
   }
 }
 
-function nameOf(node: Node, kind: SymbolKind): { kind: SymbolKind; short: string } | null {
-  const name = node.childForFieldName("name");
-  if (!name) return null;
-  return { kind, short: name.text };
-}
-
 function collectTokens(
   node: Node,
   symId: string,
-  opts: ExtractOpts,
+  opts: ExtractPyOpts,
   out: TokenRow[],
 ): void {
   const baseRow = {
@@ -153,11 +155,9 @@ function collectTokens(
   };
   switch (node.type) {
     case "identifier":
-    case "type_identifier":
-    case "property_identifier":
       out.push({ ...baseRow, text: node.text, kind: "identifier" });
       return;
-    case "string_fragment":
+    case "string_content":
       out.push({ ...baseRow, text: node.text, kind: "literal" });
       return;
     case "comment":

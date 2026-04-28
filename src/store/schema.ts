@@ -24,6 +24,7 @@ CREATE NODE TABLE Symbol (
   id STRING,
   kind STRING,
   language STRING,
+  repo STRING,
   qualified_name STRING,
   short_name STRING,
   file STRING,
@@ -76,6 +77,7 @@ export function ensureFtsSchema(fts: SqliteDb): void {
     CREATE VIRTUAL TABLE IF NOT EXISTS tokens USING fts5(
       text,
       kind UNINDEXED,
+      repo UNINDEXED,
       file UNINDEXED,
       line UNINDEXED,
       col UNINDEXED,

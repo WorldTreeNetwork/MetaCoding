@@ -186,7 +186,7 @@ function unquote(s: string): string {
 }
 
 // Heuristic: which descriptor (if any) names a source file.
-const SOURCE_EXT = /\.(ts|tsx|js|jsx|mts|cts)$/;
+const SOURCE_EXT = /\.(ts|tsx|js|jsx|mts|cts|py|pyi)$/;
 
 // scip-typescript encodes a path like `src/store/index.ts` as three
 // successive namespace descriptors: `src/`, `store/`, `` `index.ts`/``.
