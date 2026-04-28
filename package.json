@@ -8,5 +8,11 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "dependencies": {
+    "@ladybugdb/core": "^0.15.4"
+  },
+  "trustedDependencies": [
+    "@ladybugdb/core"
+  ]
 }
