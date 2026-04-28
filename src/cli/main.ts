@@ -7,9 +7,10 @@
 import { resolve } from "node:path";
 
 import { Store } from "../store";
-import { indexDirectory } from "../extractor";
+import { indexDirectory, watch } from "../extractor";
 import { serveMcp } from "../mcp/server";
 import { runScipTypescript, loadScip } from "../scip";
+import { currentGitBranch } from "./branch";
 
 const DEFAULT_DATA_DIR = ".metacoding";
 
@@ -46,6 +47,7 @@ function usage(): never {
 
 Usage:
   metacoding index <path> [--data-dir <dir>] [--branch <name>] [--scip]
+  metacoding watch <path> [--data-dir <dir>] [--branch <name>]
   metacoding serve         [--data-dir <dir>] [--workspace <path>]
   metacoding query <cypher> [--data-dir <dir>]
 
@@ -56,7 +58,7 @@ Flags:
 
 Defaults:
   --data-dir    .metacoding
-  --branch      main
+  --branch      auto-detected from .git/HEAD (fallback "main")
   --workspace   .`);
   process.exit(2);
 }
@@ -65,7 +67,7 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const target = args.positional[0];
   if (!target) usage();
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
-  const branch = args.flags["branch"] ?? "main";
+  const branch = args.flags["branch"] ?? currentGitBranch(resolve(target));
   const runScip = args.flags["scip"] === "true";
 
   const store = await Store.open(dataDir);
@@ -101,6 +103,33 @@ async function cmdQuery(args: ParsedArgs): Promise<void> {
   }
 }
 
+async function cmdWatch(args: ParsedArgs): Promise<void> {
+  const target = args.positional[0];
+  if (!target) usage();
+  const root = resolve(target);
+  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const branch = args.flags["branch"] ?? currentGitBranch(root);
+
+  const store = await Store.open(dataDir);
+  const handle = await watch(store, root, {
+    branch,
+    onProcessed: (event, path) => {
+      const at = new Date().toISOString().slice(11, 19);
+      console.log(`${at} ${event.padEnd(6)} ${path}`);
+    },
+  });
+  console.log(`watching ${root} on branch ${branch}; data dir ${dataDir}`);
+  console.log("press Ctrl-C to stop");
+
+  const shutdown = async () => {
+    try { await handle.close(); } catch {}
+    try { await store.close(); } catch {}
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
 async function cmdServe(args: ParsedArgs): Promise<void> {
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
   const workspace = resolve(args.flags["workspace"] ?? ".");
@@ -114,6 +143,8 @@ async function main(): Promise<void> {
       return cmdIndex(args);
     case "query":
       return cmdQuery(args);
+    case "watch":
+      return cmdWatch(args);
     case "serve":
       return cmdServe(args);
     case "--help":
@@ -127,10 +158,12 @@ async function main(): Promise<void> {
   }
 }
 
+const KEEP_ALIVE = new Set(["serve", "watch"]);
+
 main()
   .then(() => {
-    // index/query exit naturally; serve keeps stdio open until signal.
-    if (process.argv[2] !== "serve") process.exit(0);
+    // Long-lived commands (serve, watch) own their own lifecycle.
+    if (!KEEP_ALIVE.has(process.argv[2] ?? "")) process.exit(0);
   })
   .catch((err) => {
     console.error("metacoding:", err?.message ?? err);

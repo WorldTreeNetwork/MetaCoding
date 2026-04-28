@@ -120,6 +120,36 @@ export class Store {
     );
     return stmt.all(query, limit) as unknown as TokenRow[];
   }
+
+  // ----- incremental indexing primitives -----
+
+  /** The previously-recorded content hash for this (file, branch), or null. */
+  async fileHash(file: string, branch: string): Promise<string | null> {
+    const rows = await this.query<{ h: string | null }>(
+      `MATCH (f:Symbol)
+       WHERE f.kind = 'file' AND f.file = $file AND f.branch = $branch
+       RETURN f.ast_hash AS h`,
+      { file, branch },
+    );
+    return rows[0]?.h ?? null;
+  }
+
+  /**
+   * Drop every Symbol/edge/token belonging to (file, branch). Called
+   * before a re-extraction when the content hash has changed, and on
+   * file deletions in watch mode.
+   */
+  async deleteFileData(file: string, branch: string): Promise<void> {
+    // Graph: detach-delete every Symbol attached to this file. Edges
+    // incident to those symbols are removed automatically.
+    await this.query(
+      `MATCH (s:Symbol) WHERE s.file = $file AND s.branch = $branch DETACH DELETE s`,
+      { file, branch },
+    );
+    // FTS: drop all tokens for this file (FTS5 has no branch concept;
+    // tokens are repository-scoped to the data dir).
+    this.fts.prepare(`DELETE FROM tokens WHERE file = ?`).run(file);
+  }
 }
 
 export type { Symbol, Edge, TokenRow } from "./types";
