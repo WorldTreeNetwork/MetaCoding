@@ -1,24 +1,26 @@
 # MetaCoding
 
-A local-first **code-graph database** built for AI coding agents.
+*A local-first code-graph for AI coding agents. The structure was always there — this just listens for it.*
 
-Walk a codebase, build a typed graph of symbols and their relationships,
-expose it over MCP. Replaces — or complements — vector RAG for the kind
-of multi-hop architectural reasoning that agents actually need:
-"who calls this?", "what implements `IFoo`?", "trace this controller to
-the database."
+Underneath every codebase there's a graph no editor ever shows you: the
+wiring between symbols, what calls what, what implements what, what
+depends on what. The source files are the surface; the graph is the
+thing. MetaCoding walks a project, builds that graph on disk, and
+serves it back to an agent through MCP so it can ask the questions
+that actually move work forward:
 
-## The wedge
+> who calls this? what implements `IFoo`? trace this controller all the way down to the database.
 
-Most code-RAG tools chunk source files into 1000-character windows and
-toss them at a vector index. That works for "find code that mentions
-rate limiting." It falls over the moment the agent needs to follow
-edges the type system already knows about — interface implementers,
-call graphs, dependency injection — because those edges are *invisible
-to text*.
+## Most tools listen for words
 
-MetaCoding's bet is that the graph deserves first-class storage. Five
-complementary lanes feed one embedded graph store:
+Vector RAG chunks source files into 1000-character windows and tosses
+them at an index. That works when you can name what you're after. It
+falls over the moment the question crosses an edge the type system
+already knows — interface implementers, call graphs, dependency
+injection — because those edges live in the wiring, not in the words.
+
+MetaCoding's bet is that the wiring deserves first-class storage.
+Five complementary lanes feed one embedded graph store:
 
 | Lane | Purpose |
 |---|---|
@@ -53,19 +55,26 @@ gauntlet:
   auto-detect.
 - `metacoding export` dumps the graph to JSONL for downstream analysis.
 
-## CTKR — the research overlay
+## CTKR — what the corpus already knows
 
-A second sub-project, [`ctkr/`](ctkr/), layers a structure-mining
-pipeline on top of the same graph: motif mining, embeddings,
-persistent-homology shape signatures, centrality, and an LLM-bridged
-labeler that turns recurring graph patterns into named architectural
-roles — without the user having to declare an ontology up front.
+The graph in one project is one thing. The *shapes that recur across
+many projects* are another. CTKR is a structure-mining overlay,
+[`ctkr/`](ctkr/), that walks a corpus of related codebases and asks:
+what wiring shows up in many of them? When the same pattern surfaces
+in thirty-eight projects under thirty-eight different names, that's a
+design pattern — found, not declared. The names were always noise.
+The arrows were always the signal.
 
-Think of MetaCoding as the **substrate** and CTKR as the
-**telescope** pointed at it. CTKR is in active development; see
-[`docs/design/ctkr.md`](docs/design/ctkr.md) for the vision and
+CTKR finds the shapes. An LLM names them afterward — structure first,
+language second. Motif mining, graph embeddings, persistent-homology
+shape signatures, centrality, and an LLM-bridged labeler all read the
+same store MetaCoding writes.
+
+Think of MetaCoding as the **ground** and CTKR as a **listener** held
+against it. CTKR is in active development; see
+[`docs/design/ctkr.md`](docs/design/ctkr.md) for the long story and
 [`docs/design/ctkr-artifacts.md`](docs/design/ctkr-artifacts.md) for
-the concrete Layer-1 artifacts it produces.
+the concrete artifacts it produces.
 
 ## Quick start
 
@@ -98,21 +107,22 @@ bun run smoke
 ## Design principles
 
 - **Deterministic before probabilistic.** AST / SCIP / LSP first; LLM
-  extraction only when the type system has run out of signal. The 2026
-  paper that motivated this (see
+  extraction only where structure runs out of signal. The 2026 paper
+  that motivated this (see
   [docs/research/paper-2601.08773v1.md](docs/research/paper-2601.08773v1.md))
   found probabilistic extraction was dominated 2× to 45× on cost,
-  latency, and recall. Don't add probabilistic back gratuitously.
+  latency, and recall. Don't add it back without a reason that fits
+  in one sentence.
 - **Local-first, embedded.** No servers, no cloud, no Docker. One
-  process, one on-disk DB. Everything Claude Code does, this does too:
-  walk in, read the project, work locally.
+  process, one on-disk DB. Your code stays where you put it; nothing
+  phones home; the graph is yours.
 - **Typed MCP surface.** Specific tools the agent will reach for
   (`graph_implementers`, `graph_callers`) over raw Cypher passthrough.
   Compose, don't bloat.
 - **Layered fidelity.** Tree-sitter ships immediately at low fidelity;
   SCIP and LSP upgrade specific languages without reshaping the API.
 - **Defer what isn't load-bearing.** No embeddings v0. No taint v0.
-  Add a lane only when a class of queries fails through the existing
+  Add a lane only when a class of questions fails through the existing
   ones.
 
 ## Layout
@@ -164,3 +174,7 @@ Design docs are the prose source of truth:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+*Built on the premise that the map already exists; you just have to read it.*
