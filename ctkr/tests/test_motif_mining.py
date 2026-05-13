@@ -202,3 +202,92 @@ def test_default_interesting_kinds_includes_class() -> None:
     assert "class" in DEFAULT_INTERESTING_KINDS
     assert "interface" in DEFAULT_INTERESTING_KINDS
     assert "parameter" not in DEFAULT_INTERESTING_KINDS
+
+
+# ----- cross-repo balance -----
+
+
+def _skewed_wedge_graph(n_alpha_wedges: int, n_other_repos: int) -> nx.MultiDiGraph:
+    """One repo (``alpha``) with many wedges; other repos with one each.
+
+    Models the real-world bug: if the iteration order surfaces ``alpha``'s
+    nodes first and the cap is small, the rare repos lose representation
+    entirely. With the balanced sampler, each represented repo should
+    contribute at least one anchor as long as cap >= n_repos.
+    """
+    g = nx.MultiDiGraph()
+    # alpha gets many wedges
+    for i in range(n_alpha_wedges):
+        g.add_node(
+            f"alpha-Base{i}", repo="alpha", kind="interface", file="b.py", line=1
+        )
+        g.add_node(f"alpha-A{i}", repo="alpha", kind="class", file="a.py", line=1)
+        g.add_node(f"alpha-B{i}", repo="alpha", kind="class", file="b.py", line=1)
+        g.add_edge(
+            f"alpha-A{i}", f"alpha-Base{i}", key="IMPLEMENTS", kind="IMPLEMENTS"
+        )
+        g.add_edge(
+            f"alpha-B{i}", f"alpha-Base{i}", key="IMPLEMENTS", kind="IMPLEMENTS"
+        )
+    # Each other repo gets exactly one wedge.
+    for j in range(n_other_repos):
+        repo = f"repo{j}"
+        g.add_node(f"{repo}-Base", repo=repo, kind="interface", file="b.py", line=1)
+        g.add_node(f"{repo}-A", repo=repo, kind="class", file="a.py", line=1)
+        g.add_node(f"{repo}-B", repo=repo, kind="class", file="b.py", line=1)
+        g.add_edge(
+            f"{repo}-A", f"{repo}-Base", key="IMPLEMENTS", kind="IMPLEMENTS"
+        )
+        g.add_edge(
+            f"{repo}-B", f"{repo}-Base", key="IMPLEMENTS", kind="IMPLEMENTS"
+        )
+    return g
+
+
+def test_instances_balanced_across_repos_under_cap() -> None:
+    """Multi-repo motif must surface every repo, not just the heavy one."""
+    g = _skewed_wedge_graph(n_alpha_wedges=20, n_other_repos=5)
+    # 25 candidate anchors total; cap at 6 so we must drop some.
+    _, instances, _ = mine_motifs(g, min_support=2, max_instances_per_motif=6)
+    # The wedge motif is the only one (all anchors are interfaces with
+    # exactly two IMPLEMENTS in-edges).
+    repos_seen = set(instances["repo"].to_list())
+    expected_min = {"alpha", "repo0", "repo1", "repo2", "repo3", "repo4"}
+    # With cap=6 and 6 repos, the round-robin should hit every repo at
+    # least once.
+    assert expected_min.issubset(repos_seen), (
+        f"missing repos in instances: {expected_min - repos_seen}"
+    )
+
+
+def test_balanced_anchors_helper_deterministic() -> None:
+    """The internal round-robin must be order-stable across calls."""
+    from ctkr.motif_mining import _balanced_anchors
+
+    by_repo = {
+        "b": ["b1", "b2", "b3"],
+        "a": ["a1", "a2"],
+        "c": ["c1", "c2", "c3", "c4"],
+    }
+    out1 = _balanced_anchors(by_repo, cap=6)
+    out2 = _balanced_anchors(by_repo, cap=6)
+    assert out1 == out2
+    # Order: sorted repos = a, b, c. Round 1: a1, b1, c1. Round 2: a2, b2, c2.
+    assert out1 == ["a1", "b1", "c1", "a2", "b2", "c2"]
+
+
+def test_balanced_anchors_drains_remaining_after_short_buckets() -> None:
+    """When a repo runs out, others keep contributing until cap met."""
+    from ctkr.motif_mining import _balanced_anchors
+
+    by_repo = {"a": ["a1"], "b": ["b1", "b2", "b3", "b4"]}
+    out = _balanced_anchors(by_repo, cap=4)
+    # Round 1: a1, b1. Round 2: b2 (a empty). Round 3: b3.
+    assert out == ["a1", "b1", "b2", "b3"]
+
+
+def test_balanced_anchors_empty_input() -> None:
+    from ctkr.motif_mining import _balanced_anchors
+
+    assert _balanced_anchors({}, cap=10) == []
+    assert _balanced_anchors({"a": ["x"]}, cap=0) == []

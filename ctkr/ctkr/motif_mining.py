@@ -131,20 +131,31 @@ def mine_motifs(
     sig_count: dict[tuple, int] = defaultdict(int)
     sig_repos: dict[tuple, set[str]] = defaultdict(set)
     sig_edge_kinds: dict[tuple, set[str]] = defaultdict(set)
-    sig_anchors: dict[tuple, list[str]] = defaultdict(list)
+    # Anchors are bucketed per (motif, repo). At emit time we round-robin
+    # across repos to fill the global ``max_instances_per_motif`` cap —
+    # otherwise a hub repo whose nodes happen to appear first in
+    # iteration order monopolizes the quota and a 38-repo motif feeds
+    # the L3 labeler one repo's snippets.
+    sig_anchors_by_repo: dict[tuple, dict[str, list[str]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     sig_anchors_seen: dict[tuple, set[str]] = defaultdict(set)
 
-    def _record_anchor(sig: tuple, anchor: str) -> None:
-        """Append an anchor exactly once per motif (anchor IDs are
-        per-symbol, so the central node of multiple instances of the
-        same shape only contributes one row downstream)."""
+    def _record_anchor(sig: tuple, anchor: str, repo: str) -> None:
+        """Append an anchor exactly once per motif, bucketed by repo.
+
+        Per-repo cap is ``max_instances_per_motif`` so a single-repo
+        motif still gets its full quota; multi-repo motifs are trimmed
+        round-robin during emission.
+        """
         seen = sig_anchors_seen[sig]
         if anchor in seen:
             return
-        if len(sig_anchors[sig]) >= max_instances_per_motif:
+        bucket = sig_anchors_by_repo[sig][repo]
+        if len(bucket) >= max_instances_per_motif:
             return
         seen.add(anchor)
-        sig_anchors[sig].append(anchor)
+        bucket.append(anchor)
 
     anchors_visited = 0
     capped = 0
@@ -205,7 +216,7 @@ def mine_motifs(
                     sig_count[sig] += 1
                     sig_repos[sig].add(repo_v)
                     sig_edge_kinds[sig].update((e1, e2))
-                    _record_anchor(sig, v)
+                    _record_anchor(sig, v, repo_v)
                     continue
                 elif d1 == "in" and d2 == "out":
                     sig = (
@@ -219,7 +230,7 @@ def mine_motifs(
                     sig_count[sig] += 1
                     sig_repos[sig].add(repo_v)
                     sig_edge_kinds[sig].update((e1, e2))
-                    _record_anchor(sig, v)
+                    _record_anchor(sig, v, repo_v)
                     continue
                 else:  # pragma: no cover — exhaustive
                     continue
@@ -234,7 +245,7 @@ def mine_motifs(
                 sig_count[sig] += 1
                 sig_repos[sig].add(repo_v)
                 sig_edge_kinds[sig].update((e1, e2))
-                _record_anchor(sig, v)
+                _record_anchor(sig, v, repo_v)
 
     # Build the output DataFrames.
     motif_rows: list[dict[str, Any]] = []
@@ -260,7 +271,9 @@ def mine_motifs(
         )
         n_kept += 1
 
-        for anchor in sig_anchors[sig]:
+        for anchor in _balanced_anchors(
+            sig_anchors_by_repo[sig], max_instances_per_motif
+        ):
             d = g.nodes[anchor]
             file = d.get("file") or d.get("file_path") or ""
             line = d.get("line") or 1
@@ -312,6 +325,30 @@ def write_motif_instances(df: pl.DataFrame, out_path: str | Path) -> None:
 
 
 # ----- internals -----
+
+
+def _balanced_anchors(by_repo: dict[str, list[str]], cap: int) -> list[str]:
+    """Round-robin across repos, deterministic by repo name.
+
+    Empty input → empty list. ``cap <= 0`` → empty list.
+    """
+    if not by_repo or cap <= 0:
+        return []
+    repos = sorted(by_repo)
+    iters = [iter(by_repo[r]) for r in repos]
+    out: list[str] = []
+    while iters and len(out) < cap:
+        next_round: list[Any] = []
+        for it in iters:
+            sym = next(it, None)
+            if sym is None:
+                continue
+            out.append(sym)
+            if len(out) >= cap:
+                return out
+            next_round.append(it)
+        iters = next_round
+    return out
 
 
 def _motif_id(sig: tuple) -> str:
