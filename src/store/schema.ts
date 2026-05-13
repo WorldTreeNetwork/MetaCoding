@@ -39,9 +39,27 @@ CREATE NODE TABLE Symbol (
   ast_hash STRING,
   branch STRING,
   source STRING,
+  indexed_at TIMESTAMP,
+  repo_commit_sha STRING,
+  repo_commit_date TIMESTAMP,
+  partition STRING,
   PRIMARY KEY (id)
 );
 `;
+
+// Columns added after the v1 NODE_DDL shipped. Applied as additive
+// ALTERs so existing databases pick them up without a rebuild. New
+// databases get them via NODE_DDL above and these ALTERs no-op.
+//
+// Issue: Orchestrators-2ez. Purpose: support self-evolving harness
+// contamination detection (drift_detection.py) — see
+// docs/research/self-evolving-harnesses/hypotheses/h5-eval-contamination.
+const ADDITIVE_COLUMNS: Array<{ name: string; type: string }> = [
+  { name: "indexed_at", type: "TIMESTAMP" },
+  { name: "repo_commit_sha", type: "STRING" },
+  { name: "repo_commit_date", type: "TIMESTAMP" },
+  { name: "partition", type: "STRING" },
+];
 
 export async function ensureGraphSchema(conn: Connection): Promise<void> {
   await execIgnoreExists(conn, NODE_DDL);
@@ -57,6 +75,12 @@ export async function ensureGraphSchema(conn: Connection): Promise<void> {
       `CREATE REL TABLE ${kind} (FROM Symbol TO Symbol, count INT64);`,
     );
   }
+  for (const col of ADDITIVE_COLUMNS) {
+    await execIgnoreExists(
+      conn,
+      `ALTER TABLE Symbol ADD ${col.name} ${col.type};`,
+    );
+  }
 }
 
 async function execIgnoreExists(conn: Connection, ddl: string): Promise<void> {
@@ -65,7 +89,14 @@ async function execIgnoreExists(conn: Connection, ddl: string): Promise<void> {
     await qr.close();
   } catch (err) {
     const msg = String((err as Error).message ?? err);
-    if (/already exists/i.test(msg)) return;
+    // ladybugdb reports duplicate-column on ALTER as both
+    // "already exists" and "duplicate property" depending on version.
+    if (
+      /already exists|duplicate property|exists in table|already has property/i.test(
+        msg,
+      )
+    )
+      return;
     throw err;
   }
 }

@@ -66,6 +66,14 @@ export class Store {
   }
 
   async upsertSymbol(s: Symbol): Promise<void> {
+    // The four temporal/partition columns (indexed_at, repo_commit_sha,
+    // repo_commit_date, partition) are NULLable post Orchestrators-2ez.
+    // Pass-through write — when undefined the column stays NULL.
+    const payload: Record<string, unknown> = { ...s };
+    if (payload.indexed_at === undefined) payload.indexed_at = null;
+    if (payload.repo_commit_sha === undefined) payload.repo_commit_sha = null;
+    if (payload.repo_commit_date === undefined) payload.repo_commit_date = null;
+    if (payload.partition === undefined) payload.partition = null;
     await this.query(
       `MERGE (n:Symbol {id: $id})
        SET n.kind = $kind,
@@ -84,8 +92,12 @@ export class Store {
            n.is_static = $is_static,
            n.ast_hash = $ast_hash,
            n.branch = $branch,
-           n.source = $source`,
-      s as unknown as Record<string, unknown>,
+           n.source = $source,
+           n.indexed_at = $indexed_at,
+           n.repo_commit_sha = $repo_commit_sha,
+           n.repo_commit_date = $repo_commit_date,
+           n.partition = $partition`,
+      payload,
     );
   }
 

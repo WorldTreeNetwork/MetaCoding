@@ -12,6 +12,7 @@ import { indexDirectory, watch } from "../extractor";
 import { serveMcp } from "../mcp/server";
 import { runScip, loadScip, type ScipLanguage } from "../scip";
 import { currentGitBranch } from "./branch";
+import { runExport } from "./export";
 
 const DEFAULT_DATA_DIR = ".metacoding";
 
@@ -52,6 +53,7 @@ Usage:
   metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
   metacoding query <cypher>    [--data-dir <dir>]
+  metacoding export <out-dir>  [--data-dir <dir>]
 
 Flags:
   --scip        run SCIP indexers (TS + Python, whichever is present)
@@ -283,6 +285,14 @@ async function cmdServe(args: ParsedArgs): Promise<void> {
   await serveMcp({ dataDir, workspace });
 }
 
+async function cmdExport(args: ParsedArgs): Promise<void> {
+  const outDir = args.positional[0];
+  if (!outDir) usage();
+  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const r = await runExport({ dataDir, outDir });
+  console.log(JSON.stringify(r, null, 2));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   switch (args.cmd) {
@@ -296,6 +306,8 @@ async function main(): Promise<void> {
       return cmdWatch(args);
     case "serve":
       return cmdServe(args);
+    case "export":
+      return cmdExport(args);
     case "--help":
     case "-h":
     case "help":

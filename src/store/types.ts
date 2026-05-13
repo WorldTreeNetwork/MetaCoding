@@ -38,7 +38,16 @@ export interface Symbol {
   ast_hash: string | null;
   branch: string;
   source: ExtractorSource;
+  // Added by Orchestrators-2ez. NULLable for backward compatibility
+  // with rows written before the schema migration; backfilled
+  // out-of-band by scripts/backfill-temporal-cols.ts.
+  indexed_at?: string | null;        // ISO-8601 (UTC); when the row was first written
+  repo_commit_sha?: string | null;   // git rev-parse HEAD at index time
+  repo_commit_date?: string | null;  // ISO-8601 (UTC); committer date of that sha
+  partition?: Partition | null;      // see docs/research/.../h5-eval-contamination
 }
+
+export type Partition = "proposer" | "judge" | "harness_bench";
 
 export type EdgeKind =
   | "CALLS"
