@@ -1,8 +1,45 @@
 {
-  "name": "metacoding",
+  "name": "@identikey/metacoding",
+  "version": "0.1.0",
+  "description": "A local-first code-graph for AI coding agents. SCIP + LSP + Tree-sitter + FTS5 into an embedded graph, served over MCP.",
   "module": "src/cli/main.ts",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "author": "identikey",
+  "homepage": "https://github.com/WorldTreeNetwork/MetaCoding#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WorldTreeNetwork/MetaCoding.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WorldTreeNetwork/MetaCoding/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "code-graph",
+    "scip",
+    "lsp",
+    "tree-sitter",
+    "kuzu",
+    "ladybugdb",
+    "ai-agents",
+    "claude-code",
+    "static-analysis",
+    "bun"
+  ],
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "metacoding": "src/cli/main.ts"
   },

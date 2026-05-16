@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 // CLI entry point.
 //
 //   metacoding index <path> [--data-dir <dir>] [--branch <name>]

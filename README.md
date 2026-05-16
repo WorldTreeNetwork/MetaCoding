@@ -76,25 +76,60 @@ against it. CTKR is in active development; see
 [`docs/design/ctkr-artifacts.md`](docs/design/ctkr-artifacts.md) for
 the concrete artifacts it produces.
 
+## Install
+
+MetaCoding is a [Bun](https://bun.sh) program — install Bun ≥ 1.1 first,
+then either run it on demand or install it globally:
+
+```bash
+# One-shot — no install
+bunx @identikey/metacoding index <path>
+
+# Or install globally
+bun add -g @identikey/metacoding
+metacoding index <path>
+```
+
+Wire it into Claude Code by adding an MCP server entry that points at
+`metacoding serve`:
+
+```json
+{
+  "mcpServers": {
+    "metacoding": {
+      "command": "bunx",
+      "args": ["@identikey/metacoding", "serve", "--data-dir", "/abs/path/to/repo/.metacoding"]
+    }
+  }
+}
+```
+
 ## Quick start
 
 ```bash
-bun install
-
 # Index a codebase
-bun run src/cli/main.ts index <path> --data-dir <path>/.metacoding
+metacoding index <path> --data-dir <path>/.metacoding
 
 # Watch for changes (incremental re-index)
-bun run src/cli/main.ts watch <path>
+metacoding watch <path>
 
 # Serve over MCP (stdio) — point Claude Code at this
-bun run src/cli/main.ts serve --data-dir <path>/.metacoding
+metacoding serve --data-dir <path>/.metacoding
 
 # Ad-hoc Cypher (escape hatch — prefer the typed MCP tools)
-bun run src/cli/main.ts query 'MATCH (n:Symbol) RETURN count(n)'
+metacoding query 'MATCH (n:Symbol) RETURN count(n)'
 
 # Dump the graph to JSONL for ctkr / external analysis
-bun run src/cli/main.ts export <out-dir> --data-dir <path>/.metacoding
+metacoding export <out-dir> --data-dir <path>/.metacoding
+```
+
+### From a clone (hacking on MetaCoding itself)
+
+```bash
+git clone https://github.com/WorldTreeNetwork/MetaCoding.git
+cd MetaCoding
+bun install
+bun run src/cli/main.ts index <path> --data-dir <path>/.metacoding
 ```
 
 A single shipped smoke command runs every lane end-to-end against a
