@@ -7,9 +7,26 @@
 // Both share the same SCIP protobuf output shape, so the loader doesn't
 // care which indexer produced the file.
 
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, basename } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
+
+const require_ = createRequire(import.meta.url);
+
+function findPackageBin(pkg: string, bin: string): string | null {
+  let dir: string;
+  try { dir = dirname(require_.resolve(`${pkg}/package.json`)); } catch { return null; }
+  while (dir !== "/" && basename(dir) !== "node_modules") dir = dirname(dir);
+  if (basename(dir) !== "node_modules") return null;
+  const p = join(dir, ".bin", bin);
+  return existsSync(p) ? p : null;
+}
+
+const PKG_FOR_BIN: Record<string, string> = {
+  "scip-typescript": "@sourcegraph/scip-typescript",
+  "scip-python": "@sourcegraph/scip-python",
+};
 
 export type ScipLanguage = "typescript" | "python";
 
@@ -91,8 +108,11 @@ export async function runScip(opts: RunScipOpts): Promise<RunScipResult> {
   const outPath = resolve(opts.output ?? join(targetRepo, "index.scip"));
   const spec = INDEXERS[opts.language];
 
-  const localBin = join(process.cwd(), "node_modules", ".bin", spec.binary);
-  const bin = existsSync(localBin) ? localBin : spec.binary;
+  const cwdBin = join(process.cwd(), "node_modules", ".bin", spec.binary);
+  const pkgBin = PKG_FOR_BIN[spec.binary]
+    ? findPackageBin(PKG_FOR_BIN[spec.binary]!, spec.binary)
+    : null;
+  const bin = existsSync(cwdBin) ? cwdBin : (pkgBin ?? spec.binary);
   const args = spec.args(opts, outPath);
 
   const proc = Bun.spawn([bin, ...args], { stdout: "pipe", stderr: "pipe" });

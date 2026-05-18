@@ -2,7 +2,6 @@
   "name": "@identikey/metacoding",
   "version": "0.1.0",
   "description": "A local-first code-graph for AI coding agents. SCIP + LSP + Tree-sitter + FTS5 into an embedded graph, served over MCP.",
-  "module": "src/cli/main.ts",
   "type": "module",
   "license": "MIT",
   "author": "identikey",
@@ -64,7 +63,8 @@
     "typescript-language-server": "^5.1.3",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
-    "web-tree-sitter": "0.22.6"
+    "web-tree-sitter": "0.22.6",
+    "zod": "^3.25.1"
   },
   "trustedDependencies": [
     "@ladybugdb/core"

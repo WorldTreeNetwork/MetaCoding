@@ -5,9 +5,13 @@
 // dance from web-tree-sitter so callers see one async makeParser().
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 import Parser from "web-tree-sitter";
+
+const require_ = createRequire(import.meta.url);
+const wasmDir = dirname(require_.resolve("tree-sitter-wasms/package.json"));
 
 export type TsParser = Parser;
 export type TsLanguage = Parser.Language;
@@ -25,12 +29,7 @@ export async function loadLanguage(grammarName: string): Promise<TsLanguage> {
   await init();
   const cached = languages.get(grammarName);
   if (cached) return cached;
-  const path = join(
-    "node_modules",
-    "tree-sitter-wasms",
-    "out",
-    `tree-sitter-${grammarName}.wasm`,
-  );
+  const path = join(wasmDir, "out", `tree-sitter-${grammarName}.wasm`);
   const bytes = readFileSync(path);
   const lang = await Parser.Language.load(bytes);
   languages.set(grammarName, lang);
