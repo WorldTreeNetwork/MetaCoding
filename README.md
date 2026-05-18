@@ -79,49 +79,67 @@ the concrete artifacts it produces.
 ## Install
 
 MetaCoding is a [Bun](https://bun.sh) program — install Bun ≥ 1.1 first,
-then either run it on demand or install it globally:
+then install globally:
 
 ```bash
-# One-shot — no install
-bunx @identikey/metacoding index <path>
-
-# Or install globally
 bun add -g @identikey/metacoding
-metacoding index <path>
+metacoding --help
 ```
 
-Wire it into Claude Code by adding an MCP server entry that points at
-`metacoding serve`:
+If `metacoding` isn't on your PATH, add Bun's global bin folder:
+
+```bash
+export PATH="$HOME/.cache/.bun/bin:$PATH"   # add to ~/.zshrc / ~/.bashrc
+```
+
+> `bunx @identikey/metacoding ...` is **not** supported — bunx skips the
+> `optionalDependencies` and lifecycle scripts that ladybugdb's native
+> binary depends on. Use `bun add -g` instead.
+
+Wire it into Claude Code from inside a repo you've indexed:
+
+```bash
+metacoding index . --scip                       # builds ./.metacoding/
+claude mcp add metacoding -- metacoding serve   # writes .mcp.json
+```
+
+Equivalent hand-rolled `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "metacoding": {
-      "command": "bunx",
-      "args": ["@identikey/metacoding", "serve", "--data-dir", "/abs/path/to/repo/.metacoding"]
+      "command": "metacoding",
+      "args": ["serve"]
     }
   }
 }
 ```
 
+`metacoding serve` defaults `--data-dir` to `./.metacoding` and
+`--workspace` to `.`, which is what Claude Code launches it with.
+
 ## Quick start
 
 ```bash
-# Index a codebase
-metacoding index <path> --data-dir <path>/.metacoding
+# Index a codebase (writes to ./.metacoding/, adds SCIP resolved edges)
+metacoding index . --scip
 
 # Watch for changes (incremental re-index)
-metacoding watch <path>
+metacoding watch .
 
 # Serve over MCP (stdio) — point Claude Code at this
-metacoding serve --data-dir <path>/.metacoding
+metacoding serve
 
 # Ad-hoc Cypher (escape hatch — prefer the typed MCP tools)
 metacoding query 'MATCH (n:Symbol) RETURN count(n)'
 
 # Dump the graph to JSONL for ctkr / external analysis
-metacoding export <out-dir> --data-dir <path>/.metacoding
+metacoding export ./out
 ```
+
+`--data-dir` defaults to `./.metacoding` and `--workspace` (for `serve`)
+to `.`. Pass them explicitly if you want the store somewhere else.
 
 ### From a clone (hacking on MetaCoding itself)
 
