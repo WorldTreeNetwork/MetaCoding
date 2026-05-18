@@ -1,6 +1,6 @@
 {
   "name": "@identikey/metacoding",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A local-first code-graph for AI coding agents. SCIP + LSP + Tree-sitter + FTS5 into an embedded graph, served over MCP.",
   "type": "module",
   "license": "MIT",
