@@ -36,6 +36,7 @@ export interface GraphNeighborsInput {
   direction?: "in" | "out" | "both";   // default "out"
   edge_kinds?: EdgeKind[];              // filter; default = all
   limit?: number;                       // default 50
+  repo_commit_sha?: string;             // optional scope: restrict to a snapshot
 }
 
 export async function graphNeighbors(
@@ -50,8 +51,14 @@ export async function graphNeighbors(
   if (kinds.length === 0) return [];
 
   // Resolve "symbol" — accept either id or qualified_name.
-  const seed = await resolveSymbol(store, input.symbol);
+  const seed = await resolveSymbol(store, input.symbol, input.repo_commit_sha);
   if (!seed) return [];
+
+  const shaFilter = input.repo_commit_sha
+    ? " AND b.repo_commit_sha = $sha"
+    : "";
+  const params: Record<string, unknown> = { id: seed.id, lim: limit };
+  if (input.repo_commit_sha) params.sha = input.repo_commit_sha;
 
   const out: NeighborRow[] = [];
 
@@ -63,28 +70,34 @@ export async function graphNeighbors(
         file: string; line: number;
       }>(
         `MATCH (a:Symbol {id: $id})-[:${kind}]->(b:Symbol)
+         WHERE 1=1${shaFilter}
          RETURN b.id AS id, b.kind AS kind, b.language AS language,
                 b.qualified_name AS qualified_name, b.short_name AS short_name,
                 b.file AS file, b.line AS line
          LIMIT $lim`,
-        { id: seed.id, lim: limit },
+        params,
       );
       for (const r of rows) {
         out.push({ symbol: r, edge: { kind }, direction: "out" });
       }
     }
     if (direction === "in" || direction === "both") {
+      // Reverse-direction filter: filter the OTHER endpoint by sha.
+      const reverseFilter = input.repo_commit_sha
+        ? " WHERE a.repo_commit_sha = $sha"
+        : "";
       const rows = await store.query<{
         id: string; kind: string; language: string;
         qualified_name: string; short_name: string;
         file: string; line: number;
       }>(
         `MATCH (a:Symbol)-[:${kind}]->(b:Symbol {id: $id})
+         ${reverseFilter}
          RETURN a.id AS id, a.kind AS kind, a.language AS language,
                 a.qualified_name AS qualified_name, a.short_name AS short_name,
                 a.file AS file, a.line AS line
          LIMIT $lim`,
-        { id: seed.id, lim: limit },
+        params,
       );
       for (const r of rows) {
         out.push({ symbol: r, edge: { kind }, direction: "in" });
@@ -100,6 +113,7 @@ export async function graphNeighbors(
 export interface GraphCallersInput {
   symbol: string;       // target id or qualified_name
   limit?: number;
+  repo_commit_sha?: string;
 }
 
 export async function graphCallers(
@@ -111,6 +125,7 @@ export async function graphCallers(
     direction: "in",
     edge_kinds: ["CALLS", "REFERENCES"],
     limit: input.limit,
+    repo_commit_sha: input.repo_commit_sha,
   });
 }
 
@@ -119,6 +134,7 @@ export async function graphCallers(
 export interface GraphImplementersInput {
   symbol: string;       // interface or class id / qualified_name
   limit?: number;
+  repo_commit_sha?: string;
 }
 
 export async function graphImplementers(
@@ -130,6 +146,7 @@ export async function graphImplementers(
     direction: "in",
     edge_kinds: ["IMPLEMENTS", "EXTENDS"],
     limit: input.limit,
+    repo_commit_sha: input.repo_commit_sha,
   });
 }
 
@@ -200,31 +217,33 @@ export interface ToolDescription {
 export const TOOL_DESCRIPTIONS: ToolDescription[] = [
   {
     name: "graph_callers",
-    summary: "Find symbols that call or reference the given symbol (incoming CALLS/REFERENCES edges). Convenience wrapper over graph_neighbors. Useful for 'who depends on this'.",
+    summary: "Find symbols that call or reference the given symbol (incoming CALLS/REFERENCES edges). Convenience wrapper over graph_neighbors. Useful for 'who depends on this'. Pass repo_commit_sha to scope to one indexed snapshot.",
     input_schema: {
       type: "object",
       required: ["symbol"],
       properties: {
         symbol: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+        repo_commit_sha: { type: "string", description: "Optional: restrict to a specific indexed snapshot." },
       },
     },
   },
   {
     name: "graph_implementers",
-    summary: "Find symbols that implement or extend the given interface/class (incoming IMPLEMENTS/EXTENDS edges). The interface-consumer trick from the paper.",
+    summary: "Find symbols that implement or extend the given interface/class (incoming IMPLEMENTS/EXTENDS edges). The interface-consumer trick from the paper. Pass repo_commit_sha to scope to one indexed snapshot.",
     input_schema: {
       type: "object",
       required: ["symbol"],
       properties: {
         symbol: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+        repo_commit_sha: { type: "string", description: "Optional: restrict to a specific indexed snapshot." },
       },
     },
   },
   {
     name: "graph_neighbors",
-    summary: "Walk one hop from a symbol along typed edges. Use for 'what does this contain', 'what extends this', 'who calls this'.",
+    summary: "Walk one hop from a symbol along typed edges. Use for 'what does this contain', 'what extends this', 'who calls this'. Pass repo_commit_sha to scope to one indexed snapshot.",
     input_schema: {
       type: "object",
       required: ["symbol"],
@@ -237,6 +256,7 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
           description: "Filter; defaults to all edge kinds.",
         },
         limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+        repo_commit_sha: { type: "string", description: "Optional: restrict to a specific indexed snapshot." },
       },
     },
   },
@@ -352,7 +372,19 @@ export function describeApi(): DescribeApiResult {
 async function resolveSymbol(
   store: Store,
   ref: string,
+  repo_commit_sha?: string,
 ): Promise<{ id: string } | null> {
+  if (repo_commit_sha) {
+    const rows = await store.query<{ id: string }>(
+      `MATCH (s:Symbol)
+       WHERE (s.id = $ref OR s.qualified_name = $ref)
+         AND s.repo_commit_sha = $sha
+       RETURN s.id AS id
+       LIMIT 1`,
+      { ref, sha: repo_commit_sha },
+    );
+    return rows[0] ?? null;
+  }
   const rows = await store.query<{ id: string }>(
     `MATCH (s:Symbol)
      WHERE s.id = $ref OR s.qualified_name = $ref

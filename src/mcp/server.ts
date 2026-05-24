@@ -51,10 +51,12 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     {
       description:
         "Find symbols that call or reference the given symbol (incoming CALLS/REFERENCES edges). " +
-        "Available after a SCIP pass; before that, this returns nothing because Tree-sitter alone can't resolve cross-file references.",
+        "Available after a SCIP pass; before that, this returns nothing because Tree-sitter alone can't resolve cross-file references. " +
+        "Pass repo_commit_sha to restrict results to one indexed snapshot (omit for no scope filter).",
       inputSchema: {
         symbol: z.string().min(1),
         limit: z.number().int().min(1).max(500).optional(),
+        repo_commit_sha: z.string().optional(),
       },
     },
     async (args) => {
@@ -68,10 +70,12 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     {
       description:
         "Find symbols that implement or extend the given interface/class (incoming IMPLEMENTS/EXTENDS edges). " +
-        "This is the interface-consumer query from the 2026 paper — the thing pure vector search can't do.",
+        "This is the interface-consumer query from the 2026 paper — the thing pure vector search can't do. " +
+        "Pass repo_commit_sha to restrict results to one indexed snapshot.",
       inputSchema: {
         symbol: z.string().min(1),
         limit: z.number().int().min(1).max(500).optional(),
+        repo_commit_sha: z.string().optional(),
       },
     },
     async (args) => {
@@ -85,12 +89,14 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     {
       description:
         "Walk one hop from a symbol along typed edges. Use for 'what does this contain', 'what does this extend', 'who calls this'. " +
-        "`symbol` accepts either a 16-char Symbol id or a qualified_name.",
+        "`symbol` accepts either a 16-char Symbol id or a qualified_name. " +
+        "Pass repo_commit_sha to restrict results to one indexed snapshot.",
       inputSchema: {
         symbol: z.string().min(1),
         direction: z.enum(["in", "out", "both"]).optional(),
         edge_kinds: z.array(EDGE_KIND).optional(),
         limit: z.number().int().min(1).max(500).optional(),
+        repo_commit_sha: z.string().optional(),
       },
     },
     async (args) => {
@@ -99,6 +105,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         direction: args.direction,
         edge_kinds: args.edge_kinds as EdgeKind[] | undefined,
         limit: args.limit,
+        repo_commit_sha: args.repo_commit_sha,
       });
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
