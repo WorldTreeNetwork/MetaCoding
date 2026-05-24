@@ -26,6 +26,8 @@ export interface ExtractPyOpts {
   filePath: string;
   branch: string;
   repo: string;
+  repo_commit_sha?: string | null;
+  indexed_at?: string | null;
 }
 
 export function extractPython(tree: Tree, opts: ExtractPyOpts): ExtractResult {
@@ -56,6 +58,8 @@ function makeFileSymbol(opts: ExtractPyOpts): Symbol {
     ast_hash: null,
     branch: opts.branch,
     source: "tree_sitter",
+    repo_commit_sha: opts.repo_commit_sha ?? null,
+    indexed_at: opts.indexed_at ?? null,
   };
 }
 
@@ -104,6 +108,8 @@ function walk(
       ast_hash: null,
       branch: opts.branch,
       source: "tree_sitter",
+      repo_commit_sha: opts.repo_commit_sha ?? null,
+      indexed_at: opts.indexed_at ?? null,
     };
     result.symbols.push(sym);
     result.edges.push({ src_id: parent.id, dst_id: sym.id, kind: "CONTAINS" });

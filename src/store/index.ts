@@ -93,9 +93,9 @@ export class Store {
            n.ast_hash = $ast_hash,
            n.branch = $branch,
            n.source = $source,
-           n.indexed_at = $indexed_at,
+           n.indexed_at = CASE WHEN $indexed_at IS NULL THEN NULL ELSE timestamp($indexed_at) END,
            n.repo_commit_sha = $repo_commit_sha,
-           n.repo_commit_date = $repo_commit_date,
+           n.repo_commit_date = CASE WHEN $repo_commit_date IS NULL THEN NULL ELSE timestamp($repo_commit_date) END,
            n.partition = $partition`,
       payload,
     );

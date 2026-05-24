@@ -36,6 +36,10 @@ export interface LoadScipOpts {
   repo: string;
   /** Maps the SCIP scheme/file-extension to one of our `language` codes. */
   language?: "ts" | "py";
+  /** git rev-parse HEAD at index time; null when not in a git repo. */
+  repo_commit_sha?: string | null;
+  /** ISO-8601 timestamp (UTC) at the moment the index was started. */
+  indexed_at?: string | null;
 }
 
 export interface LoadScipStats {
@@ -99,6 +103,8 @@ export async function loadScip(
         ast_hash: null,
         branch: opts.branch,
         source: "scip",
+        repo_commit_sha: opts.repo_commit_sha ?? null,
+        indexed_at: opts.indexed_at ?? null,
       };
       await store.upsertSymbol(sym);
       symbolsUpserted++;

@@ -17,6 +17,20 @@ import { runExport } from "./export";
 
 const DEFAULT_DATA_DIR = ".metacoding";
 
+/**
+ * Run `git rev-parse HEAD` against `repoPath`.
+ * Returns the 40-char SHA on success, or null if the directory is not a git
+ * repo, has no commits yet, or git is unavailable. Never throws.
+ */
+async function getRepoCommitSha(repoPath: string): Promise<string | null> {
+  try {
+    const result = await Bun.$`git -C ${repoPath} rev-parse HEAD`.quiet();
+    return result.stdout.toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 interface ParsedArgs {
   cmd: string;
   positional: string[];
@@ -83,10 +97,12 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
   const repo = args.flags["repo"] ?? basename(targetAbs);
   const wantScip = args.flags["scip"] === "true";
+  const repo_commit_sha = await getRepoCommitSha(targetAbs);
+  const indexed_at = new Date().toISOString();
 
   const store = await Store.open(dataDir);
   try {
-    const r = await indexOneRepo(store, targetAbs, { repo, branch, wantScip });
+    const r = await indexOneRepo(store, targetAbs, { repo, branch, wantScip, repo_commit_sha, indexed_at });
     console.log(JSON.stringify({ dataDir, repo, branch, ...r }, null, 2));
   } finally {
     await store.close();
@@ -121,10 +137,14 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
       const subBranch = args.flags["branch"] ?? currentGitBranch(subdir) ?? branch;
       const t0 = performance.now();
       try {
+        const repo_commit_sha = await getRepoCommitSha(subdir);
+        const indexed_at = new Date().toISOString();
         const r = await indexOneRepo(store, subdir, {
           repo,
           branch: subBranch,
           wantScip,
+          repo_commit_sha,
+          indexed_at,
         });
         results.push({
           repo,
@@ -158,6 +178,8 @@ interface IndexOneOpts {
   repo: string;
   branch: string;
   wantScip: boolean;
+  repo_commit_sha?: string | null;
+  indexed_at?: string | null;
 }
 
 interface IndexOneResult {
@@ -173,6 +195,8 @@ async function indexOneRepo(
   const tsStats = await indexDirectory(store, targetAbs, {
     branch: opts.branch,
     repo: opts.repo,
+    repo_commit_sha: opts.repo_commit_sha,
+    indexed_at: opts.indexed_at,
   });
   const out: IndexOneResult = { treeSitter: tsStats };
 
@@ -192,6 +216,8 @@ async function indexOneRepo(
           branch: opts.branch,
           repo: opts.repo,
           language: lang === "typescript" ? "ts" : "py",
+          repo_commit_sha: opts.repo_commit_sha,
+          indexed_at: opts.indexed_at,
         });
         accum.documents += stats.documents;
         accum.symbolsUpserted += stats.symbolsUpserted;
@@ -258,11 +284,17 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
   const branch = args.flags["branch"] ?? currentGitBranch(root);
   const repo = args.flags["repo"] ?? basename(root);
+  // Compute sha once at watch-start. Rows written during a watch session
+  // reflect the commit that was HEAD when watching began (acceptable for v0).
+  const repo_commit_sha = await getRepoCommitSha(root);
+  const indexed_at = new Date().toISOString();
 
   const store = await Store.open(dataDir);
   const handle = await watch(store, root, {
     branch,
     repo,
+    repo_commit_sha,
+    indexed_at,
     onProcessed: (event, path) => {
       const at = new Date().toISOString().slice(11, 19);
       console.log(`${at} ${event.padEnd(6)} ${path}`);

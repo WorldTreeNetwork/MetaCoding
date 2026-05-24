@@ -23,6 +23,10 @@ export interface WalkOpts {
   branch?: string;
   repo?: string;
   excludeDirs?: string[];
+  /** git rev-parse HEAD at the moment the index was started; null when not in a git repo. */
+  repo_commit_sha?: string | null;
+  /** ISO-8601 timestamp (UTC) at the moment the index was started. */
+  indexed_at?: string | null;
 }
 
 export interface WalkStats {
@@ -98,7 +102,7 @@ export async function indexDirectory(
   let filesUpdated = 0;
 
   for (const f of files) {
-    const r = await indexOne(store, f, repo, branch);
+    const r = await indexOne(store, f, repo, branch, opts.repo_commit_sha, opts.indexed_at);
     if (r.skipped) filesSkipped++;
     else {
       filesUpdated++;
@@ -132,7 +136,7 @@ export async function indexFile(
   const grammar = detectGrammar(abs);
   if (!grammar) return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
   const rel = relative(rootPath, abs);
-  return indexOne(store, { abs, rel, grammar }, repo, branch);
+  return indexOne(store, { abs, rel, grammar }, repo, branch, opts.repo_commit_sha, opts.indexed_at);
 }
 
 export async function removeFile(
@@ -153,6 +157,8 @@ async function indexOne(
   f: ScannedFile,
   repo: string,
   branch: string,
+  repo_commit_sha?: string | null,
+  indexed_at?: string | null,
 ): Promise<{ skipped: boolean; symbols: number; edges: number; tokens: number }> {
   const source = readFileSync(f.abs, "utf-8");
   const newHash = fileContentHash(source);
@@ -171,10 +177,10 @@ async function indexOne(
 
   let result;
   if (f.grammar === "python") {
-    const eo: ExtractPyOpts = { filePath: f.rel, branch, repo };
+    const eo: ExtractPyOpts = { filePath: f.rel, branch, repo, repo_commit_sha, indexed_at };
     result = extractPython(tree, eo);
   } else {
-    const eo: TsExtractOpts = { filePath: f.rel, grammar: f.grammar, branch, repo };
+    const eo: TsExtractOpts = { filePath: f.rel, grammar: f.grammar, branch, repo, repo_commit_sha, indexed_at };
     result = extractTypeScript(tree, eo);
   }
 
