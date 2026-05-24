@@ -28,6 +28,8 @@ export interface ExtractPyOpts {
   repo: string;
   repo_commit_sha?: string | null;
   indexed_at?: string | null;
+  /** When true, repo_commit_sha is folded into Symbol.id (bead MetaCoding-izn). */
+  perCommitIdentity?: boolean;
 }
 
 export function extractPython(tree: Tree, opts: ExtractPyOpts): ExtractResult {
@@ -40,7 +42,7 @@ export function extractPython(tree: Tree, opts: ExtractPyOpts): ExtractResult {
 
 function makeFileSymbol(opts: ExtractPyOpts): Symbol {
   return {
-    id: symbolId("py", opts.repo, opts.filePath),
+    id: symbolId("py", opts.repo, opts.filePath, idScopeSha(opts)),
     kind: "file",
     language: "py",
     repo: opts.repo,
@@ -86,7 +88,7 @@ function walk(
   if (decl) {
     const qn = `${parentQn}::${decl.short}`;
     const sym: Symbol = {
-      id: symbolId("py", opts.repo, qn),
+      id: symbolId("py", opts.repo, qn, idScopeSha(opts)),
       kind: decl.kind,
       language: "py",
       repo: opts.repo,
@@ -144,6 +146,10 @@ function recognizeDeclaration(
     default:
       return null;
   }
+}
+
+function idScopeSha(opts: ExtractPyOpts): string | undefined {
+  return opts.perCommitIdentity ? opts.repo_commit_sha ?? undefined : undefined;
 }
 
 function collectTokens(

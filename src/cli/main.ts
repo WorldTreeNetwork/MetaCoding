@@ -63,9 +63,9 @@ function usage(): never {
   console.error(`metacoding 0.1.0 — local-first code-graph DB
 
 Usage:
-  metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip]
-  metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip]
-  metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>]
+  metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]
+  metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip] [--per-commit-identity]
+  metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--per-commit-identity]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
   metacoding query <cypher>    [--data-dir <dir>]
   metacoding export <out-dir>  [--data-dir <dir>]
@@ -77,6 +77,10 @@ Flags:
   --repo        repo identifier tagged onto every Symbol/edge/token
                 (defaults to the basename of the indexed path).
   --workspace   workspace root the LSP attaches to (defaults to cwd).
+  --per-commit-identity
+                fold repo_commit_sha into Symbol.id so multiple commits
+                coexist in one DB (default off; overwrite semantics).
+                External SCIP refs are never sha-scoped.
 
 Defaults:
   --data-dir    .metacoding
@@ -97,12 +101,15 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
   const repo = args.flags["repo"] ?? basename(targetAbs);
   const wantScip = args.flags["scip"] === "true";
+  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
   const repo_commit_sha = await getRepoCommitSha(targetAbs);
   const indexed_at = new Date().toISOString();
 
   const store = await Store.open(dataDir);
   try {
-    const r = await indexOneRepo(store, targetAbs, { repo, branch, wantScip, repo_commit_sha, indexed_at });
+    const r = await indexOneRepo(store, targetAbs, {
+      repo, branch, wantScip, repo_commit_sha, indexed_at, perCommitIdentity,
+    });
     console.log(JSON.stringify({ dataDir, repo, branch, ...r }, null, 2));
   } finally {
     await store.close();
@@ -116,6 +123,7 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
   const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
   const branch = args.flags["branch"] ?? "main";
   const wantScip = args.flags["scip"] === "true";
+  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
 
   if (!existsSync(parentAbs)) {
     console.error(`metacoding: ${parentAbs} does not exist`);
@@ -145,6 +153,7 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
           wantScip,
           repo_commit_sha,
           indexed_at,
+          perCommitIdentity,
         });
         results.push({
           repo,
@@ -180,6 +189,9 @@ interface IndexOneOpts {
   wantScip: boolean;
   repo_commit_sha?: string | null;
   indexed_at?: string | null;
+  /** When true, fold repo_commit_sha into Symbol.id so multiple commits
+   *  coexist in one DB. bead MetaCoding-izn. */
+  perCommitIdentity?: boolean;
 }
 
 interface IndexOneResult {
@@ -197,6 +209,7 @@ async function indexOneRepo(
     repo: opts.repo,
     repo_commit_sha: opts.repo_commit_sha,
     indexed_at: opts.indexed_at,
+    perCommitIdentity: opts.perCommitIdentity,
   });
   const out: IndexOneResult = { treeSitter: tsStats };
 
@@ -218,6 +231,7 @@ async function indexOneRepo(
           language: lang === "typescript" ? "ts" : "py",
           repo_commit_sha: opts.repo_commit_sha,
           indexed_at: opts.indexed_at,
+          perCommitIdentity: opts.perCommitIdentity,
         });
         accum.documents += stats.documents;
         accum.symbolsUpserted += stats.symbolsUpserted;
@@ -288,6 +302,7 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
   // reflect the commit that was HEAD when watching began (acceptable for v0).
   const repo_commit_sha = await getRepoCommitSha(root);
   const indexed_at = new Date().toISOString();
+  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
 
   const store = await Store.open(dataDir);
   const handle = await watch(store, root, {
@@ -295,6 +310,7 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
     repo,
     repo_commit_sha,
     indexed_at,
+    perCommitIdentity,
     onProcessed: (event, path) => {
       const at = new Date().toISOString().slice(11, 19);
       console.log(`${at} ${event.padEnd(6)} ${path}`);

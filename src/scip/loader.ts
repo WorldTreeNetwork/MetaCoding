@@ -40,6 +40,10 @@ export interface LoadScipOpts {
   repo_commit_sha?: string | null;
   /** ISO-8601 timestamp (UTC) at the moment the index was started. */
   indexed_at?: string | null;
+  /** When true, fold repo_commit_sha into Symbol.id for locally-defined
+   *  symbols. External SCIP refs (externalQn at line 139) are NEVER sha-scoped
+   *  — they're invariant across branches. bead MetaCoding-izn. */
+  perCommitIdentity?: boolean;
 }
 
 export interface LoadScipStats {
@@ -81,7 +85,8 @@ export async function loadScip(
       if (!parsed || parsed.isLocal) continue;
       const qn = qualifiedNameOf(parsed);
       const lang = opts.language ?? guessLanguageFromQn(qn);
-      const id = symbolId(lang, opts.repo, qn);
+      const idSha = opts.perCommitIdentity ? opts.repo_commit_sha ?? undefined : undefined;
+      const id = symbolId(lang, opts.repo, qn, idSha);
 
       const info = infoBySymbol.get(occ.symbol);
       const sym: Symbol = {

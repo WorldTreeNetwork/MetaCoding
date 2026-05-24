@@ -30,6 +30,8 @@ export interface ExtractOpts {
   repo: string;
   repo_commit_sha?: string | null;
   indexed_at?: string | null;
+  /** When true, repo_commit_sha is folded into Symbol.id (bead MetaCoding-izn). */
+  perCommitIdentity?: boolean;
 }
 
 export function extractTypeScript(tree: Tree, opts: ExtractOpts): ExtractResult {
@@ -42,7 +44,7 @@ export function extractTypeScript(tree: Tree, opts: ExtractOpts): ExtractResult 
 
 function makeFileSymbol(opts: ExtractOpts): Symbol {
   return {
-    id: symbolId("ts", opts.repo, opts.filePath),
+    id: symbolId("ts", opts.repo, opts.filePath, idScopeSha(opts)),
     kind: "file",
     language: "ts",
     repo: opts.repo,
@@ -78,7 +80,7 @@ function walk(
   if (decl) {
     const qn = `${parentQn}::${decl.short}`;
     const sym: Symbol = {
-      id: symbolId("ts", opts.repo, qn),
+      id: symbolId("ts", opts.repo, qn, idScopeSha(opts)),
       kind: decl.kind,
       language: "ts",
       repo: opts.repo,
@@ -142,6 +144,10 @@ function nameOf(node: Node, kind: SymbolKind): { kind: SymbolKind; short: string
   const name = node.childForFieldName("name");
   if (!name) return null;
   return { kind, short: name.text };
+}
+
+function idScopeSha(opts: ExtractOpts): string | undefined {
+  return opts.perCommitIdentity ? opts.repo_commit_sha ?? undefined : undefined;
 }
 
 function collectTokens(

@@ -27,6 +27,9 @@ export interface WalkOpts {
   repo_commit_sha?: string | null;
   /** ISO-8601 timestamp (UTC) at the moment the index was started. */
   indexed_at?: string | null;
+  /** When true, fold repo_commit_sha into Symbol.id so multiple commits coexist
+   *  in one DB. Default false (existing overwrite behaviour). bead MetaCoding-izn. */
+  perCommitIdentity?: boolean;
 }
 
 export interface WalkStats {
@@ -102,7 +105,10 @@ export async function indexDirectory(
   let filesUpdated = 0;
 
   for (const f of files) {
-    const r = await indexOne(store, f, repo, branch, opts.repo_commit_sha, opts.indexed_at);
+    const r = await indexOne(
+      store, f, repo, branch,
+      opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
+    );
     if (r.skipped) filesSkipped++;
     else {
       filesUpdated++;
@@ -136,7 +142,10 @@ export async function indexFile(
   const grammar = detectGrammar(abs);
   if (!grammar) return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
   const rel = relative(rootPath, abs);
-  return indexOne(store, { abs, rel, grammar }, repo, branch, opts.repo_commit_sha, opts.indexed_at);
+  return indexOne(
+    store, { abs, rel, grammar }, repo, branch,
+    opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
+  );
 }
 
 export async function removeFile(
@@ -159,16 +168,22 @@ async function indexOne(
   branch: string,
   repo_commit_sha?: string | null,
   indexed_at?: string | null,
+  perCommitIdentity?: boolean,
 ): Promise<{ skipped: boolean; symbols: number; edges: number; tokens: number }> {
   const source = readFileSync(f.abs, "utf-8");
   const newHash = fileContentHash(source);
 
-  const oldHash = await store.fileHash(repo, f.rel, branch);
-  if (oldHash === newHash) {
-    return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
-  }
-  if (oldHash) {
-    await store.deleteFileData(repo, f.rel, branch);
+  // In per-commit-identity mode every commit produces its own row family
+  // (Symbol.id is sha-scoped), so the (repo, file, branch) cache key is
+  // ambiguous — skip the incremental cache and the cross-commit wipe.
+  if (!perCommitIdentity) {
+    const oldHash = await store.fileHash(repo, f.rel, branch);
+    if (oldHash === newHash) {
+      return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
+    }
+    if (oldHash) {
+      await store.deleteFileData(repo, f.rel, branch);
+    }
   }
 
   const parsers = await getParsers();
@@ -177,10 +192,14 @@ async function indexOne(
 
   let result;
   if (f.grammar === "python") {
-    const eo: ExtractPyOpts = { filePath: f.rel, branch, repo, repo_commit_sha, indexed_at };
+    const eo: ExtractPyOpts = {
+      filePath: f.rel, branch, repo, repo_commit_sha, indexed_at, perCommitIdentity,
+    };
     result = extractPython(tree, eo);
   } else {
-    const eo: TsExtractOpts = { filePath: f.rel, grammar: f.grammar, branch, repo, repo_commit_sha, indexed_at };
+    const eo: TsExtractOpts = {
+      filePath: f.rel, grammar: f.grammar, branch, repo, repo_commit_sha, indexed_at, perCommitIdentity,
+    };
     result = extractTypeScript(tree, eo);
   }
 
