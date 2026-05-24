@@ -44,7 +44,7 @@
     "metacoding": "src/cli/main.ts"
   },
   "scripts": {
-    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts && bun run scripts/smoke-paths.ts && bun run scripts/smoke-commit-sha.ts && bun run scripts/smoke-worktree-branch.ts && bun run scripts/smoke-mcp-scope.ts && bun run scripts/smoke-fts-sha.ts && bun run scripts/smoke-per-commit-identity.ts && bun run scripts/smoke-graph-diff.ts"
+    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts && bun run scripts/smoke-paths.ts && bun run scripts/smoke-commit-sha.ts && bun run scripts/smoke-worktree-branch.ts && bun run scripts/smoke-mcp-scope.ts && bun run scripts/smoke-fts-sha.ts && bun run scripts/smoke-per-commit-identity.ts && bun run scripts/smoke-graph-diff.ts && bun run scripts/smoke-data-dir.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

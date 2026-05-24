@@ -13,9 +13,8 @@ import { indexDirectory, watch } from "../extractor";
 import { serveMcp } from "../mcp/server";
 import { runScip, loadScip, type ScipLanguage } from "../scip";
 import { currentGitBranch } from "./branch";
+import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
-
-const DEFAULT_DATA_DIR = ".metacoding";
 
 /**
  * Run `git rev-parse HEAD` against `repoPath`.
@@ -83,7 +82,11 @@ Flags:
                 External SCIP refs are never sha-scoped.
 
 Defaults:
-  --data-dir    .metacoding
+  --data-dir    ./.metacoding if it exists (legacy), else
+                $XDG_DATA_HOME/metacoding/<repo-id>/ (default
+                ~/.local/share/metacoding/<repo-id>/). repo-id is
+                derived from remote.origin.url or the repo's
+                git-common-dir so worktrees share one store.
   --repo        basename of the indexed path
   --branch      auto-detected from .git/HEAD (fallback "main")
   --workspace   .
@@ -97,7 +100,7 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const target = args.positional[0];
   if (!target) usage();
   const targetAbs = resolve(target);
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const dataDir = await resolveDataDir(targetAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
   const repo = args.flags["repo"] ?? basename(targetAbs);
   const wantScip = args.flags["scip"] === "true";
@@ -120,7 +123,7 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
   const parent = args.positional[0];
   if (!parent) usage();
   const parentAbs = resolve(parent);
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const dataDir = await resolveDataDir(parentAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? "main";
   const wantScip = args.flags["scip"] === "true";
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
@@ -280,7 +283,7 @@ function hasFileExt(dir: string, pattern: RegExp, maxDepth: number): boolean {
 async function cmdQuery(args: ParsedArgs): Promise<void> {
   const cypher = args.positional[0];
   if (!cypher) usage();
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const dataDir = await resolveDataDir(process.cwd(), args.flags["data-dir"]);
 
   const store = await Store.open(dataDir);
   try {
@@ -295,7 +298,7 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
   const target = args.positional[0];
   if (!target) usage();
   const root = resolve(target);
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const dataDir = await resolveDataDir(root, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? currentGitBranch(root);
   const repo = args.flags["repo"] ?? basename(root);
   // Compute sha once at watch-start. Rows written during a watch session
@@ -329,15 +332,15 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
 }
 
 async function cmdServe(args: ParsedArgs): Promise<void> {
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
   const workspace = resolve(args.flags["workspace"] ?? ".");
+  const dataDir = await resolveDataDir(workspace, args.flags["data-dir"]);
   await serveMcp({ dataDir, workspace });
 }
 
 async function cmdExport(args: ParsedArgs): Promise<void> {
   const outDir = args.positional[0];
   if (!outDir) usage();
-  const dataDir = resolve(args.flags["data-dir"] ?? DEFAULT_DATA_DIR);
+  const dataDir = await resolveDataDir(process.cwd(), args.flags["data-dir"]);
   const r = await runExport({ dataDir, outDir });
   console.log(JSON.stringify(r, null, 2));
 }
