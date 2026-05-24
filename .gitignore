@@ -53,3 +53,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # SCIP code index artifacts
 *.scip
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
