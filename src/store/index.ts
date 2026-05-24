@@ -113,34 +113,41 @@ export class Store {
   writeTokens(rows: TokenRow[]): void {
     if (rows.length === 0) return;
     const ins = this.fts.prepare(
-      `INSERT INTO tokens(text, kind, repo, file, line, col, symbol_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tokens(text, kind, repo, file, line, col, symbol_id, repo_commit_sha)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const tx = this.fts.transaction((rs: TokenRow[]) => {
       for (const r of rs) {
-        ins.run(r.text, r.kind, r.repo, r.file, r.line, r.col, r.symbol_id);
+        ins.run(
+          r.text, r.kind, r.repo, r.file, r.line, r.col, r.symbol_id,
+          r.repo_commit_sha ?? null,
+        );
       }
     });
     tx(rows);
   }
 
-  searchTokens(query: string, limit = 50, repo?: string): TokenRow[] {
+  searchTokens(
+    query: string,
+    limit = 50,
+    repo?: string,
+    repo_commit_sha?: string,
+  ): TokenRow[] {
+    const clauses = ["tokens MATCH ?"];
+    const params: unknown[] = [query];
     if (repo !== undefined) {
-      const stmt = this.fts.prepare(
-        `SELECT text, kind, repo, file, line, col, symbol_id
-         FROM tokens
-         WHERE tokens MATCH ? AND repo = ?
-         LIMIT ?`,
-      );
-      return stmt.all(query, repo, limit) as unknown as TokenRow[];
+      clauses.push("repo = ?");
+      params.push(repo);
     }
-    const stmt = this.fts.prepare(
-      `SELECT text, kind, repo, file, line, col, symbol_id
-       FROM tokens
-       WHERE tokens MATCH ?
-       LIMIT ?`,
-    );
-    return stmt.all(query, limit) as unknown as TokenRow[];
+    if (repo_commit_sha !== undefined) {
+      clauses.push("repo_commit_sha = ?");
+      params.push(repo_commit_sha);
+    }
+    params.push(limit);
+    const sql =
+      `SELECT text, kind, repo, file, line, col, symbol_id, repo_commit_sha ` +
+      `FROM tokens WHERE ${clauses.join(" AND ")} LIMIT ?`;
+    return this.fts.prepare(sql).all(...params as never[]) as unknown as TokenRow[];
   }
 
   // ----- incremental indexing primitives -----

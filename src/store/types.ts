@@ -83,4 +83,8 @@ export interface TokenRow {
   line: number;
   col: number;
   symbol_id: string | null;
+  // Added by Orchestrators-2ez follow-up (bead MetaCoding-pon): the commit
+  // sha of the indexed snapshot. NULLable for callers that don't know it.
+  // Read by searchTokens when a sha filter is requested.
+  repo_commit_sha?: string | null;
 }

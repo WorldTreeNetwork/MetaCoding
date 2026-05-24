@@ -160,6 +160,7 @@ export interface CodeSearchInput {
   query: string;
   kind?: TokenKind;
   limit?: number;
+  repo_commit_sha?: string;
 }
 
 export interface CodeSearchHit {
@@ -174,7 +175,7 @@ export interface CodeSearchHit {
 export function codeSearch(store: Store, input: CodeSearchInput): CodeSearchHit[] {
   if (!input.query || input.query.length < 2) return [];
   const limit = clamp(input.limit ?? 50, 1, 500);
-  const hits = store.searchTokens(input.query, limit * 2);
+  const hits = store.searchTokens(input.query, limit * 2, undefined, input.repo_commit_sha);
   const filtered = input.kind
     ? hits.filter((h) => h.kind === input.kind)
     : hits;
@@ -262,7 +263,7 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
   },
   {
     name: "code_search",
-    summary: "Full-text search across identifiers, string literals, and comments. Catches the AST blind spots: string DI, reflection, dynamic dispatch.",
+    summary: "Full-text search across identifiers, string literals, and comments. Catches the AST blind spots: string DI, reflection, dynamic dispatch. Pass repo_commit_sha to scope to one indexed snapshot.",
     input_schema: {
       type: "object",
       required: ["query"],
@@ -270,6 +271,7 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
         query: { type: "string", description: "FTS5 query (supports phrase, prefix, NEAR)." },
         kind: { type: "string", enum: VALID_TOKEN_KINDS as unknown as string[] },
         limit: { type: "integer", minimum: 1, maximum: 500, default: 50 },
+        repo_commit_sha: { type: "string", description: "Optional: restrict to a specific indexed snapshot." },
       },
     },
   },

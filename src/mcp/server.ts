@@ -116,11 +116,13 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     {
       description:
         "Full-text search over identifiers, string literals, and comments. Catches AST/SCIP blind spots: string DI, reflection, dynamic dispatch, ORM strings, route paths. " +
-        "Query syntax is SQLite FTS5 (supports phrase \"...\", prefix x*, NEAR(a b 5)).",
+        "Query syntax is SQLite FTS5 (supports phrase \"...\", prefix x*, NEAR(a b 5)). " +
+        "Pass repo_commit_sha to restrict to one indexed snapshot.",
       inputSchema: {
         query: z.string().min(1),
         kind: TOKEN_KIND.optional(),
         limit: z.number().int().min(1).max(500).optional(),
+        repo_commit_sha: z.string().optional(),
       },
     },
     async (args) => {
@@ -128,6 +130,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         query: args.query,
         kind: args.kind as TokenKind | undefined,
         limit: args.limit,
+        repo_commit_sha: args.repo_commit_sha,
       });
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
