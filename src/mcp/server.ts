@@ -14,6 +14,7 @@ import {
   graphImplementers,
   codeSearch,
   graphCypher,
+  graphDiff,
   describeApi,
 } from "./tools";
 import {
@@ -155,6 +156,27 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         limit: args.limit,
       });
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "graph_diff",
+    {
+      description:
+        "Compare two indexed snapshots of the same repo, returning added / removed / changed Symbol rows. " +
+        "`changed` = same qualified_name in both snapshots but different ast_hash. " +
+        "Requires both snapshots to coexist in the store — this usually means the repo was indexed with --per-commit-identity. " +
+        "Without that, only the most recent snapshot exists and the older one returns empty.",
+      inputSchema: {
+        repo: z.string().min(1),
+        from_sha: z.string().min(1),
+        to_sha: z.string().min(1),
+        limit: z.number().int().min(1).max(10000).optional(),
+      },
+    },
+    async (args) => {
+      const r = await graphDiff(store, args);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     },
   );
 

@@ -207,6 +207,113 @@ export async function graphCypher(
   return rows.slice(0, limit);
 }
 
+// ---------- graph_diff ----------
+
+export interface GraphDiffInput {
+  repo: string;
+  from_sha: string;
+  to_sha: string;
+  limit?: number;
+}
+
+export interface DiffSymbol {
+  id: string;
+  qualified_name: string;
+  short_name: string;
+  kind: string;
+  file: string;
+  line: number;
+  ast_hash: string | null;
+}
+
+export interface GraphDiffResult {
+  added: DiffSymbol[];     // present in to_sha, absent in from_sha (by qualified_name)
+  removed: DiffSymbol[];   // present in from_sha, absent in to_sha
+  changed: { qualified_name: string; from: DiffSymbol; to: DiffSymbol }[];
+  counts: { added: number; removed: number; changed: number; unchanged: number };
+}
+
+interface DiffRow {
+  id: string;
+  qn: string;
+  short: string;
+  kind: string;
+  file: string;
+  line: number;
+  ast_hash: string | null;
+}
+
+function toEnvelope(r: DiffRow): DiffSymbol {
+  return {
+    id: r.id,
+    qualified_name: r.qn,
+    short_name: r.short,
+    kind: r.kind,
+    file: r.file,
+    line: r.line,
+    ast_hash: r.ast_hash,
+  };
+}
+
+export async function graphDiff(
+  store: Store,
+  input: GraphDiffInput,
+): Promise<GraphDiffResult> {
+  const empty: GraphDiffResult = {
+    added: [], removed: [], changed: [],
+    counts: { added: 0, removed: 0, changed: 0, unchanged: 0 },
+  };
+  if (!input.repo || !input.from_sha || !input.to_sha) return empty;
+  const limit = clamp(input.limit ?? 1000, 1, 10000);
+
+  const SNAPSHOT_QUERY =
+    `MATCH (s:Symbol)
+     WHERE s.repo = $repo AND s.repo_commit_sha = $sha
+     RETURN s.id AS id, s.qualified_name AS qn, s.short_name AS short,
+            s.kind AS kind, s.file AS file, s.line AS line, s.ast_hash AS ast_hash`;
+
+  const [fromRows, toRows] = await Promise.all([
+    store.query<DiffRow>(SNAPSHOT_QUERY, { repo: input.repo, sha: input.from_sha }),
+    store.query<DiffRow>(SNAPSHOT_QUERY, { repo: input.repo, sha: input.to_sha }),
+  ]);
+
+  const fromMap = new Map<string, DiffRow>();
+  for (const r of fromRows) fromMap.set(r.qn, r);
+  const toMap = new Map<string, DiffRow>();
+  for (const r of toRows) toMap.set(r.qn, r);
+
+  const added: DiffSymbol[] = [];
+  const removed: DiffSymbol[] = [];
+  const changed: { qualified_name: string; from: DiffSymbol; to: DiffSymbol }[] = [];
+  let unchanged = 0;
+
+  for (const [qn, to] of toMap) {
+    const from = fromMap.get(qn);
+    if (!from) {
+      added.push(toEnvelope(to));
+    } else if (from.ast_hash !== to.ast_hash) {
+      changed.push({ qualified_name: qn, from: toEnvelope(from), to: toEnvelope(to) });
+    } else {
+      unchanged++;
+    }
+  }
+  for (const [qn, from] of fromMap) {
+    if (!toMap.has(qn)) removed.push(toEnvelope(from));
+  }
+
+  return {
+    added: added.slice(0, limit),
+    removed: removed.slice(0, limit),
+    changed: changed.slice(0, limit),
+    counts: {
+      added: added.length,
+      removed: removed.length,
+      changed: changed.length,
+      unchanged,
+    },
+  };
+}
+
 // ---------- describe_api ----------
 
 export interface ToolDescription {
@@ -285,6 +392,20 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
         cypher: { type: "string" },
         params: { type: "object", additionalProperties: true },
         limit: { type: "integer", minimum: 1, maximum: 1000, default: 100 },
+      },
+    },
+  },
+  {
+    name: "graph_diff",
+    summary: "Compare two indexed snapshots of the same repo. Returns added / removed / changed symbols by qualified_name; changed = same name, different ast_hash. Requires both snapshots to coexist — usually means --per-commit-identity was used when indexing.",
+    input_schema: {
+      type: "object",
+      required: ["repo", "from_sha", "to_sha"],
+      properties: {
+        repo: { type: "string" },
+        from_sha: { type: "string", description: "git commit sha of the baseline snapshot." },
+        to_sha: { type: "string", description: "git commit sha of the target snapshot." },
+        limit: { type: "integer", minimum: 1, maximum: 10000, default: 1000 },
       },
     },
   },
