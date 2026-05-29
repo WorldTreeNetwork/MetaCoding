@@ -70,9 +70,12 @@ Usage:
   metacoding export <out-dir>  [--data-dir <dir>]
 
 Flags:
-  --scip        run SCIP indexers (TS + Python, whichever is present)
-                after the Tree-sitter pass to layer in resolved-symbol
-                edges (CALLS / REFERENCES / IMPLEMENTS).
+  --scip [true|false]
+                Force SCIP indexers on or off. Default: auto-detect from
+                PATH. SCIP delivers CALLS / REFERENCES / IMPLEMENTS edges
+                (required for CTKR Phase 2+ categorical analysis); the
+                tree-sitter lane alone cannot populate them. Install via:
+                  npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python
   --repo        repo identifier tagged onto every Symbol/edge/token
                 (defaults to the basename of the indexed path).
   --workspace   workspace root the LSP attaches to (defaults to cwd).
@@ -103,7 +106,7 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const dataDir = await resolveDataDir(targetAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
   const repo = args.flags["repo"] ?? basename(targetAbs);
-  const wantScip = args.flags["scip"] === "true";
+  const wantScip = resolveScipWanted(args.flags["scip"]);
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
   const repo_commit_sha = await getRepoCommitSha(targetAbs);
   const indexed_at = new Date().toISOString();
@@ -125,7 +128,7 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
   const parentAbs = resolve(parent);
   const dataDir = await resolveDataDir(parentAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? "main";
-  const wantScip = args.flags["scip"] === "true";
+  const wantScip = resolveScipWanted(args.flags["scip"]);
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
 
   if (!existsSync(parentAbs)) {
@@ -248,6 +251,44 @@ async function indexOneRepo(
     out.scip = accum;
   }
   return out;
+}
+
+function haveScipBinary(name: string): boolean {
+  // Mirrors src/scip/run.ts: try ./node_modules/.bin/<name> first, then PATH.
+  // This lets locally-installed @sourcegraph/scip-typescript count.
+  const localBin = join(process.cwd(), "node_modules", ".bin", name);
+  if (existsSync(localBin)) return true;
+  return Bun.which(name) !== null;
+}
+
+function haveScipBinaries(): { typescript: boolean; python: boolean; any: boolean } {
+  const ts = haveScipBinary("scip-typescript");
+  const py = haveScipBinary("scip-python");
+  return { typescript: ts, python: py, any: ts || py };
+}
+
+function resolveScipWanted(flag: string | undefined): boolean {
+  const have = haveScipBinaries();
+  if (flag === "false") return false;
+  if (flag === "true") {
+    if (!have.any) {
+      console.error(
+        "metacoding: --scip requested but neither scip-typescript nor " +
+          "scip-python is on PATH.\n" +
+          "  Install: npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python",
+      );
+      process.exit(1);
+    }
+    return true;
+  }
+  if (have.any) return true;
+  console.warn(
+    "metacoding: SCIP indexers not detected on PATH — running tree-sitter only.\n" +
+      "  For full CALLS/REFERENCES/IMPLEMENTS edges (needed for CTKR Phase 2+), install:\n" +
+      "    npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python\n" +
+      "  Pass --scip false to suppress this warning.",
+  );
+  return false;
 }
 
 function detectScipLanguages(repoPath: string): ScipLanguage[] {
