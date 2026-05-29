@@ -50,12 +50,28 @@ Epic: **MetaCoding-23q**. **⚠ BLOCKED** on `MetaCoding-e54` (richer edge types
 | ✓ closed | MetaCoding-ux3 | chore | blake3 migration in `ctkr/` — *124 tests pass* | P1 |
 | ✓ closed | MetaCoding-0pz | feature | Codegen: pydantic → JSON Schema → TS types — *types.gen.ts emitted* | P2 |
 | ✓ closed | MetaCoding-5wi | spike | Pre-conceptual UX prototype — *contrast pair won; drop `label` field* | P2 |
-| ✅ | MetaCoding-gc5 | chore | Code review followups (P2/P3) from 2026-05-28 round — *11 items tracked* | P3 |
+| ✅ | MetaCoding-gc5 | chore | Code review followups — *5 of 11 items done in idle; 6 remain* | P3 |
+| ✓ closed | MetaCoding-6t8 | feature | `--scip` defaults to auto-detect from PATH — *commit ab78cf4* | P1 |
 | ✓ closed | MetaCoding-qy2 | decision | MCP server location: single process for all tools | P2 |
 | ✓ closed | MetaCoding-p4b | decision | Language seam: TS for MCP + Phase 2; Python for L1/L3 | P2 |
 | ✓ closed | MetaCoding-ebg | decision | Functor edge-preservation: partial weighted with fidelity metadata | P2 |
 | ✓ closed | MetaCoding-at0 | decision | Colimit clustering: Option C (functor-guided community detection) | P2 |
 | ✓ closed | MetaCoding-63v | decision | Artifact shape policy: held lightly until algorithmic contact | P3 |
+
+## Mitigations from session findings — *filed 2026-05-29*
+
+| Status | ID | Type | Title | Priority |
+|---|---|---|---|---|
+| 🛑 | MetaCoding-73m | chore | `--scip` reindex on 5-repo subset (currently running) — *blocks 23q.1* | P1 |
+| 🛑 | MetaCoding-o7k | decision | Filter file/leaf kinds from hom-profile OR restructure Symbol model — *blocks 23q.1* | P1 |
+| 🟡 | MetaCoding-9c5 | feature | `metacoding doctor` subcommand: report active lanes + missing tooling | P2 |
+| 🟡 | MetaCoding-4jw | chore | Document ralph anti-pattern around long subprocess waits | P2 |
+| 🟡 | MetaCoding-alk | chore | Agent prompts must report data-dir scope (sandbox vs production) | P2 |
+| 🟡 | MetaCoding-m79 | chore | Audit EDGE_KIND drift, sunset hand-written types.ts | P2 |
+| 🟡 | MetaCoding-zq2 | feature | `walker.ts`: scope hydrate to short-names actually needed (watch perf) | P2 |
+| 🟡 | MetaCoding-lsz | chore | Upstream report: `@duckdb/node-api` closeSync corruption | P3 |
+| 🟡 | MetaCoding-1lw | chore | Audit hardcoded `~/projects/Orchestrators` paths | P3 |
+| 🟡 | MetaCoding-87h | chore | Wipe stale blake2b LLM cache | P4 |
 
 ---
 
