@@ -94,7 +94,7 @@ A `Controller` and a `Handler` from different frameworks should have similar hom
 
 **Artifact.** `hom_profiles.parquet` — one row per symbol with a compact profile vector + the raw counts.
 
-**MCP tool.** `ctkr.role_equivalent(symbol, k?, scope?)` — find symbols across the corpus with the most similar hom-profile to a given one.
+**MCP tool.** `ctkr.role_equivalent(symbol, k?, scope?, granularity?, kinds_filter?)` — find symbols across the corpus with the most similar hom-profile to a given one. `granularity` and `kinds_filter` control the resolution at which profiles are compared — see [`../notes/entropy-as-dial.md`](../notes/entropy-as-dial.md) for why these should be tunable parameters rather than baked-in choices.
 
 **CT references.**
 - *Categories for the Working Mathematician*, Mac Lane — Chapter III.2 (the Yoneda lemma)
@@ -275,7 +275,7 @@ The same flow applies at any scope: HTTP servers, state machines, build systems,
 These don't block Phase 1 but will shape Phase 2 and beyond.
 
 - **Categorical pushout for true colimits (v2).** Phase 2c uses functor-guided community detection as an approximate colimit. The textbook construction (iterated pushouts over the diagram of functors) is more rigorous and requires exact (fidelity=1.0) functors. Worth implementing once the approximate version proves signal. Closest reference: Catlab.jl's diagram operations, ported to TS.
-- **Persistent clustering of role classes.** Functor edges carry fidelity ∈ [0, 1]. As you sweep the threshold, communities grow and merge. The *persistent* communities (stable across a wide threshold band) are robust role classes; the *ephemeral* ones are noise. This is the same idea as persistent homology applied to functor-induced equivalence — gives us a principled "this role class is real" signal without committing to a threshold. Follow-up MCP tool: `ctkr.essence_persistence(scope?)`.
+- **Persistent clustering of role classes.** Functor edges carry fidelity ∈ [0, 1]. As you sweep the threshold, communities grow and merge. The *persistent* communities (stable across a wide threshold band) are robust role classes; the *ephemeral* ones are noise. This is the same idea as persistent homology applied to functor-induced equivalence — gives us a principled "this role class is real" signal without committing to a threshold. Follow-up MCP tool: `ctkr.essence_persistence(scope?)`. The same construction applies to hom-profile granularity at Phase 2a — see [`../notes/entropy-as-dial.md`](../notes/entropy-as-dial.md) for the generalized treatment.
 - **2-category structure.** Pairwise functors between repos compose. The 2-cells (natural transformations between functors) record "different ways of viewing the same correspondence" and may be where the deepest essence lives.
 - **Persistent functors over git history.** Persistent homology gives time-varying topological signatures. Is there a corresponding "persistent functor" construction over the time-filtered graph? (Likely yes, via Reeb graphs or zigzag persistence.)
 - **The colimit-fix point.** L3 labels feed back as priors for L2 functor discovery. Iterating creates a closed refinement loop. Does it converge? To what?

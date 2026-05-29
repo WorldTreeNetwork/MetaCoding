@@ -161,3 +161,15 @@ The contrast-pair format (one strong exemplar + one near-miss) was the clearest 
 - The categorical pushout v2 (true colimit) — beautiful but real work. Track and revisit after Option C ships.
 - Persistent-clustering as an MCP tool (`ctkr.essence_persistence`) — high value, low priority. Tracked.
 - The stochastic / Bayesian generalization. This is the deepest opening from the session. Worth a focused research note when there's time.
+
+## Late addendum — entropy as a dial
+
+After the 9le entropy plateau at 3.65 bits (BLOCKED at the 4.0 capability gate), the user reframed the gate question: could Shannon entropy itself be a dial — similar to a std-dev width — rather than a hard threshold?
+
+The answer turned out to be yes, and it generalizes the persistent-clustering observation. Captured fully in [`entropy-as-dial.md`](./entropy-as-dial.md). Key points:
+
+- Entropy is a measurement, not a parameter — but the *granularity* of profile equality, the *kinds filter*, and the *edge-alphabet subset* are all parameters that produce different entropies.
+- The std-dev analogy is exact: each dial slides along a **rate-distortion curve** (compression vs. fidelity).
+- The principled move is **persistent clustering** across dial settings — track which role-equivalence pairs are robust to dial choice vs. resolution-dependent.
+- The 4.0 threshold is more honestly read as a **capability check** ("the alphabet needs to *be able to* reach useful entropies") rather than a target.
+- Several Phase 2+ MCP tool signatures should expose `granularity?` and `kinds_filter?` parameters explicitly. Hom-profile artifacts (`MetaCoding-23q.1`) should be stored at maximal precision; quantization happens at query time.
