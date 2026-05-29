@@ -12,6 +12,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 import type { Store } from "../store";
+import type { Edge, Symbol } from "../store/types";
+import {
+  extractEdgeCandidates,
+  SymbolResolver,
+  type EdgeCandidate,
+} from "./edges";
 import { fileContentHash } from "./identity";
 import { makeParser, type TsParser } from "./parser";
 import { extractTypeScript, type ExtractOpts as TsExtractOpts } from "./typescript";
@@ -104,10 +110,17 @@ export async function indexDirectory(
   let filesSkipped = 0;
   let filesUpdated = 0;
 
+  // Cross-file edge resolution (MetaCoding-3s5). Collected per-file during the
+  // main pass, then resolved against an in-memory index of *all* symbols seen
+  // in this directory walk so cross-file `new Foo()` finds Foo's class node.
+  const resolver = new SymbolResolver();
+  const pendingCandidates: EdgeCandidate[] = [];
+
   for (const f of files) {
     const r = await indexOne(
       store, f, repo, branch,
       opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
+      resolver, pendingCandidates,
     );
     if (r.skipped) filesSkipped++;
     else {
@@ -117,6 +130,10 @@ export async function indexDirectory(
       tokens += r.tokens;
     }
   }
+
+  // Resolve and flush the deferred behavior-edges (WRITES_FIELD, CONSTRUCTS,
+  // RETURNS_TYPE). Dangling refs (target name not in the repo) are dropped.
+  edges += await flushCandidates(store, pendingCandidates, resolver, repo);
 
   return {
     filesScanned: files.length,
@@ -142,10 +159,20 @@ export async function indexFile(
   const grammar = detectGrammar(abs);
   if (!grammar) return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
   const rel = relative(rootPath, abs);
-  return indexOne(
+  // For single-file indexing (watch mode), we resolve edge candidates against
+  // a resolver hydrated with this file's own symbols PLUS a best-effort lookup
+  // against symbols already in the store for the same repo. Cross-file targets
+  // from other-file writes/constructs are best resolved in the directory pass.
+  const resolver = new SymbolResolver();
+  await hydrateResolverFromStore(store, resolver, repo, branch);
+  const pending: EdgeCandidate[] = [];
+  const r = await indexOne(
     store, { abs, rel, grammar }, repo, branch,
     opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
+    resolver, pending,
   );
+  const flushed = await flushCandidates(store, pending, resolver, repo);
+  return { ...r, edges: r.edges + flushed };
 }
 
 export async function removeFile(
@@ -169,6 +196,8 @@ async function indexOne(
   repo_commit_sha?: string | null,
   indexed_at?: string | null,
   perCommitIdentity?: boolean,
+  resolver?: SymbolResolver,
+  pendingCandidates?: EdgeCandidate[],
 ): Promise<{ skipped: boolean; symbols: number; edges: number; tokens: number }> {
   const source = readFileSync(f.abs, "utf-8");
   const newHash = fileContentHash(source);
@@ -213,6 +242,21 @@ async function indexOne(
   for (const edge of result.edges) await store.addEdge(edge);
   store.writeTokens(result.tokens);
 
+  // Behavior-edge pass (MetaCoding-3s5). Feed every extracted symbol into the
+  // resolver, then collect WRITES_FIELD / CONSTRUCTS / RETURNS_TYPE candidates.
+  // Targets are resolved later (end of directory walk) when all repo symbols
+  // are in the index — supports cross-file `new Foo()` etc.
+  if (resolver && pendingCandidates) {
+    for (const sym of result.symbols) resolver.add(sym);
+    const edgeLang = f.grammar === "python" ? "py" : "ts";
+    const er = extractEdgeCandidates(tree, {
+      language: edgeLang,
+      filePath: f.rel,
+      symbols: result.symbols,
+    });
+    for (const c of er.candidates) pendingCandidates.push(c);
+  }
+
   tree.delete();
   return {
     skipped: false,
@@ -220,6 +264,78 @@ async function indexOne(
     edges: result.edges.length,
     tokens: result.tokens.length,
   };
+}
+
+/**
+ * Resolve every pending edge candidate against the symbol index, dedupe by
+ * (kind, src, dst), and add to the store. Returns the count of edges flushed.
+ *
+ * Dropped candidates (target not in repo) are counted in the returned summary.
+ */
+async function flushCandidates(
+  store: Store,
+  candidates: EdgeCandidate[],
+  resolver: SymbolResolver,
+  repo: string,
+): Promise<number> {
+  if (candidates.length === 0) return 0;
+  const dedupe = new Set<string>();
+  let flushed = 0;
+  for (const c of candidates) {
+    const dst = resolver.resolve(c.target, repo);
+    if (!dst) continue;
+    if (dst === c.src_id) continue;   // self-edges are noise
+    const key = `${c.kind}|${c.src_id}|${dst}`;
+    if (dedupe.has(key)) continue;
+    dedupe.add(key);
+    const edge: Edge = { kind: c.kind, src_id: c.src_id, dst_id: dst };
+    await store.addEdge(edge);
+    flushed++;
+  }
+  return flushed;
+}
+
+/**
+ * Populate a SymbolResolver from symbols already in the store for a given
+ * (repo, branch). Used by single-file indexing (watch mode) so cross-file
+ * targets from already-indexed files can still resolve.
+ */
+async function hydrateResolverFromStore(
+  store: Store,
+  resolver: SymbolResolver,
+  repo: string,
+  branch: string,
+): Promise<void> {
+  type Row = { id: string; repo: string; kind: string; short_name: string; qualified_name: string };
+  const rows = await store.query<Row>(
+    `MATCH (s:Symbol)
+     WHERE s.repo = $repo AND s.branch = $branch
+     RETURN s.id AS id, s.repo AS repo, s.kind AS kind,
+            s.short_name AS short_name, s.qualified_name AS qualified_name`,
+    { repo, branch },
+  );
+  for (const r of rows) {
+    resolver.add({
+      id: r.id,
+      kind: r.kind as Symbol["kind"],
+      language: "ts",
+      repo: r.repo,
+      qualified_name: r.qualified_name,
+      short_name: r.short_name,
+      file: "",
+      line: 0,
+      col: 0,
+      end_line: 0,
+      end_col: 0,
+      signature: null,
+      visibility: null,
+      is_abstract: false,
+      is_static: false,
+      ast_hash: null,
+      branch,
+      source: "tree_sitter",
+    });
+  }
 }
 
 function walkFs(

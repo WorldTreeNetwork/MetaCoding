@@ -44,7 +44,9 @@
     "metacoding": "src/cli/main.ts"
   },
   "scripts": {
-    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts && bun run scripts/smoke-paths.ts && bun run scripts/smoke-commit-sha.ts && bun run scripts/smoke-worktree-branch.ts && bun run scripts/smoke-mcp-scope.ts && bun run scripts/smoke-fts-sha.ts && bun run scripts/smoke-per-commit-identity.ts && bun run scripts/smoke-graph-diff.ts && bun run scripts/smoke-data-dir.ts"
+    "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts && bun run scripts/smoke-paths.ts && bun run scripts/smoke-commit-sha.ts && bun run scripts/smoke-worktree-branch.ts && bun run scripts/smoke-mcp-scope.ts && bun run scripts/smoke-fts-sha.ts && bun run scripts/smoke-per-commit-identity.ts && bun run scripts/smoke-graph-diff.ts && bun run scripts/smoke-data-dir.ts",
+    "codegen:ctkr-types": "bun run scripts/codegen-ctkr-types.ts",
+    "codegen:check": "bun run scripts/codegen-ctkr-types.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -54,17 +56,20 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@duckdb/node-api": "^1.5.3-r.2",
     "@ladybugdb/core": "^0.15.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sourcegraph/scip-python": "^0.6.6",
     "@sourcegraph/scip-typescript": "^0.4.0",
     "chokidar": "^5.0.0",
     "google-protobuf": "^4.0.2",
+    "quicktype-core": "^23.2.6",
     "tree-sitter-wasms": "^0.1.13",
     "typescript-language-server": "^5.1.3",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
-    "web-tree-sitter": "0.22.6"
+    "web-tree-sitter": "0.22.6",
+    "yaml": "^2.9.0"
   },
   "trustedDependencies": [
     "@ladybugdb/core"

@@ -139,23 +139,52 @@ export async function loadScip(
     edgesQueued.push({ kind, src_id: srcId, dst_id: dstId });
   };
 
-  // 2a — relationships (IMPLEMENTS, TYPE_OF) from SymbolInformation.
+  // Build a kind-lookup map so pass-2b can check field/type kinds without
+  // re-parsing the SCIP symbol string.  Keyed on the SCIP symbol string.
+  const kindByScip = new Map<string, string>();
+  for (const [scipSym, def] of defByScip) {
+    // We stored ourId; recover the kind from the DefRecord via defByScip.
+    // Re-parse the symbol to get the kind — cheaper than a round-trip to DB.
+    const parsed = parseScipSymbol(scipSym);
+    if (parsed) kindByScip.set(scipSym, kindOf(parsed));
+  }
+
+  // 2a — relationships (IMPLEMENTS, TYPE_OF, RETURNS_TYPE) from SymbolInformation.
+  //
+  // RETURNS_TYPE: when `is_type_definition` is set AND the *source* symbol is a
+  // function or method, SCIP is saying "this symbol is defined as a type — its
+  // return type is <rel.symbol>".  We emit RETURNS_TYPE in that case rather than
+  // TYPE_OF to keep the two edge kinds semantically separate.
   for (const doc of idx.documents) {
     for (const info of doc.symbols) {
       const srcDef = defByScip.get(info.symbol);
       if (!srcDef) continue;
+      const srcKind = kindByScip.get(info.symbol) ?? "";
       for (const rel of info.relationships) {
         const tgtDef = defByScip.get(rel.symbol);
         const dstId = tgtDef?.ourId
           ?? symbolId(opts.language ?? "ts", opts.repo, externalQn(rel.symbol));
         if (rel.is_implementation) enqueue("IMPLEMENTS", srcDef.ourId, dstId);
-        if (rel.is_type_definition) enqueue("TYPE_OF", srcDef.ourId, dstId);
+        if (rel.is_type_definition) {
+          if (srcKind === "function" || srcKind === "method") {
+            // Source is a callable — treat the related type as its return type.
+            enqueue("RETURNS_TYPE", srcDef.ourId, dstId);
+          } else {
+            enqueue("TYPE_OF", srcDef.ourId, dstId);
+          }
+        }
       }
     }
   }
 
-  // 2b — references: each non-Definition Occurrence becomes a REFERENCES edge
+  // 2b — references: each non-Definition Occurrence becomes one or more edges
   // from its innermost-enclosing definition in the same document to the target.
+  //
+  // Edge selection:
+  //   WriteAccess + target is field  → WRITES_FIELD
+  //   ReadAccess  + target is field  → READS_FIELD
+  //   No access flags + target is constructor (type suffix) → CONSTRUCTS
+  //   Otherwise                      → REFERENCES
   for (const doc of idx.documents) {
     // Pre-compute defs in this document, sorted with the most-specific
     // (smallest enclosing range) first, so the first containment hit wins.
@@ -183,7 +212,20 @@ export async function loadScip(
       }
       const caller = docDefs.find((d) => rangeContains(d.range, occ.range));
       if (!caller) continue;
-      enqueue("REFERENCES", caller.ourId, targetDef.ourId);
+
+      const targetKind = kindByScip.get(occ.symbol) ?? "";
+      const isWrite = !!(occ.symbol_roles & scip.SymbolRole.WriteAccess);
+      const isRead  = !!(occ.symbol_roles & scip.SymbolRole.ReadAccess);
+
+      if (targetKind === "field" && isWrite) {
+        enqueue("WRITES_FIELD", caller.ourId, targetDef.ourId);
+      } else if (targetKind === "field" && isRead) {
+        enqueue("READS_FIELD", caller.ourId, targetDef.ourId);
+      } else if (isConstructorSymbol(occ.symbol) && !isRead && !isWrite) {
+        enqueue("CONSTRUCTS", caller.ourId, targetDef.ourId);
+      } else {
+        enqueue("REFERENCES", caller.ourId, targetDef.ourId);
+      }
     }
   }
 
@@ -232,4 +274,31 @@ function externalQn(scipSymbol: string): string {
 
 function guessLanguageFromQn(qn: string): "ts" | "py" {
   return /\.(py|pyi)(::|$)/.test(qn) ? "py" : "ts";
+}
+
+// Detect whether a SCIP symbol string refers to a constructor.
+// In scip-typescript, constructors appear as method descriptors whose
+// disambiguator is "+" (e.g., `... ClassName#`constructor`(+).`).
+// In scip-python, `__init__` methods serve as constructors.
+// We also treat an occurrence whose *last meaningful descriptor* is a
+// `type` suffix (class definition symbol) as a CONSTRUCTS target — this
+// handles `new Foo()` resolved to the class symbol when no explicit
+// constructor is emitted.
+function isConstructorSymbol(scipSymbol: string): boolean {
+  // Fast path: check common constructor patterns before full parse.
+  if (
+    /`constructor`\(\+\)\./.test(scipSymbol) ||  // scip-typescript constructor
+    /__init__\(\)\./.test(scipSymbol)             // scip-python __init__
+  ) {
+    return true;
+  }
+  // Structural check: if the last meaningful descriptor is a `type` suffix
+  // (class), a reference to it without read/write flags is construction.
+  const parsed = parseScipSymbol(scipSymbol);
+  if (!parsed || parsed.isLocal) return false;
+  const meaningful = parsed.descriptors.filter(
+    (d) => d.suffix !== "type_parameter" && d.suffix !== "parameter",
+  );
+  const last = meaningful[meaningful.length - 1];
+  return last?.suffix === "type";
 }

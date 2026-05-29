@@ -39,6 +39,12 @@ EDGE_KINDS: tuple[str, ...] = (
     "IMPORTS",
     "ANNOTATES",
     "TYPE_OF",
+    # Behavior-capturing edges added by bead MetaCoding-e54.
+    # Present only after a full reindex; zero-count for pre-e54 exports.
+    "READS_FIELD",
+    "WRITES_FIELD",
+    "RETURNS_TYPE",
+    "CONSTRUCTS",
 )
 
 

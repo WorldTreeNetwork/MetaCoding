@@ -1,0 +1,146 @@
+# Ground-truth corpus for ctkr.role_equivalent eval
+#
+# Selection criteria (see README.md for full rationale):
+#   - Each cluster must span >= 3 repos.
+#   - Each member is a *primary* structural entity in its framework, not a
+#     utility or mixin.
+#   - Members play the same *role* in their framework's object graph: same
+#     approximate hom-profile (similar mix of incoming/outgoing edge kinds,
+#     similar neighbor-kind frequencies).
+#   - Names may differ; what must match is structural position.
+#
+# Qualified-name convention: "<PackageRoot>.<DottedModulePath>.<ClassName>"
+# where PackageRoot is the importable top-level package name as it appears on
+# PyPI / in the repo's own imports.  For TypeScript repos the convention is
+# "<npm-package>.<relative-module-path>.<ClassName>".
+#
+# All symbols were confirmed to exist by direct grep of the source tree under
+# ~/projects/Orchestrators/<repo>/.
+
+clusters:
+  - id: agent
+    description: >
+      The primary turn-taking / reasoning principal.  Owns an LLM call loop,
+      holds tools and memory, produces responses.  The most central node in
+      every framework's object graph: highest in-degree (REFERENCES, CALLS
+      into it) and highest out-degree (CALLS tools, READS memory, PRODUCES
+      tasks).
+    members:
+      - { repo: "crewAI",              qualified_name: "crewai.agent.core.Agent" }
+      - { repo: "ag2",                 qualified_name: "autogen.agentchat.conversable_agent.ConversableAgent" }
+      - { repo: "ag2",                 qualified_name: "autogen.agentchat.assistant_agent.AssistantAgent" }
+      - { repo: "mastra",              qualified_name: "@mastra/core.agent.agent.Agent" }
+      - { repo: "pydantic-ai",         qualified_name: "pydantic_ai.agent.Agent" }
+      - { repo: "smolagents",          qualified_name: "smolagents.agents.MultiStepAgent" }
+      - { repo: "openai-agents-python",qualified_name: "agents.agent.Agent" }
+      - { repo: "letta",               qualified_name: "letta.agent.Agent" }
+      - { repo: "agno",                qualified_name: "agno.agent.agent.Agent" }
+      - { repo: "MetaGPT",             qualified_name: "metagpt.roles.role.Role" }
+
+  - id: orchestrator
+    description: >
+      The multi-agent coordinator: holds a set of agents/workers, routes
+      tasks between them, manages turn order and completion.  Structurally
+      distinguished from the single-agent class by having CONTAINS/REFERENCES
+      edges to multiple Agent-cluster members and CALLS into scheduling/
+      routing logic.
+    members:
+      - { repo: "crewAI",              qualified_name: "crewai.crew.Crew" }
+      - { repo: "ag2",                 qualified_name: "autogen.agentchat.groupchat.GroupChatManager" }
+      - { repo: "agno",                qualified_name: "agno.team.team.Team" }
+      - { repo: "MetaGPT",             qualified_name: "metagpt.team.Team" }
+      - { repo: "mastra",              qualified_name: "@mastra/core.workflows.workflow.Workflow" }
+      - { repo: "agno",                qualified_name: "agno.workflow.workflow.Workflow" }
+
+  - id: task
+    description: >
+      A discrete unit of work assigned to an agent or orchestrator.  Carries
+      a description/goal, optional output constraints, and lifecycle state
+      (pending → running → done).  Structurally: REFERENCED by orchestrators,
+      ASSIGNED to agents, PRODUCES results.
+    members:
+      - { repo: "crewAI",              qualified_name: "crewai.task.Task" }
+      - { repo: "agno",                qualified_name: "agno.team.task.Task" }
+      - { repo: "claude-flow",         qualified_name: "claude-flow.v3.@claude-flow/swarm.domain.entities.task.Task" }
+      - { repo: "claude-flow",         qualified_name: "claude-flow.v3.src.task-execution.domain.Task" }
+
+  - id: tool
+    description: >
+      A callable capability injected into an agent's action space.  Structurally:
+      OWNED by an agent (CONTAINS or REFERENCES edge), CALLED by the agent's
+      reasoning loop, returns structured results.  The key hom-profile signal is
+      the triple (owned-by Agent-cluster, has execute/run method, returns typed
+      output).
+    members:
+      - { repo: "crewAI",              qualified_name: "crewai.tools.base_tool.BaseTool" }
+      - { repo: "ag2",                 qualified_name: "autogen.tools.tool.Tool" }
+      - { repo: "mastra",              qualified_name: "@mastra/core.tools.tool.Tool" }
+      - { repo: "pydantic-ai",         qualified_name: "pydantic_ai.tools.Tool" }
+      - { repo: "smolagents",          qualified_name: "smolagents.tools.Tool" }
+      - { repo: "openai-agents-python",qualified_name: "agents.tool.FunctionTool" }
+      - { repo: "letta",               qualified_name: "letta.schemas.tool.Tool" }
+      - { repo: "agno",                qualified_name: "agno.tools.toolkit.Toolkit" }
+      - { repo: "TaskWeaver",          qualified_name: "taskweaver.plugin.base.Plugin" }
+
+  - id: memory
+    description: >
+      Persistent or session-scoped state store attached to an agent.  Stores
+      conversation history, facts, or episodic recall.  Structurally: OWNED by
+      Agent-cluster members (CONTAINS or TYPE_OF edge), READ and WRITTEN by
+      the reasoning loop.  Distinct from generic caches by being agent-scoped
+      and semantically queryable.
+    members:
+      - { repo: "crewAI",              qualified_name: "crewai.memory.unified_memory.Memory" }
+      - { repo: "letta",               qualified_name: "letta.schemas.memory.Memory" }
+      - { repo: "mastra",              qualified_name: "@mastra/memory.index.Memory" }
+      - { repo: "MetaGPT",             qualified_name: "metagpt.memory.memory.Memory" }
+      - { repo: "claude-flow",         qualified_name: "claude-flow.v2.src.hive-mind.core.Memory" }
+
+  - id: context
+    description: >
+      The per-invocation dependency/state bag threaded through tool calls and
+      sub-agent calls.  Lighter-weight than Memory (not persisted across runs),
+      but carries runtime state: current user, active run id, injected deps.
+      Structurally: PASSED as argument to Tool-cluster and sub-agent calls,
+      READ but not WRITTEN by most callees.
+    members:
+      - { repo: "pydantic-ai",         qualified_name: "pydantic_ai._run_context.RunContext" }
+      - { repo: "ag2",                 qualified_name: "autogen.agentchat.group.context_variables.ContextVariables" }
+      - { repo: "langgraph",           qualified_name: "langgraph.graph.state.StateGraph" }
+      - { repo: "letta",               qualified_name: "letta.schemas.block.Block" }
+
+  - id: step_node
+    description: >
+      An atomic unit of computation in a graph- or pipeline-structured
+      workflow.  Has typed inputs and outputs; is CONNECTED to other steps via
+      edges in the workflow/graph.  Structurally: CONTAINED by an orchestrator/
+      workflow, CALLS downstream steps, RECEIVES results from upstream steps.
+    members:
+      - { repo: "langgraph",           qualified_name: "langgraph.graph.state.StateGraph" }
+      - { repo: "langgraph",           qualified_name: "langgraph.prebuilt.tool_node.ToolNode" }
+      - { repo: "agno",                qualified_name: "agno.workflow.step.Step" }
+      - { repo: "mastra",              qualified_name: "@mastra/core.workflows.evented.step-executor.StepExecutor" }
+
+  - id: planner
+    description: >
+      A specialised agent role whose output is a *plan* (sequence of sub-tasks
+      or instructions) rather than a final answer.  Structurally: CALLS into
+      the LLM like Agent-cluster members, but its primary outgoing edge is
+      PRODUCES Task/Step-cluster members rather than terminal responses.
+      Typically sits above the worker agents in a hierarchical call graph.
+    members:
+      - { repo: "TaskWeaver",          qualified_name: "taskweaver.planner.planner.Planner" }
+      - { repo: "MetaGPT",             qualified_name: "metagpt.roles.role.Role" }
+      - { repo: "ag2",                 qualified_name: "autogen.agentchat.conversable_agent.ConversableAgent" }
+
+  - id: session
+    description: >
+      A lifecycle container that groups a user interaction from first message
+      to final result.  Holds a reference to the orchestrator/agent and the
+      conversation memory for that interaction.  Structurally: CONTAINS Agent-
+      or Orchestrator-cluster members and Memory-cluster members; is the
+      outermost CONTAINS boundary in the runtime call graph.
+    members:
+      - { repo: "TaskWeaver",          qualified_name: "taskweaver.session.session.Session" }
+      - { repo: "pydantic-ai",         qualified_name: "pydantic_ai.run.AgentRun" }
+      - { repo: "openai-agents-python",qualified_name: "agents.run.Runner" }

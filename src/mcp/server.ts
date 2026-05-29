@@ -23,6 +23,7 @@ import {
   lspReferences,
   lspDiagnostics,
 } from "./lsp-tools";
+import { registerCtkrTools } from "./ctkr-tools";
 import type { EdgeKind, TokenKind } from "../store/types";
 
 export interface ServeOpts {
@@ -262,6 +263,9 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
+
+  // ---------- CTKR Phase 1 tools ----------
+  registerCtkrTools(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

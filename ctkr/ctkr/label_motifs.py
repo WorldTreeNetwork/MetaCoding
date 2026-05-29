@@ -33,7 +33,7 @@ Owning bd issue: ``Orchestrators-zqt``.
 
 from __future__ import annotations
 
-import hashlib
+import blake3
 import json
 import logging
 from collections.abc import Iterable, Iterator
@@ -113,7 +113,7 @@ def pattern_id_for_motif(
     canon = json.dumps(
         ["motif", motif_id, prompt_version, llm_model], sort_keys=True
     ).encode("utf-8")
-    h = hashlib.blake2b(canon, digest_size=8).hexdigest()
+    h = blake3.blake3(canon).hexdigest(length=8)
     return f"{PATTERN_ID_PREFIX}:{motif_id}@{h}"
 
 

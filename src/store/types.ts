@@ -59,7 +59,20 @@ export type EdgeKind =
   | "CONTAINS"
   | "IMPORTS"
   | "ANNOTATES"
-  | "TYPE_OF";
+  | "TYPE_OF"
+  // Behavior-capturing edges added by bead MetaCoding-e54 to raise
+  // the typed-edge entropy above the 4.0-bit threshold for Phase 2a.
+  | "READS_FIELD"    // method/function → field (read access occurrence)
+  | "WRITES_FIELD"   // method/function → field (write access occurrence)
+  | "RETURNS_TYPE"   // function/method → type symbol (return-type relationship)
+  | "CONSTRUCTS";    // call-site method/function → constructor symbol
+
+/** Frozen runtime array of every EdgeKind string — single source of truth. */
+export const EDGE_KIND_VALUES = [
+  "CALLS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
+  "INJECTS", "CONTAINS", "IMPORTS", "ANNOTATES", "TYPE_OF",
+  "READS_FIELD", "WRITES_FIELD", "RETURNS_TYPE", "CONSTRUCTS",
+] as const satisfies readonly EdgeKind[];
 
 export interface Edge {
   src_id: string;

@@ -18,11 +18,17 @@ Embeddings deferred until a query comes up that the other four lanes can't answe
 
 ## Layout
 
+- [VISION.md](VISION.md) — the strategic layer: why MetaCoding exists, what "grokking code" means, the four-phase ladder.
+- [design/ct-pipeline.md](design/ct-pipeline.md) — the categorical analysis pipeline (Phase 1 → Phase 4) with CT references.
+- [design/ctkr.md](design/ctkr.md) — Category-Theoretic Knowledge Representation theoretics (Layer 0 → Layer 3).
+- [notes/](notes/) — working notes, design sessions, living roadmap material.
 - [research/paper-2601.08773v1.md](research/paper-2601.08773v1.md) — the 2026 paper that motivated this (deterministic AST graphs vs LLM-extracted KGs for code RAG), with critique.
 - [research/prior-art.md](research/prior-art.md) — Joern, ChrisRoyse/CodeGraph, quyen-ngv/source-atlas. What to steal, what to skip.
 - [design/architecture.md](design/architecture.md) — the five-lane stack and why each lane earns its slot.
 - [design/schema.md](design/schema.md) — graph node/edge schema (Joern CPG flattened) and FTS table.
 - [design/mcp-surface.md](design/mcp-surface.md) — concrete MCP tools.
+- [design/ctkr-artifacts.md](design/ctkr-artifacts.md) — L1 artifact schema (`.metacoding/ctkr/`).
+- [design/ctkr-l3-artifacts.md](design/ctkr-l3-artifacts.md) — L3 artifact schema (patterns + evidence).
 - [design/storage-integration.md](design/storage-integration.md) — ladybugdb + FTS5 wrapper patterns; Bun finalizer mitigation; storage-format compatibility (lessons from Dreamball's ADR).
 - [design/build-plan.md](design/build-plan.md) — MVP order of operations.
 

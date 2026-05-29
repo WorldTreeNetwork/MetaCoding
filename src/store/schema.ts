@@ -15,6 +15,11 @@ const PLAIN_EDGES: EdgeKind[] = [
   "IMPORTS",
   "ANNOTATES",
   "TYPE_OF",
+  // Behavior-capturing edges (bead MetaCoding-e54).
+  "READS_FIELD",
+  "WRITES_FIELD",
+  "RETURNS_TYPE",
+  "CONSTRUCTS",
 ];
 
 const COUNTED_EDGES: EdgeKind[] = ["CALLS", "REFERENCES"];

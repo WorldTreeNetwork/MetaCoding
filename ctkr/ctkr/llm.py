@@ -34,7 +34,7 @@ the parsed payload through ``schema.model_validate`` before returning.
 
 from __future__ import annotations
 
-import hashlib
+import blake3
 import json
 import logging
 import os
@@ -684,7 +684,7 @@ def _hash_prompt(
         sort_keys=True,
         ensure_ascii=False,
     ).encode("utf-8")
-    return hashlib.blake2b(canon, digest_size=16).hexdigest()
+    return blake3.blake3(canon).hexdigest(length=16)
 
 
 def _now() -> str:

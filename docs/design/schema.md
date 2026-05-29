@@ -45,7 +45,30 @@ CREATE REL TABLE CONTAINS      FROM Symbol TO Symbol;               -- file→cl
 CREATE REL TABLE IMPORTS       FROM Symbol TO Symbol;               -- file/module → file/module
 CREATE REL TABLE ANNOTATES     FROM Symbol TO Symbol;               -- annotation → annotated symbol
 CREATE REL TABLE TYPE_OF       FROM Symbol TO Symbol;               -- field/param → declared type
+
+-- Behavior-capturing edges (bead MetaCoding-e54).
+-- Purpose: raise the typed-edge Shannon entropy above the 4.0-bit Phase 2a
+-- threshold by discriminating accessor patterns that collapse under REFERENCES.
+CREATE REL TABLE READS_FIELD   FROM Symbol TO Symbol;               -- method/function reads a field
+CREATE REL TABLE WRITES_FIELD  FROM Symbol TO Symbol;               -- method/function writes a field
+CREATE REL TABLE RETURNS_TYPE  FROM Symbol TO Symbol;               -- function/method → its return type symbol
+CREATE REL TABLE CONSTRUCTS    FROM Symbol TO Symbol;               -- function/method instantiates a class
 ```
+
+**Behavior-capturing edge semantics (MetaCoding-e54).**
+
+| Edge | Source | Target | Extracted from |
+|------|--------|--------|---------------|
+| `READS_FIELD` | method / function | field | SCIP `ReadAccess` occurrence role |
+| `WRITES_FIELD` | method / function | field | SCIP `WriteAccess` occurrence role |
+| `RETURNS_TYPE` | method / function | type symbol | SCIP `is_type_definition` relationship on a callable |
+| `CONSTRUCTS` | method / function | class / constructor | SCIP occurrence targeting a constructor method (`constructor(+).`) or class type descriptor, without read/write roles |
+
+`READS_FIELD` and `WRITES_FIELD` replace the less discriminating `REFERENCES` edge for field-access occurrences.  Plain occurrences on fields (no role flags) still emit `REFERENCES` for backward compatibility.
+
+`RETURNS_TYPE` is emitted instead of `TYPE_OF` when the source symbol is a function or method.  `TYPE_OF` is reserved for field/parameter → declared-type relationships.
+
+`CONSTRUCTS` is emitted when an occurrence targets a constructor symbol (`constructor(+).` pattern in scip-typescript, `__init__().` in scip-python) or a bare class type symbol referenced without read/write roles.
 
 **Why aggregated CALLS counts and not per-callsite edges.** A `Logger` class can have 5,000 call sites; you don't want each as an edge. Aggregate per caller-symbol with a count and store callsite locations in a side table queryable by `(caller_id, callee_id)`.
 

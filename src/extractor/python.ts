@@ -143,6 +143,20 @@ function recognizeDeclaration(
       if (!name) return null;
       return { kind: insideClass ? "method" : "function", short: name.text };
     }
+    // Class-level annotated assignments are field declarations
+    // (bead MetaCoding-3s5: gives WRITES_FIELD a target to resolve).
+    // Pattern shape: `name: type = value` directly inside a class block.
+    // Tree-sitter exposes this as an `assignment` node whose `left` is an
+    // identifier AND there's a `type` field present.  We only recognise it
+    // when insideClass is true; module-level assignments aren't fields.
+    case "assignment": {
+      if (!insideClass) return null;
+      const left = node.childForFieldName("left");
+      if (!left || left.type !== "identifier") return null;
+      const type = node.childForFieldName("type");
+      if (!type) return null;
+      return { kind: "field", short: left.text };
+    }
     default:
       return null;
   }

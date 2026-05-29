@@ -1,5 +1,10 @@
 # CTKR — Category-Theoretic Knowledge Representation
 
+> **Companion docs.** This is the theoretics. For the strategic framing
+> see [`../VISION.md`](../VISION.md); for the phased build plan with
+> tool surface, CT references, and worked examples see
+> [`ct-pipeline.md`](./ct-pipeline.md).
+
 A research/design track layered on top of the MetaCoding graph. The core
 MetaCoding lanes give us a clean, queryable, cross-repo code-graph. CTKR
 asks the next question:
@@ -243,23 +248,24 @@ New MCP tools (proposed, not yet built):
 
 | Component                         | Status            | Effort           |
 | --------------------------------- | ----------------- | ---------------- |
-| Motif mining (Layer 1)            | Buildable now     | days             |
-| Graph embeddings (Layer 1)        | Buildable now     | days             |
-| Persistent homology (Layer 1)     | Buildable now     | days–weeks       |
-| Spectral / centrality (Layer 1)   | Buildable now     | hours            |
-| LLM enrichment loop (Layer 3)     | Buildable now     | days             |
-| Functor discovery (Layer 2)       | Research          | months           |
-| Yoneda role-identification        | Research          | months           |
-| Schema-colimit / Spivak-style     | Research          | months           |
-| Operadic composition mining       | Research          | months           |
-| MCP surface for CTKR              | Build after L1+L3 | days each        |
+| Motif mining (Layer 1)            | Built             | shipped          |
+| Graph embeddings (Layer 1)        | Built             | shipped          |
+| Persistent homology (Layer 1)     | Built             | shipped          |
+| Spectral / centrality (Layer 1)   | Built             | shipped          |
+| LLM enrichment loop (Layer 3)     | Built (motifs)    | shipped          |
+| MCP surface over L1 artifacts     | Phase 1           | days             |
+| Hom-profile / Yoneda role         | Phase 2a          | weeks            |
+| Functor discovery (Layer 2)       | Phase 2b          | weeks–months     |
+| Schema-colimit / Spivak-style     | Phase 2c          | months           |
+| Operadic composition mining       | Phase 2d          | months           |
+| Essence extraction (L2 ⊗ L3)      | Phase 3           | weeks            |
+| Multi-tier embeddings / incr.     | Phase 4           | weeks            |
 
-The high-leverage immediate path is **L1 + L3**: cheap structural
-techniques + LLM labeling. That alone produces an emergent pattern
-library for the indexed corpus, which is the no-top-down-ontology
-discovery the vision asks for. Layer 2 is what makes the same
-discoveries *exact, composable, and theoretically grounded* — worth
-pursuing once L1+L3 prove the corpus carries the signal.
+L1 + L3-for-motifs is shipped. The phased plan in
+[`ct-pipeline.md`](./ct-pipeline.md) carries it forward: Phase 1 makes
+the existing artifacts queryable, Phase 2 adds the categorical
+machinery proper, Phase 3 names what Phase 2 finds, Phase 4 makes the
+whole thing run continuously.
 
 ## Open questions
 
