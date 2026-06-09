@@ -277,18 +277,24 @@ function guessLanguageFromQn(qn: string): "ts" | "py" {
 }
 
 // Detect whether a SCIP symbol string refers to a constructor.
-// In scip-typescript, constructors appear as method descriptors whose
-// disambiguator is "+" (e.g., `... ClassName#`constructor`(+).`).
-// In scip-python, `__init__` methods serve as constructors.
+// In scip-typescript (v0.4.0), constructors appear as method descriptors with
+// the backtick-quoted, angle-bracketed name `<constructor>` and an empty
+// disambiguator (e.g., `... ClassName#`<constructor>`().`). Verified against
+// real scip-typescript output — see the "isConstructorSymbol" tests, which
+// assert the actual emitted symbol shape.
+// In scip-python (v0.6.6), `__init__` methods serve as constructors
+// (e.g., `... MyClass#__init__().`).
 // We also treat an occurrence whose *last meaningful descriptor* is a
 // `type` suffix (class definition symbol) as a CONSTRUCTS target — this
 // handles `new Foo()` resolved to the class symbol when no explicit
 // constructor is emitted.
 function isConstructorSymbol(scipSymbol: string): boolean {
   // Fast path: check common constructor patterns before full parse.
+  // The disambiguator is normally empty (`()`) but is matched permissively
+  // ([^)]*) in case scip-typescript emits one for overloaded constructors.
   if (
-    /`constructor`\(\+\)\./.test(scipSymbol) ||  // scip-typescript constructor
-    /__init__\(\)\./.test(scipSymbol)             // scip-python __init__
+    /`<constructor>`\([^)]*\)\./.test(scipSymbol) || // scip-typescript constructor
+    /__init__\([^)]*\)\./.test(scipSymbol)           // scip-python __init__
   ) {
     return true;
   }

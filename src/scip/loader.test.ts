@@ -133,8 +133,11 @@ const SCIP_FIELD    = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyC
 // We use the term form here so kindOf() maps to "function".
 const SCIP_FN       = "scip-typescript npm test-repo HEAD src/ `example.ts`/ myFunc.";
 const SCIP_TYPE     = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyType#";
-// Constructor uses backtick-quoted name and "+" disambiguator in scip-typescript.
-const SCIP_CTOR     = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyClass# `constructor`(+).";
+// Constructor symbol shape verified against real scip-typescript v0.4.0 output:
+// the name is backtick-quoted AND angle-bracketed (`<constructor>`) with an
+// empty disambiguator (`()`). See the "isConstructorSymbol (real scip shapes)"
+// regression tests below for the captured real-world strings.
+const SCIP_CTOR     = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyClass# `<constructor>`().";
 
 // Line 0–100 method body enclosing range.
 const METHOD_RANGE = [5, 0, 20, 1];
@@ -375,5 +378,69 @@ describe("CONSTRUCTS edge", () => {
     );
     expect(ctorEdges.length).toBeGreaterThan(0);
     expect(refEdges.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: isConstructorSymbol must match REAL scip-typescript / scip-python
+// output. The symbol strings below were captured by running the real indexers
+// (scip-typescript v0.4.0, scip-python v0.6.6) against a class with an explicit
+// constructor / __init__ and decoding the resulting index.scip. See bead
+// MetaCoding-gc5 item #8. The earlier fast-path regex required `` `constructor`(+). ``
+// which never appears in real output (the real name is `<constructor>` with an
+// empty disambiguator), so CONSTRUCTS detection relied entirely on the
+// structural class-symbol fallback. These tests pin the real shapes.
+// ---------------------------------------------------------------------------
+describe("isConstructorSymbol (real scip shapes)", () => {
+  // Exact strings emitted by the real indexers (spaces stripped between the
+  // file-path namespace and the type descriptor mirror real output; the
+  // synthetic SCIP_* constants above keep the space-padded form our parser
+  // also tolerates — both round-trip through parseScipSymbol identically).
+  const REAL_TS_CTOR =
+    "scip-typescript npm ctor-fixture 1.0.0 src/`example.ts`/MyClass#`<constructor>`().";
+  const REAL_TS_OVERLOADED_CTOR =
+    "scip-typescript npm ctor-fixture 1.0.0 src/`example.ts`/Multi#`<constructor>`().";
+  const REAL_PY_INIT =
+    "scip-python python py-fixture 1.0.0 example/MyClass#__init__().";
+  const REAL_TS_PLAIN_METHOD =
+    "scip-typescript npm ctor-fixture 1.0.0 src/`example.ts`/MyClass#getX().";
+
+  // We exercise isConstructorSymbol() through its only consumer (the CONSTRUCTS
+  // edge path) since it is module-private. A plain (no read/write role)
+  // occurrence of a constructor symbol enclosed by a function definition must
+  // produce a CONSTRUCTS edge; a plain occurrence of a non-constructor method
+  // must not.
+  async function constructsEdgesFor(refSymbol: string): Promise<StubEdge[]> {
+    const bytes = buildScipBytes([
+      { symbol: SCIP_FN, range: [0, 0, 25, 1], symbol_roles: scip.SymbolRole.Definition },
+      { symbol: refSymbol, range: [50, 0, 50, 30], symbol_roles: scip.SymbolRole.Definition },
+      {
+        symbol: refSymbol,
+        range: [10, 2, 10, 20],
+        enclosing_range: [0, 0, 25, 1],
+        symbol_roles: 0,
+      },
+    ]);
+    const { edges, store } = makeStubStore();
+    await withTmpScip(bytes, (p) => loadScip(store, p, OPTS));
+    return edges.filter((e) => e.kind === "CONSTRUCTS");
+  }
+
+  test("matches real scip-typescript `<constructor>`() symbol", async () => {
+    expect((await constructsEdgesFor(REAL_TS_CTOR)).length).toBeGreaterThan(0);
+  });
+
+  test("matches real scip-typescript overloaded constructor", async () => {
+    expect((await constructsEdgesFor(REAL_TS_OVERLOADED_CTOR)).length).toBeGreaterThan(0);
+  });
+
+  test("matches real scip-python __init__() symbol", async () => {
+    expect((await constructsEdgesFor(REAL_PY_INIT)).length).toBeGreaterThan(0);
+  });
+
+  test("rejects a plain (non-constructor) method symbol", async () => {
+    // getX() is a method whose last descriptor is `method`, not `type`, and the
+    // name is not a constructor — no CONSTRUCTS edge should be emitted.
+    expect((await constructsEdgesFor(REAL_TS_PLAIN_METHOD)).length).toBe(0);
   });
 });

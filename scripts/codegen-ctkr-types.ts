@@ -12,7 +12,7 @@
  *   bun run codegen:ctkr-types
  */
 
-import { $, file, write } from "bun";
+import { file, write } from "bun";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -40,10 +40,23 @@ const EMIT_SCRIPT = path.join(
 // Step 1: emit JSON schemas via Python
 // ---------------------------------------------------------------------------
 console.log("=== Step 1: emitting JSON schemas from pydantic models ===");
-const emitResult = await $`uv run python ${EMIT_SCRIPT} --out-dir ${SCHEMAS_DIR}`
+// Capture both streams and inspect the exit code rather than swallowing
+// stderr: a non-zero `uv` exit (missing pydantic, an import error in
+// schema.py, a broken venv) must fail this script loudly with the underlying
+// diagnostics, not silently emit zero schemas downstream. `.nothrow()` lets us
+// surface uv's stderr ourselves instead of a generic ShellError stack.
+const emitResult = await Bun.$`uv run python ${EMIT_SCRIPT} --out-dir ${SCHEMAS_DIR}`
   .cwd(path.join(REPO_ROOT, "ctkr"))
-  .text();
-process.stdout.write(emitResult);
+  .nothrow()
+  .quiet();
+process.stdout.write(emitResult.stdout.toString());
+if (emitResult.exitCode !== 0) {
+  process.stderr.write(emitResult.stderr.toString());
+  throw new Error(
+    `Step 1 failed: \`uv run python emit_json_schema.py\` exited with code ${emitResult.exitCode}. ` +
+      `See the uv/Python stderr above.`,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Step 2: run quicktype over each schema

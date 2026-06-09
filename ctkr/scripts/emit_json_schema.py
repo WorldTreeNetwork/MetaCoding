@@ -32,12 +32,12 @@ def _models_from_module(mod: object) -> list[tuple[str, type]]:
     """Return (name, cls) pairs for every pydantic BaseModel in *mod*."""
     from pydantic import BaseModel
 
-    return [
-        (name, cls)
-        for name in getattr(mod, "__all__", [])
-        if isinstance((cls := getattr(mod, name, None)), type)
-        and issubclass(cls, BaseModel)
-    ]
+    models: list[tuple[str, type]] = []
+    for name in getattr(mod, "__all__", []):
+        cls = getattr(mod, name, None)
+        if isinstance(cls, type) and issubclass(cls, BaseModel):
+            models.append((name, cls))
+    return models
 
 
 def main() -> None:
