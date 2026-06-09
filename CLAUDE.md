@@ -104,3 +104,74 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Agent workflows
+
+### Ralph / ultrawork + long-running subprocesses
+
+**Anti-pattern.** OMC's `ralph` and `ultrawork` skills are driven by a "boulder
+never stops" stop hook that fires on every assistant turn regardless of elapsed
+real time. When the actual blocker on progress is a long-running subprocess the
+harness cannot track (a `--scip` reindex, a multi-minute test suite, an
+external CI run, a remote queue), each boulder tick still demands a response —
+turning a genuine wait into a rapid poll loop that burns tokens without
+producing progress.
+
+Symptoms observed in the 2026-05-28 session:
+- Stop hook reinforces "continue working" while the only sensible action is
+  waiting for an out-of-band process.
+- Cancellation via `/oh-my-claudecode:cancel` clears state files but the hook
+  may keep firing for one or more turns from stale skill-active reinforcements.
+- The "skill-active" state file (`skill-active-state.json`) is the usual
+  culprit when the hook keeps firing after `state_clear` reports no state to
+  clear; clear it explicitly as the final step of any cancel.
+
+**Convention.** When task progress depends on a background subprocess the
+harness can't track:
+
+1. **Exit ralph/ultrawork explicitly** rather than emitting wait-loop
+   responses. Invoke `/oh-my-claudecode:cancel` and return control to the
+   user, who can re-invoke ralph after the subprocess finishes.
+2. **Don't sleep inside the loop** to mask the wait — that just delays the
+   same token-spending tick.
+3. **Use `run_in_background: true`** for any process that the harness *can*
+   track (Bun's tool will notify on completion); reserve cancel-and-resume
+   for genuinely external waits.
+4. **Always clear `skill-active` state** as the final step of any cancel —
+   `state_clear(mode="ralph")` does not clear it on its own.
+
+**Upstream issue (recommended follow-up).** The real fix lives in OMC's ralph
+skill: after N consecutive assistant turns with no tool calls or only
+status-check calls, exponentially back off the boulder cadence. Filing an
+issue against `oh-my-claudecode` is tracked separately — see bead
+`MetaCoding-4jw` for the discussion.
+
+### Reporting data-dir scope on artifact-producing tasks
+
+**Anti-pattern.** In the 2026-05-28 session, three executor agents reindexed
+into `/tmp` sandboxes (correctly, to avoid lock contention with the running
+`serve` process) but their summary reports said *"Reindex completed"* without
+surfacing that the data lived in `/tmp/metacoding-9le`, not the user's
+production `$ORCHESTRATORS_ROOT/.metacoding/`. The mismatch was caught only
+by checking file timestamps — one iteration away from compounding into wasted
+work against the wrong directory.
+
+**Convention.** When you are an agent (or delegating to an agent) on a task
+that produces or mutates data artifacts (graph stores, parquet files, indexes,
+caches, etc.), the final report MUST explicitly include:
+
+1. **The data-dir path of every artifact produced.** Absolute paths only;
+   `~` and `$VAR` expand differently in different shells.
+2. **Whether that path is the user's production location or a sandbox.**
+   Production = the path a downstream consumer (`serve`, MCP tools, the eval
+   harness) will read by default. Sandbox = anything else, including
+   `/tmp/*`, `/var/tmp/*`, scratch worktrees, or any path the user did not
+   ask for by name.
+3. **If sandbox: what was different about the run from a production reindex.**
+   A different `--scip` flag, a subset of repos, a different `--data-dir`,
+   skipped tokens, no commit-identity scoping — anything the user would need
+   to know before promoting the sandbox output to production.
+
+This applies even when the task is "successful" — the failure mode is silent
+ambiguity, not error. Default to over-reporting locations rather than
+under-reporting.
