@@ -59,6 +59,11 @@ metacoding index . --scip          # builds ./.metacoding/
 claude mcp add metacoding -- metacoding serve
 ```
 
+`--scip` needs no extra setup — the SCIP indexers ship bundled with
+metacoding. It adds the CALLS / REFERENCES / IMPLEMENTS edges that
+`graph_callers` / `graph_implementers` (and CTKR Phase 2+) depend on;
+without it you get a Tree-sitter-only graph.
+
 Equivalent hand-rolled `.mcp.json` (run from the indexed repo; `serve` defaults
 `--data-dir` to `./.metacoding` and `--workspace` to `.`):
 

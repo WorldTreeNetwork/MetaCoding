@@ -106,6 +106,10 @@ metacoding index . --scip                       # builds ./.metacoding/
 claude mcp add metacoding -- metacoding serve   # writes .mcp.json
 ```
 
+`--scip` needs no extra setup: the `@sourcegraph/scip-typescript` /
+`scip-python` indexers ship as dependencies, so a global install already
+has them. (To override with your own, `bun add -g` them onto PATH.)
+
 Equivalent hand-rolled `.mcp.json`:
 
 ```json
@@ -121,6 +125,24 @@ Equivalent hand-rolled `.mcp.json`:
 
 `metacoding serve` defaults `--data-dir` to `./.metacoding` and
 `--workspace` to `.`, which is what Claude Code launches it with.
+
+### Give Claude the `/metacoding` skill
+
+The MCP server exposes the tools; the bundled skill teaches an agent *when
+and how* to reach for them. Install it once per machine:
+
+```bash
+metacoding install-skill        # copies the skill into ~/.claude/skills/
+                                # (or --dir <path> for another harness)
+```
+
+Then restart Claude Code so `/metacoding` registers. Or install it as a
+plugin without a global binary:
+
+```
+/plugin marketplace add WorldTreeNetwork/MetaCoding
+/plugin install metacoding
+```
 
 ## Quick start
 
