@@ -10,14 +10,25 @@ description: >-
   cross-repo structural questions — instead of grepping blindly. Triggers:
   "who calls", "what implements", "graph", "callers", "same role",
   "role-equivalent", "metacoding", "ctkr", "across repos", "structural".
+version: 0.1.0
+author: identikey
+license: MIT
+metadata:
+  homepage: https://github.com/WorldTreeNetwork/MetaCoding
+  package: "@identikey/metacoding"
+  hermes:
+    tags: [code-graph, mcp, static-analysis, ctkr, navigation]
+    related_skills: [codebase-inspection]
 ---
 
 # Using the MetaCoding MCP
 
 MetaCoding indexes a codebase into a typed graph + FTS sidecar + (optionally)
 the CTKR cross-repo artifacts, and serves them read-only over MCP (server name
-`metacoding`, stdio). This skill is the decision layer: which tool to reach for,
-in what order, and the gotchas that make a tool return nothing.
+`metacoding`, stdio). This skill is the harness-agnostic decision layer: which
+tool to reach for, in what order, and the gotchas that make a tool return
+nothing. It assumes only that a `metacoding` MCP server is (or can be)
+connected — it does not assume you are inside the MetaCoding repo.
 
 **Read-only.** Nothing here mutates code or the graph. Tool outputs return
 symbol envelopes (`{id, qualified_name, file, line, kind}`) — fetch source with
@@ -30,11 +41,37 @@ live tool list with exact input schemas, plus the valid `edge_kinds` /
 `token_kinds`. The surface evolves; `describe_api` is authoritative (a drift
 guard keeps it in sync with the live registrations).
 
-If the `metacoding` MCP tools aren't connected, the server is launched as
-`metacoding serve --data-dir <repo>/.metacoding` (see repo README for the
-`mcpServers` entry). The `ctkr.*` tools additionally need
-`METACODING_CTKR_DATA_DIR` set in the server's environment — see CTKR gotchas
-below.
+### If the `metacoding` tools aren't connected
+
+The server ships on npm as `@identikey/metacoding` — no clone needed. Index a
+repo once, then serve it over MCP:
+
+```bash
+# Index (one-time; re-run or `metacoding watch` to keep fresh)
+bunx @identikey/metacoding index <repo> --data-dir <repo>/.metacoding
+
+# Serve over stdio — point the harness at this command
+bunx @identikey/metacoding serve --data-dir <repo>/.metacoding
+```
+
+Claude Code `mcpServers` entry (`.mcp.json` or settings):
+
+```json
+{
+  "mcpServers": {
+    "metacoding": {
+      "command": "bunx",
+      "args": ["@identikey/metacoding", "serve", "--data-dir", "/abs/path/.metacoding"],
+      "env": { "METACODING_CTKR_DATA_DIR": "/abs/path/.metacoding" }
+    }
+  }
+}
+```
+
+The `--data-dir` flag wires the graph + LSP + FTS tools. The `ctkr.*` tools
+resolve their artifacts separately from `METACODING_CTKR_DATA_DIR` (point it at
+a `.metacoding/` whose `ctkr/` dir is populated) — there is no implicit
+fallback, so set it in the server's `env` if you want the CTKR family.
 
 ## Tool-selection guide
 
@@ -105,7 +142,13 @@ Compose small tools; don't ask for a bespoke endpoint.
 
 ## Reference
 
-- Surface + input shapes: `docs/design/mcp-surface.md`
-- CTKR artifacts on disk: `docs/design/ctkr-artifacts.md`
-- CTKR vision / the four-phase ladder: `docs/design/ctkr.md`
-- Granularity-as-a-dial (why hom-profiles stay raw): `docs/notes/entropy-as-dial.md`
+Canonical docs live in the repo (`github.com/WorldTreeNetwork/MetaCoding`);
+these links resolve from anywhere, not just a local checkout:
+
+- Surface + input shapes: [`docs/design/mcp-surface.md`](https://github.com/WorldTreeNetwork/MetaCoding/blob/main/docs/design/mcp-surface.md)
+- CTKR artifacts on disk: [`docs/design/ctkr-artifacts.md`](https://github.com/WorldTreeNetwork/MetaCoding/blob/main/docs/design/ctkr-artifacts.md)
+- CTKR vision / the four-phase ladder: [`docs/design/ctkr.md`](https://github.com/WorldTreeNetwork/MetaCoding/blob/main/docs/design/ctkr.md)
+- Granularity-as-a-dial (why hom-profiles stay raw): [`docs/notes/entropy-as-dial.md`](https://github.com/WorldTreeNetwork/MetaCoding/blob/main/docs/notes/entropy-as-dial.md)
+
+When a local checkout *is* present, the same files are under `docs/` at the
+repo root.
