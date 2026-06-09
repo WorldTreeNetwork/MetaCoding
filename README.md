@@ -35,9 +35,11 @@ graph (the maintained Kùzu fork) plus a SQLite FTS5 sidecar. One process,
 two files on disk, no servers.
 
 The graph is exposed over **MCP** as a small typed surface
-(`graph_neighbors`, `graph_implementers`, `graph_callers`, `graph_path`,
-`code_search`, plus live `symbol_hover` / `symbol_diagnostics`). The
-agent composes — it doesn't author Cypher.
+(`graph_neighbors`, `graph_implementers`, `graph_callers`, `graph_diff`,
+`code_search`, plus live `lsp_hover` / `lsp_diagnostics`, and the
+`ctkr.*` categorical-knowledge tools — see
+[mcp-surface.md](docs/design/mcp-surface.md)). The agent composes — it
+doesn't author Cypher. Call `describe_api` to discover the live list.
 
 ## Status
 
@@ -49,8 +51,9 @@ gauntlet:
 - ladybugdb store with a single swap-boundary and the Bun finalizer
   mitigation lifted from Dreamball's spike (see
   [storage-integration.md](docs/design/storage-integration.md)).
-- MCP server (stdio transport) with seven graph tools and three live
-  LSP tools.
+- MCP server (stdio transport): seven core graph/FTS tools, four live
+  LSP tools, and six `ctkr.*` categorical-knowledge tools over the
+  cross-repo corpus artifacts.
 - Incremental re-indexing keyed on AST hash; file watcher; branch
   auto-detect.
 - `metacoding export` dumps the graph to JSONL for downstream analysis.
