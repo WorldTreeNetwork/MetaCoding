@@ -10,8 +10,9 @@
  *
  * Each handler opens a CtkrHandle, runs its query, and closes the handle.
  * The data dir is resolved from the METACODING_CTKR_DATA_DIR environment
- * variable (the path to .metacoding/); falls back to the Orchestrators corpus
- * at ~/projects/Orchestrators/.metacoding.
+ * variable (the path to .metacoding/). The variable is mandatory — there is
+ * no implicit corpus fallback. Tests that need a corpus read ORCHESTRATORS_ROOT
+ * (default ~/projects/Orchestrators) to locate one.
  *
  * server.ts calls registerCtkrTools(server) to wire these into the MCP server.
  */
@@ -62,6 +63,15 @@ export interface NearestSymbolRow {
   qualified_name: string;
   repo: string;
   distance: number;
+}
+
+/** KNN result row for ctkr.role_equivalent. */
+export interface RoleEquivalentRow {
+  symbol_id: string;
+  qualified_name: string;
+  repo: string;
+  /** Cosine distance over raw hom-profile vectors. Range [0, 1] (counts are non-negative). */
+  hom_profile_distance: number;
 }
 
 /** PatternRow with its evidence array attached. */
@@ -131,6 +141,14 @@ const CENTRALITY_QUERY_SCHEMA = {
   kind: z.string().optional(),
   top_k: z.number().int().min(1).max(10000).optional(),
   metric: z.enum(["pagerank", "betweenness", "eigenvector"]),
+};
+
+const ROLE_EQUIVALENT_SCHEMA = {
+  symbol_id: z.string().optional(),
+  qualified_name: z.string().optional(),
+  k: z.number().int().min(1).max(500).optional(),
+  scope: z.string().optional(),
+  cross_repo_only: z.boolean().optional(),
 };
 
 // ---------------------------------------------------------------------------
@@ -423,6 +441,55 @@ export async function centralityQuery(input: {
   }
 }
 
+export async function roleEquivalent(input: {
+  symbol_id?: string;
+  qualified_name?: string;
+  k?: number;
+  scope?: string;
+  cross_repo_only?: boolean;
+}): Promise<RoleEquivalentRow[]> {
+  if (!input.symbol_id && !input.qualified_name) {
+    throw new Error("Either symbol_id or qualified_name is required.");
+  }
+
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    const k = input.k ?? 10;
+
+    // Resolve seed to a symbol_id, optionally scoped to a single repo.
+    // qualified_name can be ambiguous across repos — scope disambiguates.
+    const seedRows = input.symbol_id !== undefined
+      ? await handle.homProfiles({
+          symbolIds: [input.symbol_id],
+          repo: input.scope,
+        })
+      : await handle.homProfiles({
+          qualifiedName: input.qualified_name,
+          repo: input.scope,
+        });
+
+    if (seedRows.length === 0) return [];
+    // If multiple rows match (qualified_name without scope), take the first;
+    // a caller who needs a specific one must pass scope or use symbol_id.
+    const seed = seedRows[0]!;
+
+    const knn = await handle.homProfilesKnn({
+      seedId: seed.symbol_id,
+      k,
+      differentRepoOnly: input.cross_repo_only,
+    });
+    return knn.map((r) => ({
+      symbol_id: r.symbol_id,
+      qualified_name: r.qualified_name,
+      repo: r.repo,
+      hom_profile_distance: r.distance,
+    }));
+  } finally {
+    await handle.close();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -520,6 +587,35 @@ export function registerCtkrTools(server: McpServer): void {
         k_nearest: args.k_nearest,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.role_equivalent",
+    {
+      description:
+        "Find symbols that play the same structural role as the seed, by " +
+        "cosine-distance KNN over hom-profile vectors from hom_profiles.parquet. " +
+        "The 'categorically honest' same-role query: matches are based on the " +
+        "shape of a symbol's typed-edge neighbourhood, independent of its name " +
+        "or its repo's naming conventions. Requires either symbol_id (16-char hash) " +
+        "or qualified_name. scope (optional) restricts the seed lookup to a single " +
+        "repo — useful when a qualified_name appears in multiple repos. " +
+        "cross_repo_only=true excludes neighbours in the seed's repo (Phase 2a's " +
+        "cross-repo role-equivalence predicate). v1 is brute-force DuckDB cosine; " +
+        "HNSW is a future optimisation. Returns at most k rows ordered by " +
+        "hom_profile_distance ascending (closest first).",
+      inputSchema: ROLE_EQUIVALENT_SCHEMA,
+    },
+    async (args) => {
+      const rows = await roleEquivalent({
+        symbol_id: args.symbol_id,
+        qualified_name: args.qualified_name,
+        k: args.k,
+        scope: args.scope,
+        cross_repo_only: args.cross_repo_only,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
 
