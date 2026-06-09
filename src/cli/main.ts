@@ -19,6 +19,7 @@ import { currentGitBranch } from "./branch";
 import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
 import { gatherIndexState, formatIndexState } from "../index-state";
+import { runDoctor } from "./doctor";
 
 /**
  * Run `git rev-parse HEAD` against `repoPath`.
@@ -73,6 +74,7 @@ Usage:
   metacoding status [path]     [--data-dir <dir>] [--workspace <path>] [--json]
   metacoding query <cypher>    [--data-dir <dir>]
   metacoding export <out-dir>  [--data-dir <dir>]
+  metacoding doctor
   metacoding install-skill     [--dir <skills-root>]
 
 Flags:
@@ -452,6 +454,8 @@ async function cmdInstallSkill(args: ParsedArgs): Promise<void> {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   switch (args.cmd) {
+    case "doctor":
+      return runDoctor(args);
     case "install-skill":
       return cmdInstallSkill(args);
     case "index":
