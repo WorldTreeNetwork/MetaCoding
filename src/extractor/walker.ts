@@ -166,14 +166,26 @@ export async function indexFile(
   // a resolver hydrated with this file's own symbols PLUS a best-effort lookup
   // against symbols already in the store for the same repo. Cross-file targets
   // from other-file writes/constructs are best resolved in the directory pass.
+  //
+  // Perf (MetaCoding-zq2): rather than materialize the ENTIRE per-repo symbol
+  // table on every single-file save, we run the extract pass FIRST to collect
+  // this file's edge candidates, then hydrate the resolver only for the
+  // `short_name`s those candidates can actually resolve against. A candidate
+  // whose target short_name is absent from the store can never resolve, so
+  // omitting it from the hydrate changes no edge — it's a pure scoping win.
   const resolver = new SymbolResolver();
-  await hydrateResolverFromStore(store, resolver, repo, branch);
   const pending: EdgeCandidate[] = [];
   const r = await indexOne(
     store, { abs, rel, grammar }, repo, branch,
     opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
     resolver, pending,
   );
+  // Hydrate only the short_names the pending candidates reference. Empty set
+  // (no behavior edges in this file) skips the store query entirely.
+  const neededNames = collectCandidateShortNames(pending);
+  if (neededNames.length > 0) {
+    await hydrateResolverFromStore(store, resolver, repo, branch, neededNames);
+  }
   const flushed = await flushCandidates(store, pending, resolver, repo);
   return { ...r, edges: r.edges + flushed };
 }
@@ -354,23 +366,43 @@ async function ensureBoundaryNode(
 }
 
 /**
+ * Collect the distinct target `short_name`s referenced by a batch of pending
+ * edge candidates. Used to scope the watch-mode resolver hydrate (MetaCoding-zq2)
+ * so we only pull store symbols that a candidate could actually resolve against.
+ */
+function collectCandidateShortNames(candidates: EdgeCandidate[]): string[] {
+  const names = new Set<string>();
+  for (const c of candidates) names.add(c.target.shortName);
+  return [...names];
+}
+
+/**
  * Populate a SymbolResolver from symbols already in the store for a given
  * (repo, branch). Used by single-file indexing (watch mode) so cross-file
  * targets from already-indexed files can still resolve.
+ *
+ * `names` scopes the hydrate to symbols whose `short_name` is in the list
+ * (MetaCoding-zq2 perf): materializing the full per-repo symbol table on every
+ * save is hundreds of ms + tens of MB for large repos, and only symbols whose
+ * short_name a pending candidate references can ever resolve anyway. Callers
+ * MUST pass a non-empty list — an empty list would match nothing, so skip the
+ * call entirely in that case.
  */
 async function hydrateResolverFromStore(
   store: Store,
   resolver: SymbolResolver,
   repo: string,
   branch: string,
+  names: string[],
 ): Promise<void> {
+  if (names.length === 0) return;
   type Row = { id: string; repo: string; kind: string; short_name: string; qualified_name: string };
   const rows = await store.query<Row>(
     `MATCH (s:Symbol)
-     WHERE s.repo = $repo AND s.branch = $branch
+     WHERE s.repo = $repo AND s.branch = $branch AND s.short_name IN $names
      RETURN s.id AS id, s.repo AS repo, s.kind AS kind,
             s.short_name AS short_name, s.qualified_name AS qualified_name`,
-    { repo, branch },
+    { repo, branch, names },
   );
   for (const r of rows) {
     resolver.add({
