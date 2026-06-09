@@ -62,7 +62,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function usage(): never {
-  console.error(`metacoding 0.1.3 — local-first code-graph DB
+  console.error(`metacoding 0.1.4 — local-first code-graph DB
 
 Usage:
   metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]

@@ -11,7 +11,7 @@
       "name": "metacoding",
       "source": "./",
       "description": "The /metacoding skill: how to drive the MetaCoding MCP server — typed graph navigation, FTS over the AST blind spots, live LSP, and the CTKR same-role / motif / structural-embedding tools. The server itself ships separately on npm as @identikey/metacoding.",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "category": "productivity",
       "homepage": "https://github.com/WorldTreeNetwork/MetaCoding",
       "keywords": [
@@ -26,5 +26,5 @@
       "license": "MIT"
     }
   ],
-  "version": "0.1.3"
+  "version": "0.1.4"
 }

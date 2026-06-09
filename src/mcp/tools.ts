@@ -485,7 +485,7 @@ export interface DescribeApiResult {
 export function describeApi(): DescribeApiResult {
   return {
     name: "metacoding",
-    version: "0.1.3",
+    version: "0.1.4",
     tools: TOOL_DESCRIPTIONS,
     schema: {
       edge_kinds: VALID_EDGE_KINDS as unknown as string[],
