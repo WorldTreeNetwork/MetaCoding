@@ -125,9 +125,10 @@ class User {
     const r = runTs(src);
     const edges = resolveAll(r);
     const w = edges.filter((e) => e.kind === "WRITES_FIELD");
-    // Two writes: this.box (sub of poke -> User.box won't trigger; the LHS is
-    // this.box.value where the OUTERMOST member expr is this.box.value with
-    // property "value"). So target = "value".
+    // `this.box.value = 1` is a single assignment. tsHandleAssignment keys on
+    // the LHS member_expression's `property`, which is the outermost property
+    // ("value"), so exactly one WRITES_FIELD edge is emitted, targeting the
+    // field "value". The intermediate `this.box` access is not itself a write.
     expect(w.length).toBeGreaterThan(0);
     const valueWrite = w.find((e) => e.dst_qn.endsWith("::value"));
     expect(valueWrite).toBeDefined();
@@ -189,6 +190,32 @@ class Builder {
     const c = edges.filter((e) => e.kind === "CONSTRUCTS");
     expect(c.length).toBeGreaterThan(0);
     expect(c.some((e) => e.src_qn.includes("build") && e.dst_qn.includes("::Foo"))).toBe(true);
+  });
+
+  test("new ns.Foo() captures the namespace qualifier as scopeQn (#4)", () => {
+    const src = `
+function make() {
+  return new ns.Foo();
+}`;
+    const r = runTs(src);
+    const c = r.candidates.filter((e) => e.kind === "CONSTRUCTS");
+    expect(c.length).toBeGreaterThan(0);
+    expect(c[0]!.target.shortName).toBe("Foo");
+    // The `ns` object segment is preserved so the resolver can disambiguate
+    // same-named classes in different namespaces.
+    expect(c[0]!.target.scopeQn).toBe("ns");
+  });
+
+  test("new a.b.Foo() captures the closest namespace segment (#4)", () => {
+    const src = `
+function make() {
+  return new a.b.Foo();
+}`;
+    const r = runTs(src);
+    const c = r.candidates.filter((e) => e.kind === "CONSTRUCTS");
+    expect(c.length).toBeGreaterThan(0);
+    expect(c[0]!.target.shortName).toBe("Foo");
+    expect(c[0]!.target.scopeQn).toBe("b");
   });
 });
 
@@ -643,5 +670,39 @@ describe("SymbolResolver", () => {
       { kinds: ["field"], shortName: "name", scopeQn: "f.ts::B" }, "repo",
     );
     expect(idB).toBe("id-B-name");
+  });
+
+  test("namespace qualifier disambiguates same-named classes (new ns.Foo())", () => {
+    const r = new SymbolResolver();
+    // Two classes named "Foo": one inside namespace `ns`, one top-level.
+    r.add({
+      id: "id-ns-Foo", kind: "class", language: "ts", repo: "repo",
+      qualified_name: "f.ts::ns::Foo", short_name: "Foo",
+      file: "f.ts", line: 0, col: 0, end_line: 0, end_col: 0,
+      signature: null, visibility: null, is_abstract: false, is_static: false,
+      ast_hash: null, branch: "main", source: "tree_sitter",
+    });
+    r.add({
+      id: "id-top-Foo", kind: "class", language: "ts", repo: "repo",
+      qualified_name: "f.ts::Foo", short_name: "Foo",
+      file: "f.ts", line: 0, col: 0, end_line: 0, end_col: 0,
+      signature: null, visibility: null, is_abstract: false, is_static: false,
+      ast_hash: null, branch: "main", source: "tree_sitter",
+    });
+    // `new ns.Foo()` carries scopeQn="ns" → prefer the namespaced class.
+    const idNs = r.resolve(
+      { kinds: ["class", "interface"], shortName: "Foo", scopeQn: "ns" }, "repo",
+    );
+    expect(idNs).toBe("id-ns-Foo");
+    // `new Foo()` (no qualifier) falls back to best-effort first match.
+    const idPlain = r.resolve(
+      { kinds: ["class", "interface"], shortName: "Foo" }, "repo",
+    );
+    expect(idPlain).toBe("id-ns-Foo");
+    // An unknown qualifier finds no namespaced match → best-effort first.
+    const idMiss = r.resolve(
+      { kinds: ["class", "interface"], shortName: "Foo", scopeQn: "other" }, "repo",
+    );
+    expect(idMiss).toBe("id-ns-Foo");
   });
 });

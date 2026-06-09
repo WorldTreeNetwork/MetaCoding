@@ -275,14 +275,31 @@ function tsHandleNew(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void
   const constructor = node.childForFieldName("constructor");
   if (!constructor) return;
   // `new Foo()` → constructor is identifier "Foo".
-  // `new ns.Foo()` → member_expression; take the property.
+  // `new ns.Foo()` → member_expression; take the property as the short name and
+  //   the object as a namespace/qualifier hint so the resolver can disambiguate
+  //   two classes that share a short_name in different namespaces (bead
+  //   MetaCoding-gc5 #4). Without the qualifier the edge target is just "Foo",
+  //   which resolves non-deterministically when multiple `Foo`s exist.
+  // `new ns.sub.Foo()` → nested member_expression; the innermost object segment
+  //   is the most specific namespace hint available.
   // `new Foo<T>()` → identifier "Foo".
   let shortName: string | null = null;
+  let scopeQn: string | undefined;
   if (constructor.type === "identifier") {
     shortName = constructor.text;
   } else if (constructor.type === "member_expression") {
     const prop = constructor.childForFieldName("property");
     if (prop?.type === "property_identifier") shortName = prop.text;
+    // Use the immediate object segment as a namespace qualifier hint. For
+    // `ns.Foo` the object is identifier "ns"; for `a.b.Foo` it is a nested
+    // member_expression whose trailing property ("b") is the closest qualifier.
+    const obj = constructor.childForFieldName("object");
+    if (obj?.type === "identifier") {
+      scopeQn = obj.text;
+    } else if (obj?.type === "member_expression") {
+      const objProp = obj.childForFieldName("property");
+      if (objProp?.type === "property_identifier") scopeQn = objProp.text;
+    }
   }
   if (!shortName) return;
 
@@ -296,7 +313,7 @@ function tsHandleNew(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void
   out.push({
     kind: "CONSTRUCTS",
     src_id: src.id,
-    target: { kinds: ["class", "interface"], shortName },
+    target: { kinds: ["class", "interface"], shortName, scopeQn },
   });
 }
 
@@ -590,6 +607,8 @@ const BUILTIN_TYPES = new Set([
   "Decimal", "Fraction",
   "Lock", "RLock", "Thread", "Event", "Condition", "Semaphore",
   "Pool", "Process", "Queue", "Manager",
+  // collections module factories — stdlib, not user classes
+  "Counter", "OrderedDict", "defaultdict", "deque", "ChainMap",
   // pydantic / dataclass-style framework primitives common in many repos
   "BaseModel", "Field", "dataclass",
 ]);
@@ -799,11 +818,18 @@ export class SymbolResolver {
       const bucket = this.byKindName.get(key);
       if (!bucket || bucket.length === 0) continue;
       if (target.scopeQn) {
-        // Prefer fields whose qualified_name starts with the class qn
-        // (the class extractor uses `${parentQn}::${short}` and fields
-        // are children of the class).
+        // (1) Full-prefix scope: prefer fields whose qualified_name starts with
+        // the class qn (the class extractor uses `${parentQn}::${short}` and
+        // fields are children of the class). Used by `this.field` writes/reads.
         const scoped = bucket.find((b) => b.qn.startsWith(target.scopeQn + "::"));
         if (scoped) return scoped.id;
+        // (2) Interior-segment scope: prefer a target whose qualified_name
+        // contains the qualifier as an enclosing namespace/module segment
+        // (`...::ns::Foo`). Used by `new ns.Foo()` to disambiguate same-named
+        // classes in different namespaces (bead MetaCoding-gc5 #4). Falls
+        // through to best-effort when no namespaced candidate exists.
+        const nsScoped = bucket.find((b) => b.qn.includes("::" + target.scopeQn + "::"));
+        if (nsScoped) return nsScoped.id;
       }
       // Single match → unambiguous; or first match (best-effort).
       return bucket[0]!.id;
