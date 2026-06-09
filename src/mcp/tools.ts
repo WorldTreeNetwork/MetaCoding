@@ -496,6 +496,19 @@ export function describeApi(): DescribeApiResult {
 
 // ---------- helpers ----------
 
+/**
+ * Resolve a symbol reference (id or qualified_name) to its canonical id.
+ *
+ * When `repo_commit_sha` is provided, resolution is scoped to that exact
+ * snapshot and is unambiguous.
+ *
+ * When `repo_commit_sha` is absent and the store was indexed with
+ * `--per-commit-identity`, multiple snapshots of the same logical symbol
+ * can coexist and the pick is **arbitrary**.  Callers operating against a
+ * per-commit-identity store SHOULD always pass `repo_commit_sha` to avoid
+ * silently returning the wrong snapshot.  A `console.warn` is emitted
+ * whenever the no-sha path encounters more than one candidate.
+ */
 async function resolveSymbol(
   store: Store,
   ref: string,
@@ -512,13 +525,19 @@ async function resolveSymbol(
     );
     return rows[0] ?? null;
   }
+  // Fetch up to 2 rows so we can detect ambiguity without a separate COUNT query.
   const rows = await store.query<{ id: string }>(
     `MATCH (s:Symbol)
      WHERE s.id = $ref OR s.qualified_name = $ref
      RETURN s.id AS id
-     LIMIT 1`,
+     LIMIT 2`,
     { ref },
   );
+  if (rows.length > 1) {
+    console.warn(
+      `metacoding: resolveSymbol("${ref}") matched multiple snapshots; picking arbitrarily — pass repo_commit_sha to disambiguate.`,
+    );
+  }
   return rows[0] ?? null;
 }
 
