@@ -353,8 +353,11 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
   const dataDir = await resolveDataDir(root, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? currentGitBranch(root);
   const repo = args.flags["repo"] ?? basename(root);
-  // Compute sha once at watch-start. Rows written during a watch session
-  // reflect the commit that was HEAD when watching began (acceptable for v0).
+  // MetaCoding-cx6: Per-commit-identity watch — re-read HEAD before each
+  // incremental event so every indexed file is stamped with the sha that was
+  // actually current at processing time, not the sha frozen at watch-start.
+  // When perCommitIdentity is false the refreshRepoCommitSha callback is
+  // omitted and the watcher behaves exactly as before (no-op refresh path).
   const repo_commit_sha = await getRepoCommitSha(root);
   const indexed_at = new Date().toISOString();
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
@@ -366,6 +369,9 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
     repo_commit_sha,
     indexed_at,
     perCommitIdentity,
+    ...(perCommitIdentity
+      ? { refreshRepoCommitSha: () => getRepoCommitSha(root) }
+      : {}),
     onProcessed: (event, path) => {
       const at = new Date().toISOString().slice(11, 19);
       console.log(`${at} ${event.padEnd(6)} ${path}`);

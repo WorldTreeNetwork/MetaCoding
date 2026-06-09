@@ -23,6 +23,14 @@ import { indexDirectory, indexFile, removeFile, type WalkOpts } from "./walker";
 export interface WatchOpts extends WalkOpts {
   /** Called every time a file event has been processed; useful for tests. */
   onProcessed?: (event: "change" | "add" | "unlink", relPath: string) => void;
+  /**
+   * MetaCoding-cx6: When `perCommitIdentity` is true, the sha frozen at
+   * watch-start becomes stale as soon as the user commits or checks out a
+   * different branch.  Supply this callback and the watcher will re-read HEAD
+   * before each incremental index so every event is stamped with the current
+   * sha rather than the start-time sha.
+   */
+  refreshRepoCommitSha?: () => Promise<string | null>;
 }
 
 export interface WatchHandle {
@@ -76,20 +84,30 @@ export async function watch(
     watcher.once("error", onError);
   });
 
+  // MetaCoding-cx6: helper that refreshes opts.repo_commit_sha from HEAD
+  // before each incremental event when perCommitIdentity is active.  The
+  // refresh is a no-op when the callback is absent (non-per-commit sessions).
+  const refreshSha = opts.refreshRepoCommitSha
+    ? async () => { opts.repo_commit_sha = await opts.refreshRepoCommitSha!(); }
+    : async () => {};
+
   watcher.on("change", (path: string) => {
     enqueue(async () => {
+      await refreshSha();
       await indexFile(store, root, path, opts);
       opts.onProcessed?.("change", path);
     });
   });
   watcher.on("add", (path: string) => {
     enqueue(async () => {
+      await refreshSha();
       await indexFile(store, root, path, opts);
       opts.onProcessed?.("add", path);
     });
   });
   watcher.on("unlink", (path: string) => {
     enqueue(async () => {
+      await refreshSha();
       await removeFile(store, root, path, opts);
       opts.onProcessed?.("unlink", path);
     });
