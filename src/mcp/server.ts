@@ -36,7 +36,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
   const lsp = new LspService({ rootDir: opts.workspace });
 
   const server = new McpServer(
-    { name: "metacoding", version: "0.1.2" },
+    { name: "metacoding", version: "0.1.3" },
     { capabilities: { tools: {} } },
   );
 

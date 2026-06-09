@@ -1,6 +1,6 @@
 {
   "name": "metacoding",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The /metacoding skill — the decision layer for driving the MetaCoding MCP server (graph nav, FTS, LSP, CTKR same-role queries). Install the server from npm: @identikey/metacoding.",
   "author": {
     "name": "identikey"

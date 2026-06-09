@@ -43,35 +43,52 @@ guard keeps it in sync with the live registrations).
 
 ### If the `metacoding` tools aren't connected
 
-The server ships on npm as `@identikey/metacoding` — no clone needed. Index a
-repo once, then serve it over MCP:
+The server ships on npm as `@identikey/metacoding`. It's a [Bun](https://bun.sh)
+program with a native graph engine, so install it **globally** — `bunx` does
+**not** work (it skips the `optionalDependencies` + lifecycle scripts that
+ladybugdb's native binary needs, giving `ERR_DLOPEN_FAILED`):
 
 ```bash
-# Index (one-time; re-run or `metacoding watch` to keep fresh)
-bunx @identikey/metacoding index <repo> --data-dir <repo>/.metacoding
+bun add -g @identikey/metacoding
+# if `metacoding` isn't on PATH: export PATH="$HOME/.cache/.bun/bin:$PATH"
 
-# Serve over stdio — point the harness at this command
-bunx @identikey/metacoding serve --data-dir <repo>/.metacoding
+# Index a repo once (re-run, or `metacoding watch .`, to keep it fresh)
+metacoding index . --scip          # builds ./.metacoding/
+
+# Register with Claude Code (writes .mcp.json):
+claude mcp add metacoding -- metacoding serve
 ```
 
-Claude Code `mcpServers` entry (`.mcp.json` or settings):
+Equivalent hand-rolled `.mcp.json` (run from the indexed repo; `serve` defaults
+`--data-dir` to `./.metacoding` and `--workspace` to `.`):
 
 ```json
 {
   "mcpServers": {
     "metacoding": {
-      "command": "bunx",
-      "args": ["@identikey/metacoding", "serve", "--data-dir", "/abs/path/.metacoding"],
-      "env": { "METACODING_CTKR_DATA_DIR": "/abs/path/.metacoding" }
+      "command": "metacoding",
+      "args": ["serve"]
     }
   }
 }
 ```
 
-The `--data-dir` flag wires the graph + LSP + FTS tools. The `ctkr.*` tools
-resolve their artifacts separately from `METACODING_CTKR_DATA_DIR` (point it at
-a `.metacoding/` whose `ctkr/` dir is populated) — there is no implicit
-fallback, so set it in the server's `env` if you want the CTKR family.
+That wires the graph + LSP + FTS tools. The `ctkr.*` tools resolve their
+artifacts separately from `METACODING_CTKR_DATA_DIR` — there is no implicit
+fallback, so to use the CTKR family, point it at a `.metacoding/` whose `ctkr/`
+dir is populated:
+
+```json
+{
+  "mcpServers": {
+    "metacoding": {
+      "command": "metacoding",
+      "args": ["serve", "--data-dir", "/abs/path/.metacoding"],
+      "env": { "METACODING_CTKR_DATA_DIR": "/abs/path/.metacoding" }
+    }
+  }
+}
+```
 
 ## Tool-selection guide
 

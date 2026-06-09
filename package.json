@@ -1,8 +1,7 @@
 {
   "name": "@identikey/metacoding",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A local-first code-graph for AI coding agents. SCIP + LSP + Tree-sitter + FTS5 into an embedded graph, served over MCP.",
-  "module": "src/cli/main.ts",
   "type": "module",
   "license": "MIT",
   "author": "identikey",
@@ -43,7 +42,7 @@
     "LICENSE"
   ],
   "bin": {
-    "metacoding": "src/cli/main.ts"
+    "metacoding": "src/cli/bin.ts"
   },
   "scripts": {
     "smoke": "bun run scripts/smoke-ladybug.ts && bun run scripts/smoke-store.ts && bun run scripts/smoke-extractor.ts && bun run scripts/smoke-mcp-tools.ts && bun run scripts/smoke-scip.ts && bun run scripts/smoke-lsp.ts && bun run scripts/smoke-incremental.ts && bun run scripts/smoke-python.ts && bun run scripts/smoke-multirepo.ts && bun run scripts/smoke-paths.ts && bun run scripts/smoke-commit-sha.ts && bun run scripts/smoke-worktree-branch.ts && bun run scripts/smoke-mcp-scope.ts && bun run scripts/smoke-fts-sha.ts && bun run scripts/smoke-per-commit-identity.ts && bun run scripts/smoke-graph-diff.ts && bun run scripts/smoke-data-dir.ts",
@@ -71,7 +70,8 @@
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
     "web-tree-sitter": "0.22.6",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^3.25.1"
   },
   "trustedDependencies": [
     "@ladybugdb/core"

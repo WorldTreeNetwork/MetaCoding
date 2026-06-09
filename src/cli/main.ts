@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
-// CLI entry point.
+// CLI entry point. Not the bin shim — see src/cli/bin.ts. Invoking this
+// file directly works in dev (where a local node_modules has the native
+// binary already linked) but bypasses the global-install fixup.
 //
 //   metacoding index <path> [--data-dir <dir>] [--branch <name>]
 //   metacoding serve [--data-dir <dir>]
@@ -60,7 +62,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function usage(): never {
-  console.error(`metacoding 0.1.2 — local-first code-graph DB
+  console.error(`metacoding 0.1.3 — local-first code-graph DB
 
 Usage:
   metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]
