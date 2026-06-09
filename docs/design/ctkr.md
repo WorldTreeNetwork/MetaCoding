@@ -303,8 +303,9 @@ whole thing run continuously.
 
 This document is the **vision and theoretics** for CTKR — no code
 written yet. The MetaCoding graph it depends on is built and indexed
-(the 59-repo orchestrator corpus, `~/projects/Orchestrators/.metacoding`,
-provides a real first testbed).
+(the 59-repo orchestrator corpus at `$ORCHESTRATORS_ROOT/.metacoding`,
+default `~/projects/Orchestrators/.metacoding`, provides a real first
+testbed).
 
 Next concrete step (when picked up): a small Python pipeline that
 reads the ladybugdb graph, computes node2vec embeddings + a frequent

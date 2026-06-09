@@ -1,8 +1,9 @@
 /**
  * Tests for src/mcp/ctkr-tools.ts — CTKR Phase 1 MCP tool handlers.
  *
- * Uses ~/projects/Orchestrators/.metacoding/ as test data.
- * All tests skip with a clear message if the directory is absent.
+ * Uses $ORCHESTRATORS_ROOT/.metacoding/ as test data when present (falling
+ * back to ~/projects/Orchestrators/.metacoding/ for backwards-compat).
+ * Tests skip with a clear message if the directory is absent.
  */
 
 import { expect, test, describe } from "bun:test";
@@ -15,10 +16,10 @@ import {
   centralityQuery,
 } from "./ctkr-tools.ts";
 
-const TEST_DATA_DIR = join(
-  process.env["HOME"] ?? "/home/dorje",
-  "projects/Orchestrators/.metacoding",
-);
+const ORCHESTRATORS_ROOT =
+  process.env["ORCHESTRATORS_ROOT"] ??
+  join(process.env["HOME"] ?? "/home/dorje", "projects/Orchestrators");
+const TEST_DATA_DIR = join(ORCHESTRATORS_ROOT, ".metacoding");
 
 const dataAvailable = await Bun.file(
   join(TEST_DATA_DIR, "ctkr/manifest.json"),

@@ -248,9 +248,25 @@ def test_search_tokens_smoke(tmp_path: Path) -> None:
     assert df_repo["repo"][0] == "cline"
 
 
+def _orchestrators_metacoding_dir() -> Path:
+    """Resolve ``$ORCHESTRATORS_ROOT/.metacoding`` with a backwards-compat
+    fallback to ``~/projects/Orchestrators/.metacoding`` for the original
+    dev's machine. Reads each invocation so the env var can change between
+    test runs without re-importing the module."""
+    import os
+
+    root = os.environ.get(
+        "ORCHESTRATORS_ROOT", str(Path.home() / "projects" / "Orchestrators")
+    )
+    return Path(root) / ".metacoding"
+
+
 @pytest.mark.skipif(
-    not Path("/home/dorje/projects/Orchestrators/.metacoding/ctkr/export/nodes.jsonl").exists(),
-    reason="real MetaCoding export not present; run `metacoding export` first.",
+    not (_orchestrators_metacoding_dir() / "ctkr" / "export" / "nodes.jsonl").exists(),
+    reason=(
+        "real MetaCoding export not present; run `metacoding export` first or "
+        "set ORCHESTRATORS_ROOT to point at a different corpus."
+    ),
 )
 def test_load_real_metacoding_export() -> None:
     """Acceptance test against the live MetaCoding corpus, when present.
@@ -259,7 +275,7 @@ def test_load_real_metacoding_export() -> None:
     that doesn't have the indexed data. When it IS present, sanity-checks
     the loaded graph against the expected ~300k-symbol shape.
     """
-    g = load_graph("/home/dorje/projects/Orchestrators/.metacoding")
+    g = load_graph(_orchestrators_metacoding_dir())
     s = graph_stats(g)
     assert s["n_nodes"] > 10_000  # the MetaCoding inspection reported ~300k
     assert s["n_repos"] > 5

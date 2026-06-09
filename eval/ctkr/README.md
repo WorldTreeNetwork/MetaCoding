@@ -39,7 +39,9 @@ clusters:
       ...
 ```
 
-**`repo`** is the directory name under `~/projects/Orchestrators/`.
+**`repo`** is the directory name under `$ORCHESTRATORS_ROOT/` (defaults to
+`~/projects/Orchestrators/`; set the env var to point harness + tests at a
+different corpus root).
 
 **`qualified_name`** follows the convention:
 

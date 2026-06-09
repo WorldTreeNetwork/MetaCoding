@@ -1,18 +1,20 @@
 /**
  * Tests for src/ctkr/artifacts.ts — CTKR Layer-1 artifact loader.
  *
- * Uses ~/projects/Orchestrators/.metacoding/ as test data if it exists.
- * All tests are skipped with a clear message if the directory is absent.
+ * Uses the Orchestrators corpus at $ORCHESTRATORS_ROOT/.metacoding/ as test
+ * data when present (falling back to ~/projects/Orchestrators/.metacoding/
+ * for backwards-compat with the original dev's machine). Tests skip with a
+ * clear message when the directory is absent.
  */
 
 import { expect, test, describe, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";
 import { openCtkrArtifacts, type CtkrHandle } from "./artifacts.ts";
 
-const TEST_DATA_DIR = join(
-  process.env["HOME"] ?? "/home/dorje",
-  "projects/Orchestrators/.metacoding",
-);
+const ORCHESTRATORS_ROOT =
+  process.env["ORCHESTRATORS_ROOT"] ??
+  join(process.env["HOME"] ?? "/home/dorje", "projects/Orchestrators");
+const TEST_DATA_DIR = join(ORCHESTRATORS_ROOT, ".metacoding");
 
 // Check once at module load time whether test data is available.
 const dataAvailable = await Bun.file(
