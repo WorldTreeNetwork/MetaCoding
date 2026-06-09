@@ -22,6 +22,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { openCtkrArtifacts } from "../ctkr/artifacts.ts";
 import { EDGE_KIND_VALUES } from "../store/types.ts";
+import type { ToolDescription } from "./tools.ts";
 import type {
   CentralityRow,
   EdgeKind,
@@ -495,8 +496,126 @@ export async function roleEquivalent(input: {
 // ---------------------------------------------------------------------------
 
 /**
- * Register all five CTKR Phase 1 tools on the given McpServer.
+ * Self-describe metadata for the CTKR tools, in the same shape as the core
+ * graph/LSP tools in tools.ts. Co-located with the registrations below so
+ * `describe_api` can never drift out of sync with what the server actually
+ * exposes — adding a tool here and in registerCtkrTools is one edit, two
+ * call sites in the same file. tools.ts splices this into TOOL_DESCRIPTIONS.
+ */
+export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
+  {
+    name: "ctkr.motif_search",
+    summary:
+      "Search frequent typed subgraphs (motifs) mined from the cross-repo corpus, " +
+      "optionally joined with L3 labels. Filter by min_support, edge_kinds, " +
+      "repo_coverage_min, or a label substring. Sorted by support descending.",
+    input_schema: {
+      type: "object",
+      properties: {
+        min_support: { type: "integer", minimum: 1, description: "Minimum occurrence count." },
+        edge_kinds: {
+          type: "array",
+          items: { type: "string", enum: EDGE_KIND_VALUES as unknown as string[] },
+          description: "Restrict to motifs containing these edge kinds.",
+        },
+        repo_coverage_min: { type: "integer", minimum: 1, description: "Min number of repos the motif spans." },
+        label: { type: "string", description: "L3 label substring filter." },
+        limit: { type: "integer", minimum: 1, maximum: 1000, default: 50 },
+      },
+    },
+  },
+  {
+    name: "ctkr.nearest_symbols",
+    summary:
+      "Find the k nearest symbols by structural embedding similarity (cosine). " +
+      "Requires either symbol_id or qualified_name. cross_repo_only excludes the " +
+      "seed's repo. embedding_kind defaults to 'structural'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol_id: { type: "string", description: "16-char hash. Provide this or qualified_name." },
+        qualified_name: { type: "string", description: "Provide this or symbol_id." },
+        k: { type: "integer", minimum: 1, maximum: 500, default: 10 },
+        cross_repo_only: { type: "boolean", default: false },
+        embedding_kind: { type: "string", default: "structural" },
+      },
+    },
+  },
+  {
+    name: "ctkr.pattern_search",
+    summary:
+      "Search L3-labeled structural patterns from patterns.jsonl with attached " +
+      "evidence. Filter by label substring, source_kind ('motif', 'role-cluster', " +
+      "'analogy'), min_confidence, or instances_in_repo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        label: { type: "string", description: "Label substring filter." },
+        source_kind: { type: "string", enum: ["motif", "role-cluster", "analogy"] },
+        min_confidence: { type: "number", minimum: 0, maximum: 1 },
+        instances_in_repo: { type: "string", description: "Restrict to patterns with evidence in this repo." },
+        limit: { type: "integer", minimum: 1, maximum: 1000, default: 50 },
+      },
+    },
+  },
+  {
+    name: "ctkr.shape_distance",
+    summary:
+      "Topological (bottleneck H₁ Wasserstein) distance between repos. Either " +
+      "repo_a + repo_b for a single value, or repo_a + k_nearest for the top-k " +
+      "closest repos. Distance -1 means the pair is absent from the artifact.",
+    input_schema: {
+      type: "object",
+      required: ["repo_a"],
+      properties: {
+        repo_a: { type: "string" },
+        repo_b: { type: "string", description: "Single-pair mode." },
+        k_nearest: { type: "integer", minimum: 1, maximum: 200, description: "Top-k mode." },
+      },
+    },
+  },
+  {
+    name: "ctkr.role_equivalent",
+    summary:
+      "Find symbols that play the same structural role as the seed, by cosine-KNN " +
+      "over hom-profile vectors. Matches on the shape of a symbol's typed-edge " +
+      "neighbourhood, independent of name or repo conventions. Requires symbol_id " +
+      "or qualified_name; scope disambiguates a name shared across repos; " +
+      "cross_repo_only drives the Phase 2a cross-repo predicate.",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol_id: { type: "string", description: "16-char hash. Provide this or qualified_name." },
+        qualified_name: { type: "string", description: "Provide this or symbol_id." },
+        k: { type: "integer", minimum: 1, maximum: 500, default: 10 },
+        scope: { type: "string", description: "Restrict the seed lookup to a single repo." },
+        cross_repo_only: { type: "boolean", default: false },
+      },
+    },
+  },
+  {
+    name: "ctkr.centrality_query",
+    summary:
+      "Per-symbol centrality scores (pagerank | betweenness | eigenvector) joined " +
+      "with spectral cluster assignments. Filter by repo or top_k; sorted by the " +
+      "chosen metric descending.",
+    input_schema: {
+      type: "object",
+      required: ["metric"],
+      properties: {
+        metric: { type: "string", enum: ["pagerank", "betweenness", "eigenvector"] },
+        repo: { type: "string" },
+        kind: { type: "string", description: "Accepted but not applied in v1." },
+        top_k: { type: "integer", minimum: 1, maximum: 10000 },
+      },
+    },
+  },
+];
+
+/**
+ * Register all six CTKR tools on the given McpServer.
  * Call this from server.ts after the existing graph tool registrations.
+ * Keep the registrations here in sync with CTKR_TOOL_DESCRIPTIONS above.
  */
 export function registerCtkrTools(server: McpServer): void {
   server.registerTool(

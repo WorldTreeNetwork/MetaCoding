@@ -5,6 +5,7 @@
 
 import type { Store } from "../store";
 import type { TokenKind, EdgeKind } from "../store/types";
+import { CTKR_TOOL_DESCRIPTIONS } from "./ctkr-tools";
 
 // ---------- shared envelopes ----------
 
@@ -461,6 +462,9 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
       },
     },
   },
+  // CTKR Phase 1+ tools, co-located with their registrations in ctkr-tools.ts
+  // so describe_api can't drift from the live surface.
+  ...CTKR_TOOL_DESCRIPTIONS,
   {
     name: "describe_api",
     summary: "Self-describe: returns this tool list with input schemas and usage examples.",
