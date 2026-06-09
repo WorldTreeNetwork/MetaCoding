@@ -23,14 +23,17 @@ export interface ArtifactManifest {
     embedding_dim?:      number | null;
     embeddings?:         boolean;
     generated_at:        string;
+    hom_profiles?:       boolean;
     metacoding_data_dir: string;
     motif_instances?:    boolean;
     motifs?:             boolean;
+    n_hom_profiles?:     number;
     n_motif_instances?:  number;
     n_motifs?:           number;
     n_symbols?:          number;
     nn_index?:           boolean;
     notes?:              null | string;
+    profile_vec_dim?:    number | null;
     schema_version?:     number;
     shape_pds?:          boolean;
     spectral_clusters?:  boolean;
@@ -102,6 +105,31 @@ export interface EvidenceRow {
 export interface LineRangeObject {
     end:   number;
     start: number;
+    [property: string]: any;
+}
+
+/**
+ * One symbol's hom-profile — raw integer edge counts by (kind, direction).
+ *
+ * Produced by L1 (``ctkr hom-profiles``, MetaCoding-23q.1). The vector
+ * is stored at **maximal precision** as unsigned integer counts (no
+ * L1-normalisation, no quantisation, no kinds_filter baked into the
+ * numbers). Per ``docs/notes/entropy-as-dial.md`` granularity is a
+ * caller-tunable knob, so downstream tools re-normalise / discretize
+ * at query time rather than the writer baking a choice into the bytes.
+ *
+ * Vector dimension is ``2 * len(EDGE_KINDS)`` from
+ * ``ctkr.graph_loader.EDGE_KINDS`` (currently 28). Ordering convention:
+ * for each ``ek in EDGE_KINDS``, the ``(ek, "in")`` slot precedes the
+ * ``(ek, "out")`` slot. The canonical ``_DIMS`` list in
+ * ``ctkr.hom_profiles`` is the single source of truth for the order.
+ */
+export interface HomProfileRow {
+    profile_vec:     number[];
+    qualified_name:  string;
+    repo:            string;
+    schema_version?: number;
+    symbol_id:       string;
     [property: string]: any;
 }
 
