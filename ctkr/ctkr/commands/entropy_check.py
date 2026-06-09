@@ -30,22 +30,18 @@ import collections
 import math
 import random
 import sys
-from pathlib import Path
 from typing import Any
 
 from ctkr.commands._common import add_common_flags, resolve_data_dir
 from ctkr.graph_loader import EDGE_KINDS, load_graph
+from ctkr.hom_profiles import DIM_IDX as _DIM_IDX
+from ctkr.hom_profiles import DIMS as _DIMS_TUPLE
+from ctkr.hom_profiles import NDIM as _NDIM
 
-
-# ── column ordering ──────────────────────────────────────────────────────────
-# Each hom-profile vector has 2 * len(EDGE_KINDS) dimensions.
-# Dimension order: (kind_0, "in"), (kind_0, "out"), (kind_1, "in"), ...
-_DIMS: list[tuple[str, str]] = []
-for _ek in EDGE_KINDS:
-    _DIMS.append((_ek, "in"))
-    _DIMS.append((_ek, "out"))
-_DIM_IDX: dict[tuple[str, str], int] = {d: i for i, d in enumerate(_DIMS)}
-_NDIM = len(_DIMS)
+# Re-bind to a list so existing iteration sites (and tests) read the same shape
+# they always did. The canonical ordering lives in ctkr.hom_profiles.DIMS so
+# entropy-check and the hom-profiles writer can never drift apart.
+_DIMS: list[tuple[str, str]] = list(_DIMS_TUPLE)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:

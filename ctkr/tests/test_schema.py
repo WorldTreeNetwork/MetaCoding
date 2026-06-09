@@ -17,6 +17,7 @@ import pytest
 
 from ctkr.schema import (
     EMBEDDINGS_COLUMNS,
+    HOM_PROFILES_COLUMNS,
     MOTIF_INSTANCES_COLUMNS,
     MOTIFS_COLUMNS,
     SCHEMA_VERSION,
@@ -24,6 +25,7 @@ from ctkr.schema import (
     WASSERSTEIN_H1_COLUMNS,
     ArtifactManifest,
     EmbeddingRow,
+    HomProfileRow,
     MotifInstanceRow,
     MotifRow,
     NNIndexMeta,
@@ -32,7 +34,6 @@ from ctkr.schema import (
 )
 from ctkr.schema_l3 import SCHEMA_VERSION as L3_SCHEMA_VERSION
 from ctkr.schema_l3 import EvidenceRow, LineRange, PatternRow
-
 
 # ----- L1 schema tests -----
 
@@ -185,6 +186,61 @@ def test_nn_index_meta_roundtrip(tmp_path: Path) -> None:
 def test_schema_version_is_int() -> None:
     assert isinstance(SCHEMA_VERSION, int)
     assert SCHEMA_VERSION >= 1
+
+
+def test_hom_profile_row_parquet_roundtrip(tmp_path: Path) -> None:
+    rows = [
+        HomProfileRow(
+            symbol_id="sym1",
+            repo="r",
+            qualified_name="foo.bar",
+            profile_vec=[0, 1, 2, 0, 5],
+        ),
+        HomProfileRow(
+            symbol_id="sym2",
+            repo="r",
+            qualified_name="foo.baz",
+            profile_vec=[3, 0, 0, 0, 7],
+        ),
+    ]
+    out = tmp_path / "hom_profiles.parquet"
+    df = pl.DataFrame([r.model_dump() for r in rows]).select(HOM_PROFILES_COLUMNS)
+    df.write_parquet(out)
+
+    back = pl.read_parquet(out)
+    assert back.columns == list(HOM_PROFILES_COLUMNS)
+    assert back.height == 2
+    for d in back.to_dicts():
+        HomProfileRow.model_validate(d)
+
+
+def test_hom_profile_row_rejects_negative_counts() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        HomProfileRow(
+            symbol_id="x",
+            repo="r",
+            qualified_name="q",
+            profile_vec=[0, -1, 0],
+        )
+
+
+def test_manifest_hom_profiles_flag_roundtrip() -> None:
+    m = ArtifactManifest(
+        generated_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+        metacoding_data_dir="/tmp/metacoding-scip",
+        hom_profiles=True,
+        n_hom_profiles=189_179,
+        profile_vec_dim=28,
+    )
+    back = ArtifactManifest.model_validate_json(m.model_dump_json())
+    assert back.hom_profiles is True
+    assert back.n_hom_profiles == 189_179
+    assert back.profile_vec_dim == 28
+    # Default zeros / falses on unrelated fields survive the round trip.
+    assert back.embeddings is False
+    assert back.n_motifs == 0
 
 
 # ----- L3 schema tests -----

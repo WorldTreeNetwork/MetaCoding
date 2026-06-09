@@ -38,7 +38,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, NonNegativeInt, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 
 SCHEMA_VERSION: int = 1
 
@@ -121,6 +121,30 @@ class ShapePDRow(BaseModel):
     dim: NonNegativeInt  # H_0, H_1, H_2 typically
     birth: list[float]
     death: list[float]
+    schema_version: int = SCHEMA_VERSION
+
+
+class HomProfileRow(BaseModel):
+    """One symbol's hom-profile — raw integer edge counts by (kind, direction).
+
+    Produced by L1 (``ctkr hom-profiles``, MetaCoding-23q.1). The vector
+    is stored at **maximal precision** as unsigned integer counts (no
+    L1-normalisation, no quantisation, no kinds_filter baked into the
+    numbers). Per ``docs/notes/entropy-as-dial.md`` granularity is a
+    caller-tunable knob, so downstream tools re-normalise / discretize
+    at query time rather than the writer baking a choice into the bytes.
+
+    Vector dimension is ``2 * len(EDGE_KINDS)`` from
+    ``ctkr.graph_loader.EDGE_KINDS`` (currently 28). Ordering convention:
+    for each ``ek in EDGE_KINDS``, the ``(ek, "in")`` slot precedes the
+    ``(ek, "out")`` slot. The canonical ``_DIMS`` list in
+    ``ctkr.hom_profiles`` is the single source of truth for the order.
+    """
+
+    symbol_id: str
+    repo: str
+    qualified_name: str
+    profile_vec: list[NonNegativeInt]
     schema_version: int = SCHEMA_VERSION
 
 
@@ -210,6 +234,13 @@ class ArtifactManifest(BaseModel):
     consult it before assuming an artifact exists.
     """
 
+    # ``extra="allow"`` so a manifest written by a future ctkr schema
+    # version (with unknown fields) round-trips through an older writer
+    # without those fields being silently dropped. Multiple writers
+    # share this file, so forward-compat preservation matters even
+    # within a single schema version.
+    model_config = ConfigDict(extra="allow")
+
     schema_version: int = SCHEMA_VERSION
     generated_at: datetime
     metacoding_data_dir: str  # absolute path to the .metacoding/ that fed us
@@ -221,10 +252,13 @@ class ArtifactManifest(BaseModel):
     centrality: bool = False
     spectral_clusters: bool = False
     nn_index: bool = False
+    hom_profiles: bool = False
     embedding_dim: int | None = None
+    profile_vec_dim: int | None = None
     n_symbols: NonNegativeInt = 0
     n_motifs: NonNegativeInt = 0
     n_motif_instances: NonNegativeInt = 0
+    n_hom_profiles: NonNegativeInt = 0
     notes: str | None = None
 
 
@@ -295,6 +329,14 @@ WASSERSTEIN_H1_COLUMNS: tuple[str, ...] = (
     "schema_version",
 )
 
+HOM_PROFILES_COLUMNS: tuple[str, ...] = (
+    "symbol_id",
+    "repo",
+    "qualified_name",
+    "profile_vec",
+    "schema_version",
+)
+
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -306,6 +348,7 @@ __all__ = [
     "WassersteinH1Row",
     "CentralityRow",
     "SpectralClusterRow",
+    "HomProfileRow",
     "NNIndexMeta",
     "ArtifactManifest",
     "EMBEDDINGS_COLUMNS",
@@ -315,4 +358,5 @@ __all__ = [
     "WASSERSTEIN_H1_COLUMNS",
     "CENTRALITY_COLUMNS",
     "SPECTRAL_CLUSTERS_COLUMNS",
+    "HOM_PROFILES_COLUMNS",
 ]

@@ -18,6 +18,7 @@ import type {
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
+  HomProfileRow,
   MotifInstanceRow,
   MotifRow,
   NNIndexMeta,
@@ -85,6 +86,50 @@ export interface CtkrHandle {
   }): Promise<CentralityRow[]>;
 
   spectralClusters(opts?: { repo?: string }): Promise<SpectralClusterRow[]>;
+
+  /**
+   * Reads rows from hom_profiles.parquet. Filters by symbol IDs and/or
+   * repo. Profiles come back at maximal precision (raw integer counts);
+   * callers re-normalise / discretize at query time via the helpers in
+   * ./homProfile.ts.
+   */
+  homProfiles(opts?: {
+    symbolIds?: string[];
+    repo?: string;
+    qualifiedName?: string;
+    limit?: number;
+  }): Promise<HomProfileRow[]>;
+
+  /**
+   * Look up a single hom-profile by symbol_id. Returns null when the
+   * symbol isn't in the artifact (e.g. it was filtered at write time
+   * via --kinds-filter).
+   */
+  homProfileBySymbolId(symbolId: string): Promise<HomProfileRow | null>;
+
+  /**
+   * K-nearest hom-profiles to ``seedId`` by cosine distance over the raw
+   * count vectors. v1 is a brute-force DuckDB scan via list_cosine_distance —
+   * adequate for the ~200k-symbol corpus; swap in HNSW later if needed.
+   *
+   * Returns at most k rows ordered by distance ascending (closest first).
+   * The seed row itself is excluded. Pass ``differentRepoOnly`` to restrict
+   * matches to a different repo from the seed — the cross-repo "same role"
+   * predicate Phase 2a is built on.
+   */
+  homProfilesKnn(opts: {
+    seedId: string;
+    k: number;
+    differentRepoOnly?: boolean;
+    sameRepoOnly?: boolean;
+  }): Promise<
+    Array<{
+      symbol_id: string;
+      qualified_name: string;
+      repo: string;
+      distance: number;
+    }>
+  >;
 
   /** L3 — reads from patterns.jsonl (not Parquet). */
   patterns(opts?: {
@@ -482,6 +527,128 @@ class CtkrHandleImpl implements CtkrHandle {
     return toObjects(result) as unknown as SpectralClusterRow[];
   }
 
+  async homProfiles(opts?: {
+    symbolIds?: string[];
+    repo?: string;
+    qualifiedName?: string;
+    limit?: number;
+  }): Promise<HomProfileRow[]> {
+    await this.requireArtifact("hom_profiles");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+
+    if (opts?.symbolIds !== undefined && opts.symbolIds.length > 0) {
+      const paramNames = opts.symbolIds.map((id, i) => {
+        const name = `sid${i}`;
+        params[name] = id;
+        return `$${name}`;
+      });
+      clauses.push(`symbol_id IN (${paramNames.join(", ")})`);
+    }
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.qualifiedName !== undefined) {
+      clauses.push(`qualified_name = $qualified_name`);
+      params["qualified_name"] = opts.qualifiedName;
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql = `SELECT * FROM read_parquet('${this.path("hom_profiles.parquet")}') ${where} ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as HomProfileRow[];
+  }
+
+  async homProfileBySymbolId(symbolId: string): Promise<HomProfileRow | null> {
+    const rows = await this.homProfiles({ symbolIds: [symbolId] });
+    return rows[0] ?? null;
+  }
+
+  async homProfilesKnn(opts: {
+    seedId: string;
+    k: number;
+    differentRepoOnly?: boolean;
+    sameRepoOnly?: boolean;
+  }): Promise<
+    Array<{
+      symbol_id: string;
+      qualified_name: string;
+      repo: string;
+      distance: number;
+    }>
+  > {
+    await this.requireArtifact("hom_profiles");
+    if (opts.differentRepoOnly && opts.sameRepoOnly) {
+      throw new Error(
+        "homProfilesKnn: differentRepoOnly and sameRepoOnly are mutually exclusive",
+      );
+    }
+
+    const parquetPath = this.path("hom_profiles.parquet");
+    // Pulling the seed row first lets us inline the vector literal in the
+    // outer scan — avoids DuckDB list-parameter encoding gymnastics and
+    // mirrors how nearestByVector handles its seed.
+    const seedSql =
+      `SELECT profile_vec, repo FROM read_parquet('${parquetPath}') ` +
+      `WHERE symbol_id = $seed_id LIMIT 1`;
+    const seedResult = await this.conn.runAndReadAll(seedSql, {
+      seed_id: opts.seedId,
+    });
+    const seedRows = seedResult.getRows();
+    if (seedRows.length === 0) {
+      throw new Error(
+        `homProfilesKnn: seed symbol_id "${opts.seedId}" not found in ${parquetPath}`,
+      );
+    }
+    const seedRow = seedRows[0]!;
+    const rawVec = coerceValue(seedRow[0]) as number[];
+    const seedRepo = seedRow[1] as string;
+    const vecLiteral = `[${rawVec.join(", ")}]::FLOAT[]`;
+
+    const params: Record<string, string> = { seed_id: opts.seedId };
+    const clauses = [`symbol_id != $seed_id`];
+    if (opts.differentRepoOnly) {
+      clauses.push(`repo != $seed_repo`);
+      params["seed_repo"] = seedRepo;
+    } else if (opts.sameRepoOnly) {
+      clauses.push(`repo = $seed_repo`);
+      params["seed_repo"] = seedRepo;
+    }
+
+    // DuckDB's list_cosine_distance requires both sides to be the same
+    // float type; cast UInt32 lists to FLOAT[] for the dot product.
+    const sql =
+      `SELECT symbol_id, qualified_name, repo, ` +
+      `list_cosine_distance(profile_vec::FLOAT[], ${vecLiteral}) AS distance ` +
+      `FROM read_parquet('${parquetPath}') ` +
+      `WHERE ${clauses.join(" AND ")} ` +
+      `ORDER BY distance ASC ` +
+      `LIMIT ${opts.k}`;
+
+    const result = await this.conn.runAndReadAll(sql, params);
+    const names = result.columnNames();
+    const rows = result.getRows();
+    return rows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      for (let i = 0; i < names.length; i++) {
+        const v = row[i];
+        obj[names[i]!] = typeof v === "bigint" ? Number(v) : v;
+      }
+      return {
+        symbol_id: obj["symbol_id"] as string,
+        qualified_name: obj["qualified_name"] as string,
+        repo: obj["repo"] as string,
+        distance: obj["distance"] as number,
+      };
+    });
+  }
+
   async patterns(opts?: {
     sourceKind?: string;
     minConfidence?: number;
@@ -560,6 +727,7 @@ export type {
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
+  HomProfileRow,
   MotifInstanceRow,
   MotifRow,
   NNIndexMeta,

@@ -131,6 +131,24 @@ export interface NNLabelRow {
 }
 
 /**
+ * One symbol's hom-profile — raw integer edge counts by (kind, direction).
+ * Mirrors HomProfileRow in schema.py (MetaCoding-23q.1).
+ *
+ * Counts are stored at maximal precision (UInt32 on disk). Callers re-
+ * normalise / discretize at query time — see docs/notes/entropy-as-dial.md.
+ * Dimension ordering: for each ek in EDGE_KINDS, (ek, "in") precedes
+ * (ek, "out"); see DIMS in ctkr/hom_profiles.py.
+ */
+export interface HomProfileRow {
+  symbol_id: string;
+  repo: string;
+  qualified_name: string;
+  /** Length = 2 * EDGE_KINDS (28 today). Integer counts, no normalisation. */
+  profile_vec: number[];
+  schema_version: number;
+}
+
+/**
  * Top-level presence manifest for .metacoding/ctkr/.
  * Mirrors ArtifactManifest in schema.py.
  */
@@ -146,11 +164,16 @@ export interface ArtifactManifest {
   centrality: boolean;
   spectral_clusters: boolean;
   nn_index: boolean;
+  hom_profiles: boolean;
   embedding_dim: number | null;
+  profile_vec_dim: number | null;
   n_symbols: number;
   n_motifs: number;
   n_motif_instances: number;
+  n_hom_profiles: number;
   notes: string | null;
+  /** Forward-compat: extra keys from future schema versions round-trip. */
+  [extra: string]: unknown;
 }
 
 // ---------------------------------------------------------------------------
