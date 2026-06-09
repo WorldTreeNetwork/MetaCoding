@@ -28,6 +28,28 @@ const PKG_FOR_BIN: Record<string, string> = {
   "scip-python": "@sourcegraph/scip-python",
 };
 
+/**
+ * Resolve a SCIP indexer binary, in priority order:
+ *   1. the target repo's own ./node_modules/.bin (a local dev-dep install),
+ *   2. metacoding's bundled copy (the @sourcegraph/scip-* packages are
+ *      dependencies, so a global `bun add -g @identikey/metacoding` ships
+ *      them — findPackageBin locates them in metacoding's node_modules),
+ *   3. anything on PATH.
+ * Returns the absolute path, or null if none of the three resolve.
+ *
+ * This is the single source of truth for "can we run SCIP?" — both runScip
+ * (execution) and the CLI's --scip auto-detect import it, so detection can
+ * never disagree with what actually runs.
+ */
+export function resolveScipBin(binary: string): string | null {
+  const cwdBin = join(process.cwd(), "node_modules", ".bin", binary);
+  if (existsSync(cwdBin)) return cwdBin;
+  const pkg = PKG_FOR_BIN[binary];
+  const pkgBin = pkg ? findPackageBin(pkg, binary) : null;
+  if (pkgBin) return pkgBin;
+  return Bun.which(binary);
+}
+
 export type ScipLanguage = "typescript" | "python";
 
 export interface RunScipOpts {
@@ -108,11 +130,7 @@ export async function runScip(opts: RunScipOpts): Promise<RunScipResult> {
   const outPath = resolve(opts.output ?? join(targetRepo, "index.scip"));
   const spec = INDEXERS[opts.language];
 
-  const cwdBin = join(process.cwd(), "node_modules", ".bin", spec.binary);
-  const pkgBin = PKG_FOR_BIN[spec.binary]
-    ? findPackageBin(PKG_FOR_BIN[spec.binary]!, spec.binary)
-    : null;
-  const bin = existsSync(cwdBin) ? cwdBin : (pkgBin ?? spec.binary);
+  const bin = resolveScipBin(spec.binary) ?? spec.binary;
   const args = spec.args(opts, outPath);
 
   const proc = Bun.spawn([bin, ...args], { stdout: "pipe", stderr: "pipe" });

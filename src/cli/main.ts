@@ -14,7 +14,7 @@ import { basename, join, resolve } from "node:path";
 import { Store } from "../store";
 import { indexDirectory, watch } from "../extractor";
 import { serveMcp } from "../mcp/server";
-import { runScip, loadScip, type ScipLanguage } from "../scip";
+import { runScip, loadScip, resolveScipBin, type ScipLanguage } from "../scip";
 import { currentGitBranch } from "./branch";
 import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
@@ -75,11 +75,13 @@ Usage:
 
 Flags:
   --scip [true|false]
-                Force SCIP indexers on or off. Default: auto-detect from
-                PATH. SCIP delivers CALLS / REFERENCES / IMPLEMENTS edges
-                (required for CTKR Phase 2+ categorical analysis); the
-                tree-sitter lane alone cannot populate them. Install via:
-                  npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python
+                Force SCIP indexers on or off. Default: auto-detect. SCIP
+                delivers CALLS / REFERENCES / IMPLEMENTS edges (required for
+                CTKR Phase 2+ categorical analysis); the tree-sitter lane
+                alone cannot populate them. The indexers ship bundled with
+                metacoding, so a normal install already has them. To override
+                with your own (e.g. on PATH for other tools):
+                  bun add -g @sourcegraph/scip-typescript @sourcegraph/scip-python
   --repo        repo identifier tagged onto every Symbol/edge/token
                 (defaults to the basename of the indexed path).
   --workspace   workspace root the LSP attaches to (defaults to cwd).
@@ -258,11 +260,12 @@ async function indexOneRepo(
 }
 
 function haveScipBinary(name: string): boolean {
-  // Mirrors src/scip/run.ts: try ./node_modules/.bin/<name> first, then PATH.
-  // This lets locally-installed @sourcegraph/scip-typescript count.
-  const localBin = join(process.cwd(), "node_modules", ".bin", name);
-  if (existsSync(localBin)) return true;
-  return Bun.which(name) !== null;
+  // Single source of truth shared with runScip: local repo dep, then
+  // metacoding's bundled @sourcegraph/scip-* copy, then PATH. Using the
+  // same resolver means --scip detection can't claim "missing" for a
+  // binary runScip would actually have found (e.g. the bundled one in a
+  // global `bun add -g @identikey/metacoding` install).
+  return resolveScipBin(name) !== null;
 }
 
 function haveScipBinaries(): { typescript: boolean; python: boolean; any: boolean } {
@@ -278,8 +281,9 @@ function resolveScipWanted(flag: string | undefined): boolean {
     if (!have.any) {
       console.error(
         "metacoding: --scip requested but neither scip-typescript nor " +
-          "scip-python is on PATH.\n" +
-          "  Install: npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python",
+          "scip-python could be resolved (bundled copy, local dep, or PATH).\n" +
+          "  They normally ship with metacoding; if missing, install via:\n" +
+          "    bun add -g @sourcegraph/scip-typescript @sourcegraph/scip-python",
       );
       process.exit(1);
     }
@@ -287,9 +291,10 @@ function resolveScipWanted(flag: string | undefined): boolean {
   }
   if (have.any) return true;
   console.warn(
-    "metacoding: SCIP indexers not detected on PATH — running tree-sitter only.\n" +
-      "  For full CALLS/REFERENCES/IMPLEMENTS edges (needed for CTKR Phase 2+), install:\n" +
-      "    npm i -g @sourcegraph/scip-typescript @sourcegraph/scip-python\n" +
+    "metacoding: SCIP indexers not detected — running tree-sitter only.\n" +
+      "  They normally ship bundled with metacoding; if missing, for full\n" +
+      "  CALLS/REFERENCES/IMPLEMENTS edges (needed for CTKR Phase 2+) install:\n" +
+      "    bun add -g @sourcegraph/scip-typescript @sourcegraph/scip-python\n" +
       "  Pass --scip false to suppress this warning.",
   );
   return false;
