@@ -1,0 +1,20 @@
+{
+  "name": "metacoding",
+  "version": "0.1.2",
+  "description": "The /metacoding skill — the decision layer for driving the MetaCoding MCP server (graph nav, FTS, LSP, CTKR same-role queries). Install the server from npm: @identikey/metacoding.",
+  "author": {
+    "name": "identikey"
+  },
+  "repository": "https://github.com/WorldTreeNetwork/MetaCoding",
+  "homepage": "https://github.com/WorldTreeNetwork/MetaCoding",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "code-graph",
+    "mcp",
+    "ctkr",
+    "static-analysis"
+  ],
+  "skills": "./.claude/skills/"
+}

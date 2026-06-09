@@ -5,7 +5,8 @@
 //   metacoding serve [--data-dir <dir>]
 //   metacoding query <cypher> [--data-dir <dir>]
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 import { Store } from "../store";
@@ -59,7 +60,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function usage(): never {
-  console.error(`metacoding 0.1.0 — local-first code-graph DB
+  console.error(`metacoding 0.1.2 — local-first code-graph DB
 
 Usage:
   metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]
@@ -68,6 +69,7 @@ Usage:
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
   metacoding query <cypher>    [--data-dir <dir>]
   metacoding export <out-dir>  [--data-dir <dir>]
+  metacoding install-skill     [--dir <skills-root>]
 
 Flags:
   --scip [true|false]
@@ -386,9 +388,38 @@ async function cmdExport(args: ParsedArgs): Promise<void> {
   console.log(JSON.stringify(r, null, 2));
 }
 
+async function cmdInstallSkill(args: ParsedArgs): Promise<void> {
+  // The /metacoding skill ships inside the package at
+  // .claude/skills/metacoding/. import.meta.dir is .../src/cli, so the
+  // package root is two levels up.
+  const src = resolve(import.meta.dir, "../../.claude/skills/metacoding");
+  if (!existsSync(join(src, "SKILL.md"))) {
+    console.error(`metacoding: skill source not found at ${src}`);
+    process.exit(1);
+  }
+  // Default target is the Claude Code personal skills dir; --dir lets you
+  // target any harness's skills root (e.g. a Hermes category dir).
+  const baseDir = args.flags["dir"] ?? join(homedir(), ".claude", "skills");
+  const dest = join(baseDir, "metacoding");
+  // If dest already resolves to src (e.g. a dev symlink into the repo), a
+  // recursive copy onto itself would throw — treat it as already installed.
+  if (existsSync(dest) && realpathSync(dest) === realpathSync(src)) {
+    console.log(`metacoding: /metacoding skill already present at ${dest}`);
+    return;
+  }
+  mkdirSync(baseDir, { recursive: true });
+  // Copy (not symlink): when run via `bunx`, src lives in a cache dir that
+  // may be pruned. A copy is self-contained; re-run install-skill to update.
+  cpSync(src, dest, { recursive: true });
+  console.log(`metacoding: installed /metacoding skill -> ${dest}`);
+  console.log("Reload skills (restart the agent) to pick it up.");
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   switch (args.cmd) {
+    case "install-skill":
+      return cmdInstallSkill(args);
     case "index":
       return cmdIndex(args);
     case "index-all":

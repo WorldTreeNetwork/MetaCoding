@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "metacoding",
+  "description": "MetaCoding — local-first code-graph + CTKR categorical knowledge for AI agents, served over MCP",
+  "owner": {
+    "name": "identikey",
+    "url": "https://github.com/WorldTreeNetwork"
+  },
+  "plugins": [
+    {
+      "name": "metacoding",
+      "source": "./",
+      "description": "The /metacoding skill: how to drive the MetaCoding MCP server — typed graph navigation, FTS over the AST blind spots, live LSP, and the CTKR same-role / motif / structural-embedding tools. The server itself ships separately on npm as @identikey/metacoding.",
+      "version": "0.1.2",
+      "category": "productivity",
+      "homepage": "https://github.com/WorldTreeNetwork/MetaCoding",
+      "keywords": [
+        "code-graph",
+        "mcp",
+        "ctkr",
+        "static-analysis",
+        "navigation",
+        "scip",
+        "lsp"
+      ],
+      "license": "MIT"
+    }
+  ],
+  "version": "0.1.2"
+}

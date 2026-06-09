@@ -1,6 +1,6 @@
 {
   "name": "@identikey/metacoding",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A local-first code-graph for AI coding agents. SCIP + LSP + Tree-sitter + FTS5 into an embedded graph, served over MCP.",
   "module": "src/cli/main.ts",
   "type": "module",
@@ -36,6 +36,8 @@
   },
   "files": [
     "src",
+    ".claude/skills",
+    ".claude-plugin",
     "tsconfig.json",
     "README.md",
     "LICENSE"
