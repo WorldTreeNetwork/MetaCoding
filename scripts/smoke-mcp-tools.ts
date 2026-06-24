@@ -30,11 +30,17 @@ async function main(): Promise<void> {
   try {
     await indexDirectory(store, "src");
 
-    // 1. describe_api returns all eleven tools (7 graph/text + 4 LSP).
+    // 1. describe_api returns all seventeen tools (7 graph/text + 4 LSP + 6 CTKR).
     const desc = describeApi();
     const names = desc.tools.map((t) => t.name).sort();
     const expected = [
       "code_search",
+      "ctkr.centrality_query",
+      "ctkr.motif_search",
+      "ctkr.nearest_symbols",
+      "ctkr.pattern_search",
+      "ctkr.role_equivalent",
+      "ctkr.shape_distance",
       "describe_api",
       "graph_callers",
       "graph_cypher",

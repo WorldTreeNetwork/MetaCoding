@@ -11,6 +11,56 @@ import { Database as SqliteDb } from "bun:sqlite";
 import { ensureGraphSchema, ensureFtsSchema } from "./schema";
 import type { Edge, Symbol, TokenRow } from "./types";
 
+/** One repo's slice of a store summary — counts + provenance, no git. */
+export interface RepoSnapshot {
+  repo: string;
+  repo_commit_sha: string | null;
+  indexed_at: string | null; // ISO-8601 string; stringified defensively
+  symbols: number;
+}
+
+/** A pure, git-free snapshot of what a store currently holds. */
+export interface StoreSummary {
+  dataDir: string;
+  symbols: number; // total Symbol node count
+  indexed: boolean; // symbols > 0
+  repos: RepoSnapshot[];
+}
+
+/**
+ * Coerce a ladybugdb temporal value (Date | {…} temporal | number | string |
+ * null) into an ISO-8601 string, or null. Never throws.
+ */
+function toIsoStringOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  try {
+    if (v instanceof Date) return v.toISOString();
+    if (typeof v === "number") return new Date(v).toISOString();
+    if (typeof v === "string") return v;
+    // Temporal-object shape (e.g. { year, month, day, ... }) or anything else:
+    // try Date(...) on its string form, else fall back to JSON/String.
+    const asDate = new Date(v as never);
+    if (!Number.isNaN(asDate.getTime())) return asDate.toISOString();
+    return String(v);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when an error from the ladybugdb/Connection constructor is the
+ * single-writer file-lock failure (another serve/watch holds the store).
+ */
+function isLockError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("lock") &&
+    (msg.includes("graph.lbug") ||
+      msg.includes("set lock") ||
+      msg.includes("could not set lock"))
+  );
+}
+
 export class Store {
   private constructor(
     private readonly graphDb: LbugDb,
@@ -24,14 +74,67 @@ export class Store {
     const graphPath = join(dataDir, "graph.lbug");
     const ftsPath = join(dataDir, "tokens.fts.sqlite");
 
-    const graphDb = new LbugDb(graphPath);
-    const graphConn = new Connection(graphDb);
+    let graphDb: LbugDb;
+    let graphConn: Connection;
+    try {
+      graphDb = new LbugDb(graphPath);
+      graphConn = new Connection(graphDb);
+    } catch (err) {
+      // ladybugdb is single-writer. A running `metacoding serve`/`watch`
+      // holds the store, so the constructor throws a raw lock IO error.
+      // Rethrow with an actionable message, preserving the original cause.
+      if (isLockError(err)) {
+        throw new Error(
+          `metacoding: store at ${dataDir} is locked by another process — ` +
+            `a 'metacoding serve' or 'watch' is probably running on this repo. ` +
+            `Stop it before indexing/querying.`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     const fts = new SqliteDb(ftsPath);
 
     await ensureGraphSchema(graphConn);
     ensureFtsSchema(fts);
 
     return new Store(graphDb, graphConn, fts, dataDir);
+  }
+
+  /**
+   * Pure store read: total Symbol count plus per-repo provenance. No git, no
+   * process spawning. The single source of truth for "is this graph indexed?".
+   */
+  async summary(): Promise<StoreSummary> {
+    const totalRows = await this.query<{ c: number | bigint }>(
+      `MATCH (n:Symbol) RETURN count(n) AS c`,
+    );
+    const symbols = Number(totalRows[0]?.c ?? 0);
+
+    const repoRows = await this.query<{
+      repo: string | null;
+      sha: string | null;
+      symbols: number | bigint;
+      indexed_at: unknown;
+    }>(
+      `MATCH (n:Symbol)
+       RETURN n.repo AS repo, n.repo_commit_sha AS sha,
+              count(n) AS symbols, max(n.indexed_at) AS indexed_at`,
+    );
+
+    const repos: RepoSnapshot[] = repoRows.map((r) => ({
+      repo: r.repo ?? "",
+      repo_commit_sha: r.sha ?? null,
+      indexed_at: toIsoStringOrNull(r.indexed_at),
+      symbols: Number(r.symbols ?? 0),
+    }));
+
+    return {
+      dataDir: this.dataDir,
+      symbols,
+      indexed: symbols > 0,
+      repos,
+    };
   }
 
   async close(): Promise<void> {

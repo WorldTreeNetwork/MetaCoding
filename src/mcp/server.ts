@@ -24,6 +24,7 @@ import {
   lspDiagnostics,
 } from "./lsp-tools";
 import { registerCtkrTools } from "./ctkr-tools";
+import { gatherIndexState, formatIndexState } from "../index-state";
 import type { EdgeKind, TokenKind } from "../store/types";
 
 export interface ServeOpts {
@@ -33,6 +34,16 @@ export interface ServeOpts {
 
 export async function serveMcp(opts: ServeOpts): Promise<void> {
   const store = await Store.open(opts.dataDir);
+
+  // Index-state observability. stdio transport reserves STDOUT for the JSON-RPC
+  // protocol, so every line here MUST go to STDERR — a stray stdout write
+  // corrupts the MCP stream.
+  const indexState = await gatherIndexState(store, opts.workspace);
+  console.error(`metacoding: serving data dir ${opts.dataDir}`);
+  if (!indexState.indexed) {
+    console.error(formatIndexState(indexState));
+  }
+
   const lsp = new LspService({ rootDir: opts.workspace });
 
   const server = new McpServer(
@@ -189,7 +200,9 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       inputSchema: {},
     },
     async () => {
-      return { content: [{ type: "text", text: JSON.stringify(describeApi(), null, 2) }] };
+      // Recompute fresh each call so the surface reflects edits since startup.
+      const state = await gatherIndexState(store, opts.workspace);
+      return { content: [{ type: "text", text: JSON.stringify(describeApi(state), null, 2) }] };
     },
   );
 

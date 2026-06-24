@@ -5,6 +5,7 @@
 
 import type { Store } from "../store";
 import type { TokenKind, EdgeKind } from "../store/types";
+import type { IndexState } from "../index-state";
 import { CTKR_TOOL_DESCRIPTIONS } from "./ctkr-tools";
 
 // ---------- shared envelopes ----------
@@ -480,10 +481,45 @@ export interface DescribeApiResult {
     edge_kinds: string[];
     token_kinds: string[];
   };
+  // Present only when serve passes live index state. Lets a harness see, in the
+  // same call it uses to discover the surface, whether the graph is indexed and
+  // fresh — so it doesn't trust empty graph results from an unindexed workspace.
+  index_state?: IndexState;
+  index_state_hint?: string;
 }
 
-export function describeApi(): DescribeApiResult {
-  return {
+/** Short 7-char sha for display, tolerant of null/short input. */
+function shortSha(sha: string | null): string {
+  if (!sha) return "(none)";
+  return sha.slice(0, 7);
+}
+
+/**
+ * Compact, single-line hint summarizing index health for a JSON field. Mirrors
+ * formatIndexState's three cases (not indexed / stale / healthy) but stays on
+ * one line so it reads well embedded in describe_api's JSON output.
+ */
+function indexStateHint(state: IndexState): string {
+  if (!state.indexed) {
+    return (
+      `⚠ This workspace is NOT indexed (0 symbols at ${state.dataDir}). ` +
+      "Graph tools (graph_callers, graph_implementers, graph_neighbors, code_search) " +
+      "will return empty results until you run: metacoding index . --scip"
+    );
+  }
+  const s = state.staleness;
+  if (s && (s.head_behind || s.dirty_files > 0)) {
+    return (
+      `⚠ Graph is stale: indexed ${shortSha(s.indexed_commit)} but HEAD is ` +
+      `${shortSha(s.current_commit)}, ${s.dirty_files} dirty file(s) — ` +
+      "prefer lsp_references / lsp_hover for files changed since indexing."
+    );
+  }
+  return `Indexed: ${state.symbols} symbols across ${state.repos.length} repo(s).`;
+}
+
+export function describeApi(indexState?: IndexState): DescribeApiResult {
+  const result: DescribeApiResult = {
     name: "metacoding",
     version: "0.1.4",
     tools: TOOL_DESCRIPTIONS,
@@ -492,6 +528,11 @@ export function describeApi(): DescribeApiResult {
       token_kinds: VALID_TOKEN_KINDS as unknown as string[],
     },
   };
+  if (indexState !== undefined) {
+    result.index_state = indexState;
+    result.index_state_hint = indexStateHint(indexState);
+  }
+  return result;
 }
 
 // ---------- helpers ----------

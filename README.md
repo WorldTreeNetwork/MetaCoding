@@ -102,7 +102,7 @@ export PATH="$HOME/.cache/.bun/bin:$PATH"   # add to ~/.zshrc / ~/.bashrc
 Wire it into Claude Code from inside a repo you've indexed:
 
 ```bash
-metacoding index . --scip                       # builds ./.metacoding/
+metacoding index . --scip                       # indexes into XDG data dir (~/.local/share/metacoding/<repo-id>/)
 claude mcp add metacoding -- metacoding serve   # writes .mcp.json
 ```
 
@@ -123,8 +123,10 @@ Equivalent hand-rolled `.mcp.json`:
 }
 ```
 
-`metacoding serve` defaults `--data-dir` to `./.metacoding` and
-`--workspace` to `.`, which is what Claude Code launches it with.
+`metacoding serve` resolves `--data-dir` using the same order as `index`:
+`--data-dir` flag first, then `./.metacoding/` if it already exists (legacy),
+then the XDG per-repo location (`~/.local/share/metacoding/<repo-id>/`).
+`--workspace` defaults to `.`.
 
 ### Give Claude the `/metacoding` skill
 
@@ -147,7 +149,7 @@ plugin without a global binary:
 ## Quick start
 
 ```bash
-# Index a codebase (writes to ./.metacoding/, adds SCIP resolved edges)
+# Index a codebase (writes to XDG data dir by default; adds SCIP resolved edges)
 metacoding index . --scip
 
 # Watch for changes (incremental re-index)
@@ -163,8 +165,14 @@ metacoding query 'MATCH (n:Symbol) RETURN count(n)'
 metacoding export ./out
 ```
 
-`--data-dir` defaults to `./.metacoding` and `--workspace` (for `serve`)
-to `.`. Pass them explicitly if you want the store somewhere else.
+Data dir resolution order: `--data-dir <path>` wins; then `./.metacoding/` if
+it already exists (legacy, keeps existing installs working); otherwise
+`$XDG_DATA_HOME/metacoding/<repo-id>/` (default
+`~/.local/share/metacoding/<repo-id>/`), where `<repo-id>` is a 12-char
+sha1 of `remote.origin.url` (or the repo toplevel for remotes-less repos),
+shared across all worktrees of the same project. `metacoding index` prints
+the resolved `dataDir` in its JSON output. `--workspace` (for `serve`)
+defaults to `.`.
 
 ### From a clone (hacking on MetaCoding itself)
 
