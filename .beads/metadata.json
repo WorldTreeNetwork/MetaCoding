@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "MetaCoding",
+  "project_id": "dd0083bd-4e3c-4f85-9e7c-0e4521f238ba"
+}
