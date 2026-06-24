@@ -18,6 +18,7 @@ import { runScip, loadScip, resolveScipBin, type ScipLanguage } from "../scip";
 import { currentGitBranch } from "./branch";
 import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
+import { gatherIndexState, formatIndexState } from "../index-state";
 
 /**
  * Run `git rev-parse HEAD` against `repoPath`.
@@ -69,6 +70,7 @@ Usage:
   metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip] [--per-commit-identity]
   metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--per-commit-identity]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
+  metacoding status [path]     [--data-dir <dir>] [--workspace <path>] [--json]
   metacoding query <cypher>    [--data-dir <dir>]
   metacoding export <out-dir>  [--data-dir <dir>]
   metacoding install-skill     [--dir <skills-root>]
@@ -101,7 +103,11 @@ Defaults:
   --workspace   .
 
 index-all walks every direct subdirectory of <parent> and runs 'index'
-for each, tagging --repo with the subdirectory's name.`);
+for each, tagging --repo with the subdirectory's name.
+
+status reports whether the workspace is indexed, the symbol count and
+per-repo breakdown, and staleness relative to HEAD (indexed commit vs
+current commit, dirty-file count). Use --json for machine-readable output.`);
   process.exit(2);
 }
 
@@ -330,6 +336,22 @@ function hasFileExt(dir: string, pattern: RegExp, maxDepth: number): boolean {
   return false;
 }
 
+async function cmdStatus(args: ParsedArgs): Promise<void> {
+  const workspace = resolve(args.flags["workspace"] ?? args.positional[0] ?? ".");
+  const dataDir = await resolveDataDir(workspace, args.flags["data-dir"]);
+  const store = await Store.open(dataDir);
+  try {
+    const state = await gatherIndexState(store, workspace);
+    if (args.flags["json"] === "true") {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(formatIndexState(state));
+    }
+  } finally {
+    await store.close();
+  }
+}
+
 async function cmdQuery(args: ParsedArgs): Promise<void> {
   const cypher = args.positional[0];
   if (!cypher) usage();
@@ -431,6 +453,8 @@ async function main(): Promise<void> {
       return cmdIndex(args);
     case "index-all":
       return cmdIndexAll(args);
+    case "status":
+      return cmdStatus(args);
     case "query":
       return cmdQuery(args);
     case "watch":

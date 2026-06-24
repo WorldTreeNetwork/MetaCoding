@@ -14,6 +14,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { describeApi } from "./tools.ts";
+import type { IndexState } from "../index-state.ts";
 
 const HERE = import.meta.dir;
 
@@ -54,4 +55,43 @@ test("describe_api exposes all six ctkr.* tools", () => {
   ]) {
     expect(described.has(name)).toBe(true);
   }
+});
+
+test("describe_api omits index_state when no state is passed (back-compat)", () => {
+  const result = describeApi();
+  expect(result.index_state).toBeUndefined();
+  expect(result.index_state_hint).toBeUndefined();
+});
+
+test("describe_api surfaces a NOT-indexed hint when the workspace is empty", () => {
+  const fakeState: IndexState = {
+    dataDir: "/tmp/x",
+    indexed: false,
+    symbols: 0,
+    repos: [],
+    staleness: null,
+  };
+  const result = describeApi(fakeState);
+  expect(result.index_state).toEqual(fakeState);
+  expect(result.index_state_hint).toContain("NOT indexed");
+  expect(result.index_state_hint).toContain("metacoding index . --scip");
+});
+
+test("describe_api surfaces a staleness hint when the graph is behind HEAD", () => {
+  const fakeState: IndexState = {
+    dataDir: "/tmp/x",
+    indexed: true,
+    symbols: 42,
+    repos: [],
+    staleness: {
+      indexed_commit: "aaaaaaaaaaaa",
+      current_commit: "bbbbbbbbbbbb",
+      head_behind: true,
+      dirty_files: 3,
+    },
+  };
+  const result = describeApi(fakeState);
+  expect(result.index_state).toEqual(fakeState);
+  expect(result.index_state_hint).toContain("stale");
+  expect(result.index_state_hint).toContain("lsp_references");
 });
