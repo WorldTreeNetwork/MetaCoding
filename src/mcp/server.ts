@@ -35,9 +35,40 @@ export interface ServeOpts {
 export async function serveMcp(opts: ServeOpts): Promise<void> {
   // Read-only: a serving process must coexist with a `metacoding index` running
   // on the same store (ladybugdb's lock excludes only other writers — see
-  // scripts/spike-lock.ts). The handle is snapshot-pinned at startup; picking up
-  // a later reindex without restart is the reopen-on-refresh follow-up.
-  const store = await Store.open(opts.dataDir, { readOnly: true });
+  // scripts/spike-lock.ts). A read-only handle is snapshot-pinned at open time
+  // (only a full reopen sees another process's commits — scripts/spike-refresh.ts),
+  // so we hold a MUTABLE handle and reopen it when the on-disk graph advances
+  // (see currentStore below). That lets serve pick up a completed reindex
+  // without a restart.
+  let store = await Store.open(opts.dataDir, { readOnly: true });
+  let storeGen = Store.generation(opts.dataDir);
+  let reopening: Promise<void> | null = null; // dedupe concurrent reopens
+
+  // Return the current read-only Store, reopening first if a writer has
+  // checkpointed since we last opened (graph.lbug mtime advanced). Concurrent
+  // callers share one reopen; the previous handle is closed only after a grace
+  // delay so in-flight calls holding it finish first (avoid use-after-close).
+  async function currentStore(): Promise<Store> {
+    const gen = Store.generation(opts.dataDir);
+    if (gen > storeGen && !reopening) {
+      reopening = (async () => {
+        const fresh = await Store.open(opts.dataDir, { readOnly: true });
+        const old = store;
+        store = fresh;
+        storeGen = gen;
+        setTimeout(() => {
+          void old.close().catch(() => {});
+        }, 5000);
+        console.error(
+          `metacoding: store advanced to generation ${gen} — reopened (read-only)`,
+        );
+      })().finally(() => {
+        reopening = null;
+      });
+    }
+    if (reopening) await reopening;
+    return store;
+  }
 
   // Index-state observability. stdio transport reserves STDOUT for the JSON-RPC
   // protocol, so every line here MUST go to STDERR — a stray stdout write
@@ -77,7 +108,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphCallers(store, args);
+      const rows = await graphCallers(await currentStore(), args);
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
@@ -96,7 +127,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphImplementers(store, args);
+      const rows = await graphImplementers(await currentStore(), args);
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
     },
   );
@@ -117,7 +148,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphNeighbors(store, {
+      const rows = await graphNeighbors(await currentStore(), {
         symbol: args.symbol,
         direction: args.direction,
         edge_kinds: args.edge_kinds as EdgeKind[] | undefined,
@@ -143,7 +174,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = codeSearch(store, {
+      const rows = codeSearch(await currentStore(), {
         query: args.query,
         kind: args.kind as TokenKind | undefined,
         limit: args.limit,
@@ -166,7 +197,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphCypher(store, {
+      const rows = await graphCypher(await currentStore(), {
         cypher: args.cypher,
         params: args.params,
         limit: args.limit,
@@ -191,7 +222,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const r = await graphDiff(store, args);
+      const r = await graphDiff(await currentStore(), args);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     },
   );
@@ -205,7 +236,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
     },
     async () => {
       // Recompute fresh each call so the surface reflects edits since startup.
-      const state = await gatherIndexState(store, opts.workspace);
+      const state = await gatherIndexState(await currentStore(), opts.workspace);
       return { content: [{ type: "text", text: JSON.stringify(describeApi(state), null, 2) }] };
     },
   );
