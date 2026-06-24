@@ -318,12 +318,33 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Graceful shutdown on signal — close Store and LSP before process exits.
+  // Graceful shutdown — close LSP (kills the typescript-language-server child)
+  // and the Store before the process exits.
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     try { await lsp.shutdown(); } catch {}
     try { await store.close(); } catch {}
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Exit when the MCP client disconnects (stdin EOF). Well-behaved clients send
+  // SIGTERM (handled above), but a client that just closes stdin would otherwise
+  // leave serve hanging: once an LSP tool has spawned typescript-language-server,
+  // that child keeps the event loop alive forever, and a later hard-kill orphans
+  // it. We tear down on stdin end/close, after a short grace so any already-
+  // queued responses flush first (the client has stopped sending, so nothing new
+  // arrives; an immediate exit here would truncate an in-flight reply the client
+  // may still be reading). SIGTERM stays the fast path.
+  let disconnecting = false;
+  const onDisconnect = () => {
+    if (disconnecting) return; // 'end' and 'close' can both fire
+    disconnecting = true;
+    setTimeout(() => { void shutdown(); }, 1000);
+  };
+  process.stdin.on("end", onDisconnect);
+  process.stdin.on("close", onDisconnect);
 }
