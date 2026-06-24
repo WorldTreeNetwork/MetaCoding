@@ -2,7 +2,7 @@
 // Per docs/design/storage-integration.md: this is the only module that
 // imports @ladybugdb/core or bun:sqlite. Everything else goes through Store.
 
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { Database as LbugDb, Connection } from "@ladybugdb/core";
@@ -73,8 +73,31 @@ export class Store {
   ) {}
 
   /**
+   * mtime (ms) of the on-disk graph file — a monotonic "generation" marker.
+   * 0 when the store doesn't exist yet. Cheap enough to stat per request, so
+   * a long-lived read-only reader (serve) can detect when a writer has
+   * checkpointed and reopen to advance past its snapshot.
+   */
+  static generation(dataDir: string): number {
+    try {
+      return statSync(join(dataDir, "graph.lbug")).mtimeMs;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Open the store. By default this is the single read-WRITE owner and takes
    * ladybugdb's exclusive lock (only one writer at a time).
+   *
+   * Checkpoint/visibility contract: the read-WRITE path relies on ladybugdb's
+   * default auto-checkpoint to flush committed data to graph.lbug. That flush
+   * is what lets independent readers observe indexing progress — both a
+   * read-only reopener (serve, via Store.generation + reopen-on-refresh) and
+   * fresh short-lived opens (query/status, which reopen every invocation). If
+   * staleness windows ever prove too long, explicit autoCheckpoint /
+   * checkpointThreshold tuning (ladybugdb SystemConfig) is the future lever;
+   * we intentionally do NOT tune it here today.
    *
    * Pass `{ readOnly: true }` for a reader (serve / query / status). ladybugdb's
    * exclusive lock excludes only OTHER WRITERS — a read-only handle coexists
