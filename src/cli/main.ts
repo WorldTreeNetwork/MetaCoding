@@ -339,7 +339,8 @@ function hasFileExt(dir: string, pattern: RegExp, maxDepth: number): boolean {
 async function cmdStatus(args: ParsedArgs): Promise<void> {
   const workspace = resolve(args.flags["workspace"] ?? args.positional[0] ?? ".");
   const dataDir = await resolveDataDir(workspace, args.flags["data-dir"]);
-  const store = await Store.open(dataDir);
+  // Read-only: status must work while an index is running on the same store.
+  const store = await Store.open(dataDir, { readOnly: true });
   try {
     const state = await gatherIndexState(store, workspace);
     if (args.flags["json"] === "true") {
@@ -357,7 +358,9 @@ async function cmdQuery(args: ParsedArgs): Promise<void> {
   if (!cypher) usage();
   const dataDir = await resolveDataDir(process.cwd(), args.flags["data-dir"]);
 
-  const store = await Store.open(dataDir);
+  // Read-only: a read query should never take the writer lock or block on a
+  // running index, and a fresh open reflects the latest checkpoint.
+  const store = await Store.open(dataDir, { readOnly: true });
   try {
     const rows = await store.query(cypher);
     console.log(JSON.stringify(rows, null, 2));

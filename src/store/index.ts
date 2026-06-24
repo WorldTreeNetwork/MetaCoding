@@ -2,7 +2,7 @@
 // Per docs/design/storage-integration.md: this is the only module that
 // imports @ladybugdb/core or bun:sqlite. Everything else goes through Store.
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { Database as LbugDb, Connection } from "@ladybugdb/core";
@@ -67,12 +67,35 @@ export class Store {
     private readonly graphConn: Connection,
     private readonly fts: SqliteDb,
     readonly dataDir: string,
+    /** True when opened read-only — coexists with a live writer (see
+     *  scripts/spike-lock.ts); writes will throw at the engine. */
+    readonly readOnly: boolean,
   ) {}
 
-  static async open(dataDir: string): Promise<Store> {
+  /**
+   * Open the store. By default this is the single read-WRITE owner and takes
+   * ladybugdb's exclusive lock (only one writer at a time).
+   *
+   * Pass `{ readOnly: true }` for a reader (serve / query / status). ladybugdb's
+   * exclusive lock excludes only OTHER WRITERS — a read-only handle coexists
+   * with a running `metacoding index` on the same dir, both directions (matrix
+   * proven in scripts/spike-lock.ts). A read-only handle is snapshot-pinned at
+   * open time: it sees the last checkpoint, and a full reopen is required to
+   * advance (scripts/spike-refresh.ts). Short-lived callers (query/status) get
+   * this for free by reopening each invocation; serve reflects its startup
+   * snapshot until restarted (reopen-on-refresh tracked separately).
+   */
+  static async open(
+    dataDir: string,
+    opts?: { readOnly?: boolean },
+  ): Promise<Store> {
     mkdirSync(dataDir, { recursive: true });
     const graphPath = join(dataDir, "graph.lbug");
     const ftsPath = join(dataDir, "tokens.fts.sqlite");
+
+    if (opts?.readOnly) {
+      return Store.openReadOnly(dataDir, graphPath, ftsPath);
+    }
 
     let graphDb: LbugDb;
     let graphConn: Connection;
@@ -98,7 +121,40 @@ export class Store {
     await ensureGraphSchema(graphConn);
     ensureFtsSchema(fts);
 
-    return new Store(graphDb, graphConn, fts, dataDir);
+    return new Store(graphDb, graphConn, fts, dataDir, false);
+  }
+
+  /**
+   * Read-only open. A read-only handle can't create schema, and neither
+   * ladybugdb nor SQLite can open a never-created store read-only — so if
+   * nothing has indexed this dir yet, bootstrap an empty schema once via a
+   * brief read-write open. We gate that bootstrap on the graph file's
+   * existence: a running indexer creates graph.lbug immediately, so an existing
+   * file means "attach read-only" (coexisting with the live writer) and we
+   * never contend for the write lock.
+   */
+  private static async openReadOnly(
+    dataDir: string,
+    graphPath: string,
+    ftsPath: string,
+  ): Promise<Store> {
+    if (!existsSync(graphPath) || !existsSync(ftsPath)) {
+      try {
+        const boot = await Store.open(dataDir); // RW create + ensure schema
+        await boot.close();
+      } catch (err) {
+        // If a writer is mid-create it holds the lock and the schema will
+        // exist momentarily; fall through to the read-only open. Any other
+        // failure is fatal.
+        if (!isLockError(err)) throw err;
+      }
+    }
+
+    const graphDb = new LbugDb(graphPath, undefined, undefined, true);
+    const graphConn = new Connection(graphDb);
+    const fts = new SqliteDb(ftsPath, { readonly: true });
+
+    return new Store(graphDb, graphConn, fts, dataDir, true);
   }
 
   /**

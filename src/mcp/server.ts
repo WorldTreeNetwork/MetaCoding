@@ -33,13 +33,17 @@ export interface ServeOpts {
 }
 
 export async function serveMcp(opts: ServeOpts): Promise<void> {
-  const store = await Store.open(opts.dataDir);
+  // Read-only: a serving process must coexist with a `metacoding index` running
+  // on the same store (ladybugdb's lock excludes only other writers — see
+  // scripts/spike-lock.ts). The handle is snapshot-pinned at startup; picking up
+  // a later reindex without restart is the reopen-on-refresh follow-up.
+  const store = await Store.open(opts.dataDir, { readOnly: true });
 
   // Index-state observability. stdio transport reserves STDOUT for the JSON-RPC
   // protocol, so every line here MUST go to STDERR — a stray stdout write
   // corrupts the MCP stream.
   const indexState = await gatherIndexState(store, opts.workspace);
-  console.error(`metacoding: serving data dir ${opts.dataDir}`);
+  console.error(`metacoding: serving data dir ${opts.dataDir} (read-only)`);
   if (!indexState.indexed) {
     console.error(formatIndexState(indexState));
   }
