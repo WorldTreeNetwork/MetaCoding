@@ -18,7 +18,7 @@ import {
   SymbolResolver,
   type EdgeCandidate,
 } from "./edges";
-import { fileContentHash } from "./identity";
+import { fileContentHash, symbolId } from "./identity";
 import { makeParser, type TsParser } from "./parser";
 import { extractTypeScript, type ExtractOpts as TsExtractOpts } from "./typescript";
 import { extractPython, type ExtractPyOpts } from "./python";
@@ -255,20 +255,15 @@ async function indexOne(
   // Targets are resolved later (end of directory walk) when all repo symbols
   // are in the index — supports cross-file `new Foo()` etc.
   //
-  // PHP is registered in the resolver (so ts/py candidates can resolve into
-  // PHP symbols by name) but has no behavior-edge extractor of its own yet —
-  // extractEdgeCandidates only understands "ts"/"py", so we skip the pass.
   if (resolver && pendingCandidates) {
     for (const sym of result.symbols) resolver.add(sym);
-    if (f.grammar !== "php") {
-      const edgeLang = f.grammar === "python" ? "py" : "ts";
-      const er = extractEdgeCandidates(tree, {
-        language: edgeLang,
-        filePath: f.rel,
-        symbols: result.symbols,
-      });
-      for (const c of er.candidates) pendingCandidates.push(c);
-    }
+    const edgeLang = f.grammar === "python" ? "py" : f.grammar === "php" ? "php" : "ts";
+    const er = extractEdgeCandidates(tree, {
+      language: edgeLang,
+      filePath: f.rel,
+      symbols: result.symbols,
+    });
+    for (const c of er.candidates) pendingCandidates.push(c);
   }
 
   tree.delete();
@@ -294,9 +289,18 @@ async function flushCandidates(
 ): Promise<number> {
   if (candidates.length === 0) return 0;
   const dedupe = new Set<string>();
+  const boundaryUpserted = new Set<string>();
   let flushed = 0;
   for (const c of candidates) {
-    const dst = resolver.resolve(c.target, repo);
+    let dst = resolver.resolve(c.target, repo);
+    if (!dst && c.target.externalFallback) {
+      // No in-repo definition — keep the edge by pointing at a name-keyed
+      // boundary node (e.g. Drupal's ContentEntityBase). All references to the
+      // same name collapse to one node, which is exactly the role-cluster
+      // signal we want. Boundary nodes use language "external" so their ids
+      // never collide with real symbols. bead MetaCoding-1xd.
+      dst = await ensureBoundaryNode(store, repo, c.target, boundaryUpserted);
+    }
     if (!dst) continue;
     if (dst === c.src_id) continue;   // self-edges are noise
     const key = `${c.kind}|${c.src_id}|${dst}`;
@@ -307,6 +311,46 @@ async function flushCandidates(
     flushed++;
   }
   return flushed;
+}
+
+/**
+ * Ensure a name-keyed boundary Symbol exists for an unresolved external target
+ * (e.g. a base class defined outside the repo) and return its id. Idempotent
+ * within a flush via `seen`; upsertSymbol is itself a MERGE so repeated calls
+ * across flushes are harmless. Boundary nodes use language "external" and carry
+ * no file/position — they exist only as shared edge targets. bead MetaCoding-1xd.
+ */
+async function ensureBoundaryNode(
+  store: Store,
+  repo: string,
+  target: { kinds: string[]; shortName: string },
+  seen: Set<string>,
+): Promise<string> {
+  const qn = `external::${target.shortName}`;
+  const id = symbolId("external", repo, qn);
+  if (seen.has(id)) return id;
+  seen.add(id);
+  const sym: Symbol = {
+    id,
+    kind: (target.kinds[0] as Symbol["kind"]) ?? "class",
+    language: "external",
+    repo,
+    qualified_name: qn,
+    short_name: target.shortName,
+    file: "",
+    line: 0, col: 0, end_line: 0, end_col: 0,
+    signature: null,
+    visibility: null,
+    is_abstract: false,
+    is_static: false,
+    ast_hash: null,
+    branch: "",
+    source: "tree_sitter",
+    repo_commit_sha: null,
+    indexed_at: null,
+  };
+  await store.upsertSymbol(sym);
+  return id;
 }
 
 /**

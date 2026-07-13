@@ -788,3 +788,61 @@ describe("SymbolResolver", () => {
     expect(idB).toBe("id-B-name");
   });
 });
+
+// ---------------------------------------------------------------------------
+// PHP inheritance edges (bead MetaCoding-1xd): EXTENDS / IMPLEMENTS / USES_TRAIT
+// ---------------------------------------------------------------------------
+import { extractPhp } from "./php";
+
+describe("PHP inheritance edge candidates", () => {
+  let phpParser: TsParser;
+  beforeAll(async () => { phpParser = await makeParser("php"); });
+
+  function candidates(src: string) {
+    const tree = phpParser.parse(src)!;
+    const ex = extractPhp(tree, { filePath: "src/A.php", branch: "main", repo: "r" });
+    const er = extractEdgeCandidates(tree, { language: "php", filePath: "src/A.php", symbols: ex.symbols });
+    tree.delete();
+    return { candidates: er.candidates, symbols: ex.symbols };
+  }
+
+  const SRC = `<?php
+namespace Drupal\\asset\\Entity;
+class Asset extends ContentEntityBase implements AssetInterface, EntityOwnerInterface {
+    use EntityChangedTrait;
+    use StringTranslationTrait;
+}
+interface AssetInterface extends EntityInterface, EntityChangedInterface {}
+`;
+
+  test("emits EXTENDS to the base class (external boundary)", () => {
+    const { candidates: cs } = candidates(SRC);
+    const ext = cs.filter((c) => c.kind === "EXTENDS").map((c) => c.target.shortName);
+    expect(ext).toContain("ContentEntityBase");       // class extends
+    expect(ext).toContain("EntityInterface");          // interface extends
+    expect(ext).toContain("EntityChangedInterface");
+    for (const c of cs.filter((c) => c.kind === "EXTENDS")) {
+      expect(c.target.externalFallback).toBe(true);
+    }
+  });
+
+  test("emits IMPLEMENTS for each interface", () => {
+    const { candidates: cs } = candidates(SRC);
+    const impl = cs.filter((c) => c.kind === "IMPLEMENTS").map((c) => c.target.shortName).sort();
+    expect(impl).toEqual(["AssetInterface", "EntityOwnerInterface"]);
+  });
+
+  test("emits USES_TRAIT for each trait", () => {
+    const { candidates: cs } = candidates(SRC);
+    const traits = cs.filter((c) => c.kind === "USES_TRAIT").map((c) => c.target.shortName).sort();
+    expect(traits).toEqual(["EntityChangedTrait", "StringTranslationTrait"]);
+  });
+
+  test("src of each edge is the declaring type symbol", () => {
+    const { candidates: cs, symbols } = candidates(SRC);
+    const asset = symbols.find((s) => s.short_name === "Asset")!;
+    const assetEdges = cs.filter((c) => c.src_id === asset.id);
+    // Asset has: 1 extends + 2 implements + 2 traits = 5 candidates.
+    expect(assetEdges.length).toBe(5);
+  });
+});

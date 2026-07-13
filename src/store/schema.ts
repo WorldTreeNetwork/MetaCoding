@@ -22,6 +22,8 @@ const PLAIN_EDGES: EdgeKind[] = [
   "CONSTRUCTS",
   // Exception-flow edge (bead MetaCoding-ijo).
   "RAISES",
+  // PHP trait usage (bead MetaCoding-1xd).
+  "USES_TRAIT",
 ];
 
 const COUNTED_EDGES: EdgeKind[] = ["CALLS", "REFERENCES"];

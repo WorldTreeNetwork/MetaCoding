@@ -67,14 +67,17 @@ export type EdgeKind =
   | "RETURNS_TYPE"   // function/method → type symbol (return-type relationship)
   | "CONSTRUCTS"     // call-site method/function → constructor symbol
   // Exception-flow edge added by bead MetaCoding-ijo.
-  | "RAISES";        // function/method → exception/error type it throws/raises
+  | "RAISES"         // function/method → exception/error type it throws/raises
+  // PHP trait usage (bead MetaCoding-1xd). Distinct from EXTENDS/IMPLEMENTS:
+  // a class → the trait it mixes in. Strong role marker for Drupal.
+  | "USES_TRAIT";    // class → trait it uses
 
 /** Frozen runtime array of every EdgeKind string — single source of truth. */
 export const EDGE_KIND_VALUES = [
   "CALLS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
   "INJECTS", "CONTAINS", "IMPORTS", "ANNOTATES", "TYPE_OF",
   "READS_FIELD", "WRITES_FIELD", "RETURNS_TYPE", "CONSTRUCTS",
-  "RAISES",
+  "RAISES", "USES_TRAIT",
 ] as const satisfies readonly EdgeKind[];
 
 export interface Edge {

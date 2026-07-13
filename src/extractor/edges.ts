@@ -61,11 +61,20 @@ export interface TargetSpec {
    * enclosing class.
    */
   scopeQn?: string;
+  /**
+   * When true and the target does not resolve to an in-repo symbol, the edge
+   * is kept by pointing at a synthesized boundary node keyed on shortName
+   * (language "external"). Used for PHP EXTENDS/IMPLEMENTS/USES_TRAIT so that a
+   * base class defined outside the repo (e.g. Drupal's ContentEntityBase) still
+   * appears as a shared target — the role signal lives in the name, not the
+   * resolved file. bead MetaCoding-1xd.
+   */
+  externalFallback?: boolean;
 }
 
 export interface EdgePassOpts {
-  /** Language code: "ts" or "py". */
-  language: "ts" | "py";
+  /** Language code: "ts", "py", or "php". */
+  language: "ts" | "py" | "php";
   /** File path (relative to repo root) — used for diagnostics only. */
   filePath: string;
   /**
@@ -92,6 +101,8 @@ export function extractEdgeCandidates(
   const scopes = buildScopeIndex(opts.symbols);
   if (opts.language === "ts") {
     walkTs(tree.rootNode, scopes, candidates);
+  } else if (opts.language === "php") {
+    walkPhp(tree.rootNode, scopes, candidates);
   } else {
     walkPy(tree.rootNode, scopes, candidates);
   }
@@ -978,6 +989,89 @@ function collectPyTypeReferences(node: Node): string[] {
   };
   visit(node);
   return found;
+}
+
+// ---------------------------------------------------------------------------
+// PHP walk — inheritance/relationship edges (bead MetaCoding-1xd).
+//   EXTENDS      class/interface `extends X`   (base_clause)
+//   IMPLEMENTS   class `implements X, Y`       (class_interface_clause)
+//   USES_TRAIT   class body `use TraitName;`   (use_declaration)
+// Targets resolve to in-repo symbols when present, else to a name-keyed
+// boundary node (externalFallback) so out-of-repo base classes like Drupal's
+// ContentEntityBase still cluster — the role signal lives in the name.
+// ---------------------------------------------------------------------------
+const PHP_TYPE_KINDS: SymbolKind[] = ["class", "interface", "enum"];
+
+function walkPhp(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  if (node.type === "class_declaration" || node.type === "interface_declaration") {
+    phpHandleInheritance(node, scopes, out);
+  }
+  for (const child of node.namedChildren) {
+    if (child) walkPhp(child, scopes, out);
+  }
+}
+
+function phpHandleInheritance(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  // src = the declaring class/interface (the enclosing type scope at the
+  // declaration's name position).
+  const nameNode = node.childForFieldName("name") ?? node;
+  const src = findEnclosingClass(
+    scopes,
+    nameNode.startPosition.row,
+    nameNode.startPosition.column,
+  );
+  if (!src) return;
+
+  for (const child of node.namedChildren) {
+    if (!child) continue;
+    if (child.type === "base_clause") {
+      // `class C extends B` or `interface I extends A, B`.
+      for (const name of phpClauseNames(child)) {
+        out.push({
+          kind: "EXTENDS",
+          src_id: src.id,
+          target: { kinds: PHP_TYPE_KINDS, shortName: name, externalFallback: true },
+        });
+      }
+    } else if (child.type === "class_interface_clause") {
+      for (const name of phpClauseNames(child)) {
+        out.push({
+          kind: "IMPLEMENTS",
+          src_id: src.id,
+          target: { kinds: ["interface", "class"], shortName: name, externalFallback: true },
+        });
+      }
+    } else if (child.type === "declaration_list") {
+      // Trait usage lives in the class body: `use TraitName;`.
+      for (const member of child.namedChildren) {
+        if (member?.type !== "use_declaration") continue;
+        for (const name of phpClauseNames(member)) {
+          out.push({
+            kind: "USES_TRAIT",
+            src_id: src.id,
+            target: { kinds: ["class"], shortName: name, externalFallback: true },
+          });
+        }
+      }
+    }
+  }
+}
+
+// Names referenced in a clause: each is a `name`, or a `qualified_name` whose
+// last segment is the type short name.
+function phpClauseNames(clause: Node): string[] {
+  const names: string[] = [];
+  for (const c of clause.namedChildren) {
+    if (!c) continue;
+    if (c.type === "name") {
+      names.push(c.text);
+    } else if (c.type === "qualified_name") {
+      const segs = c.namedChildren.filter((x) => x?.type === "name");
+      const last = segs[segs.length - 1];
+      if (last) names.push(last.text);
+    }
+  }
+  return names;
 }
 
 // ---------------------------------------------------------------------------
