@@ -17,6 +17,8 @@ import pytest
 
 from ctkr.schema import (
     EMBEDDINGS_COLUMNS,
+    FUNCTOR_EDGES_COLUMNS,
+    FUNCTORS_COLUMNS,
     HOM_PROFILES_COLUMNS,
     MOTIF_INSTANCES_COLUMNS,
     MOTIFS_COLUMNS,
@@ -25,6 +27,8 @@ from ctkr.schema import (
     WASSERSTEIN_H1_COLUMNS,
     ArtifactManifest,
     EmbeddingRow,
+    FunctorEdgeRow,
+    FunctorRow,
     HomProfileRow,
     MotifInstanceRow,
     MotifRow,
@@ -241,6 +245,169 @@ def test_manifest_hom_profiles_flag_roundtrip() -> None:
     # Default zeros / falses on unrelated fields survive the round trip.
     assert back.embeddings is False
     assert back.n_motifs == 0
+
+
+# ----- Functor (Phase 2b) schema tests -----
+
+
+def test_functor_row_parquet_roundtrip(tmp_path: Path) -> None:
+    rows = [
+        FunctorRow(
+            functor_id="f:abc123",
+            repo_src="crewAI",
+            repo_dst="autogen",
+            n_objects_src=100,
+            n_mapped=42,
+            coverage=0.42,
+            fidelity=0.9,
+            n_edges_internal=80,
+            n_edges_preserved=72,
+            path_fidelity_2=0.85,
+            cycle_consistency=0.91,
+            config='{"alpha":0.3,"rounds":8,"profile_depth":2}',
+            generated_at="2026-07-13T00:00:00Z",
+        ),
+    ]
+    out = tmp_path / "functors.parquet"
+    df = pl.DataFrame([r.model_dump() for r in rows]).select(FUNCTORS_COLUMNS)
+    df.write_parquet(out)
+
+    back = pl.read_parquet(out)
+    assert back.columns == list(FUNCTORS_COLUMNS)
+    assert back.height == 1
+    for d in back.to_dicts():
+        FunctorRow.model_validate(d)
+
+
+def test_functor_row_null_sentinels_roundtrip(tmp_path: Path) -> None:
+    """fidelity / path_fidelity_2 / cycle_consistency carry the -1 sentinel
+    (no-evidence / not-computed) as a real float, not a NaN or null."""
+    row = FunctorRow(
+        functor_id="f:edgeless",
+        repo_src="a",
+        repo_dst="b",
+        n_objects_src=5,
+        n_mapped=3,
+        coverage=0.6,
+        fidelity=-1.0,  # edgeless domain — no evidence, NOT perfect
+        n_edges_internal=0,
+        n_edges_preserved=0,
+        path_fidelity_2=-1.0,  # not computed
+        cycle_consistency=-1.0,  # reverse not computed
+        config="{}",
+        generated_at="2026-07-13T00:00:00Z",
+    )
+    out = tmp_path / "functors.parquet"
+    pl.DataFrame([row.model_dump()]).select(FUNCTORS_COLUMNS).write_parquet(out)
+    back = pl.read_parquet(out)
+    d = back.to_dicts()[0]
+    parsed = FunctorRow.model_validate(d)
+    assert parsed.fidelity == -1.0
+    assert parsed.path_fidelity_2 == -1.0
+    assert parsed.cycle_consistency == -1.0
+    # An edgeless functor must be distinguishable from a perfect one.
+    assert parsed.fidelity != 1.0
+
+
+def test_functor_edge_row_parquet_roundtrip(tmp_path: Path) -> None:
+    rows = [
+        FunctorEdgeRow(
+            functor_id="f:abc123",
+            src_symbol_id="s1",
+            src_repo="crewAI",
+            src_qualified_name="crewAI.Crew",
+            dst_symbol_id="d1",
+            dst_repo="autogen",
+            dst_qualified_name="autogen.GroupChatManager",
+            similarity=0.88,
+            margin=0.04,
+            pair_fidelity=0.75,
+            n_edges_incident=8,
+            n_edges_preserved=6,
+        ),
+        # isolated pair: no internal incident edges → pair_fidelity == -1 (null)
+        FunctorEdgeRow(
+            functor_id="f:abc123",
+            src_symbol_id="s2",
+            src_repo="crewAI",
+            src_qualified_name="crewAI.Isolated",
+            dst_symbol_id="d2",
+            dst_repo="autogen",
+            dst_qualified_name="autogen.Isolated",
+            similarity=0.5,
+            margin=1.0,
+            pair_fidelity=-1.0,
+            n_edges_incident=0,
+            n_edges_preserved=0,
+        ),
+    ]
+    out = tmp_path / "functor_edges.parquet"
+    df = pl.DataFrame([r.model_dump() for r in rows]).select(FUNCTOR_EDGES_COLUMNS)
+    df.write_parquet(out)
+
+    back = pl.read_parquet(out)
+    assert back.columns == list(FUNCTOR_EDGES_COLUMNS)
+    assert back.height == 2
+    parsed = [FunctorEdgeRow.model_validate(d) for d in back.to_dicts()]
+    # The isolated pair keeps the -1 sentinel — no-evidence, not 1.0.
+    isolated = next(r for r in parsed if r.src_symbol_id == "s2")
+    assert isolated.pair_fidelity == -1.0
+    assert isolated.margin == 1.0
+
+
+def test_functor_row_rejects_negative_counts() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        FunctorRow(
+            functor_id="f:x",
+            repo_src="a",
+            repo_dst="b",
+            n_objects_src=-1,  # NonNegativeInt
+            n_mapped=0,
+            coverage=0.0,
+            fidelity=-1.0,
+            n_edges_internal=0,
+            n_edges_preserved=0,
+            path_fidelity_2=-1.0,
+            cycle_consistency=-1.0,
+            config="{}",
+            generated_at="2026-07-13T00:00:00Z",
+        )
+
+
+def test_manifest_functor_flags_roundtrip() -> None:
+    m = ArtifactManifest(
+        generated_at=datetime(2026, 7, 13, tzinfo=timezone.utc),
+        metacoding_data_dir="/tmp/metacoding-scip",
+        functors=True,
+        functor_edges=True,
+        n_functors=6,
+        n_functor_edges=1234,
+        profile_depth=2,
+    )
+    back = ArtifactManifest.model_validate_json(m.model_dump_json())
+    assert back.functors is True
+    assert back.functor_edges is True
+    assert back.n_functors == 6
+    assert back.n_functor_edges == 1234
+    assert back.profile_depth == 2
+    # Unrelated defaults survive.
+    assert back.motifs is False
+    assert back.n_hom_profiles == 0
+
+
+def test_manifest_functor_flags_default_false() -> None:
+    """Manifests written before the functor fields existed default them off."""
+    m = ArtifactManifest(
+        generated_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+        metacoding_data_dir="/tmp/x",
+    )
+    back = ArtifactManifest.model_validate_json(m.model_dump_json())
+    assert back.functors is False
+    assert back.functor_edges is False
+    assert back.n_functors == 0
+    assert back.n_functor_edges == 0
 
 
 # ----- L3 schema tests -----

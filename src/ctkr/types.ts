@@ -149,6 +149,66 @@ export interface HomProfileRow {
 }
 
 /**
+ * One discovered (approximate) functor `F : C_src → C_dst`.
+ * Mirrors FunctorRow in schema.py (Phase 2b, MetaCoding §6 Task 3).
+ *
+ * Null semantics: metrics with no evidence are stored as the `-1.0` sentinel
+ * (Parquet floats aren't nullable in this artifact set's convention) and are
+ * surfaced as `null` by higher-level consumers. `fidelity` is `-1` when
+ * `n_edges_internal === 0` (edgeless domain — must NOT read as perfect 1.0);
+ * `path_fidelity_2` is `-1` when not computed; `cycle_consistency` is `-1`
+ * when the reverse-direction functor wasn't computed.
+ */
+export interface FunctorRow {
+  /** Content-addressed: hash of (repo_src, repo_dst, config, mapping digest). */
+  functor_id: string;
+  repo_src: string;
+  repo_dst: string;
+  n_objects_src: number;
+  n_mapped: number;
+  coverage: number;
+  /** n_edges_preserved / n_edges_internal; -1 when n_edges_internal === 0. */
+  fidelity: number;
+  n_edges_internal: number;
+  n_edges_preserved: number;
+  /** Sampled 2-path composition diagnostic; -1 if not computed. */
+  path_fidelity_2: number;
+  /** Fraction of s with G(F(s)) = s; -1 if reverse not computed. */
+  cycle_consistency: number;
+  /** JSON blob of the search config + runtime metadata. */
+  config: string;
+  generated_at: string; // ISO-8601
+  schema_version: number;
+}
+
+/**
+ * One object↦object correspondence — a weighted meta-graph edge (Phase 2c).
+ * Mirrors FunctorEdgeRow in schema.py.
+ *
+ * `pair_fidelity` is `-1` when the source has no internal incident edges (no
+ * structural evidence — consumers must NOT read as 1.0). Low `margin` = the
+ * assignment was a near-coin-flip among lookalikes.
+ */
+export interface FunctorEdgeRow {
+  functor_id: string;
+  src_symbol_id: string;
+  src_repo: string;
+  src_qualified_name: string;
+  dst_symbol_id: string;
+  dst_repo: string;
+  dst_qualified_name: string;
+  /** Converged (pre-normalization) propagation score σ. */
+  similarity: number;
+  /** σ gap to best unaccepted alternative for this source. */
+  margin: number;
+  /** preserved/total internal incident edges; -1 = no evidence. */
+  pair_fidelity: number;
+  n_edges_incident: number;
+  n_edges_preserved: number;
+  schema_version: number;
+}
+
+/**
  * Top-level presence manifest for .metacoding/ctkr/.
  * Mirrors ArtifactManifest in schema.py.
  */
@@ -165,12 +225,18 @@ export interface ArtifactManifest {
   spectral_clusters: boolean;
   nn_index: boolean;
   hom_profiles: boolean;
+  functors: boolean;
+  functor_edges: boolean;
   embedding_dim: number | null;
   profile_vec_dim: number | null;
+  /** Hom-profile neighbourhood depth the seeds were built at (1 or 2). */
+  profile_depth?: number | null;
   n_symbols: number;
   n_motifs: number;
   n_motif_instances: number;
   n_hom_profiles: number;
+  n_functors: number;
+  n_functor_edges: number;
   notes: string | null;
   /** Forward-compat: extra keys from future schema versions round-trip. */
   [extra: string]: unknown;

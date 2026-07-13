@@ -225,6 +225,73 @@ class WassersteinH1Row(BaseModel):
     schema_version: int = SCHEMA_VERSION
 
 
+class FunctorRow(BaseModel):
+    """One discovered (approximate) functor ``F : C_src → C_dst`` — Phase 2b.
+
+    Produced by the TS functor-discovery runner (``src/ctkr/functorRunner.ts``,
+    MetaCoding §6 Task 3). One row per ``(repo_src, repo_dst, config)`` — a
+    *directed* pair, so both directions of a repo pair appear as separate rows.
+    Python never writes these (TS owns Phase 2 per MetaCoding-p4b); this model
+    is the canonical schema authority so the codegen'd TS mirror and any
+    Python-side L3/analysis readers agree on shape and column order.
+
+    Null semantics (§1.3): metrics with no evidence are stored as the sentinel
+    ``-1.0`` (a real float on disk — Parquet floats are not nullable in the
+    ``-1`` convention this artifact set uses) and surfaced as ``null`` by
+    consumers. ``fidelity`` is ``-1`` when ``n_edges_internal == 0`` (an
+    edgeless domain preserves nothing and proves nothing — it must fail any
+    ``min_fidelity > 0`` filter, NOT read as perfect 1.0). ``path_fidelity_2``
+    is ``-1`` when the 2-path composition diagnostic was not computed.
+    ``cycle_consistency`` is ``-1`` when the reverse-direction functor was not
+    computed under the same config.
+    """
+
+    functor_id: str  # content-addressed: hash of (repo_src, repo_dst, config, mapping)
+    repo_src: str  # source repo (domain category C_A)
+    repo_dst: str  # target repo (codomain C_B)
+    n_objects_src: NonNegativeInt  # |O(C_A)| — denominator of coverage
+    n_mapped: NonNegativeInt  # |dom(F)|
+    coverage: float  # n_mapped / n_objects_src, in [0, 1]
+    fidelity: float  # n_edges_preserved / n_edges_internal; -1 when internal == 0
+    n_edges_internal: NonNegativeInt  # typed edges of C_A with both ends in dom(F)
+    n_edges_preserved: NonNegativeInt  # of those, edges with a same-kind witness in C_B
+    path_fidelity_2: float  # sampled 2-path composition diagnostic; -1 if not computed
+    cycle_consistency: float  # fraction of s with G(F(s)) = s; -1 if reverse not computed
+    config: str  # JSON blob of the search config + runtime metadata
+    generated_at: str  # ISO 8601
+    schema_version: int = SCHEMA_VERSION
+
+
+class FunctorEdgeRow(BaseModel):
+    """One object↦object correspondence — a weighted meta-graph edge (Phase 2c).
+
+    Produced alongside ``FunctorRow`` by the functor-discovery runner. This is
+    the Phase 2c meta-graph edge stream (MetaCoding-at0): Louvain's nodes are
+    ``(repo, symbol_id)`` across the corpus and each row here is one weighted
+    meta-edge. ``functor_id`` is the FK back into ``functors.parquet``.
+
+    Null semantics: ``pair_fidelity`` is ``-1`` when the source has no internal
+    incident edges (no structural evidence — consumers must NOT read this as
+    1.0). ``margin`` is the σ gap to the best unaccepted alternative for this
+    source; low margin = the assignment was a near-coin-flip among lookalikes
+    (expected often under BORDERLINE seeds).
+    """
+
+    functor_id: str  # FK into functors.parquet
+    src_symbol_id: str  # matches Symbol.id in the source repo
+    src_repo: str  # denormalized (Louvain builds the meta-graph without a join)
+    src_qualified_name: str  # denormalized for human-readable output
+    dst_symbol_id: str
+    dst_repo: str
+    dst_qualified_name: str
+    similarity: float  # converged (pre-normalization) propagation score σ
+    margin: float  # σ gap to best unaccepted alternative for this source
+    pair_fidelity: float  # preserved/total internal incident edges; -1 = no evidence
+    n_edges_incident: NonNegativeInt  # internal typed edges incident to src (evidence mass)
+    n_edges_preserved: NonNegativeInt  # of those, preserved
+    schema_version: int = SCHEMA_VERSION
+
+
 class ArtifactManifest(BaseModel):
     """Top-level pointer file for the ``.metacoding/ctkr/`` directory.
 
@@ -253,6 +320,9 @@ class ArtifactManifest(BaseModel):
     spectral_clusters: bool = False
     nn_index: bool = False
     hom_profiles: bool = False
+    # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
+    functors: bool = False
+    functor_edges: bool = False
     embedding_dim: int | None = None
     profile_vec_dim: int | None = None
     # Per-edge-kind weights applied to hom-profile dimensions (MetaCoding-23q.1
@@ -269,6 +339,8 @@ class ArtifactManifest(BaseModel):
     n_motifs: NonNegativeInt = 0
     n_motif_instances: NonNegativeInt = 0
     n_hom_profiles: NonNegativeInt = 0
+    n_functors: NonNegativeInt = 0
+    n_functor_edges: NonNegativeInt = 0
     notes: str | None = None
 
 
@@ -347,6 +419,39 @@ HOM_PROFILES_COLUMNS: tuple[str, ...] = (
     "schema_version",
 )
 
+FUNCTORS_COLUMNS: tuple[str, ...] = (
+    "functor_id",
+    "repo_src",
+    "repo_dst",
+    "n_objects_src",
+    "n_mapped",
+    "coverage",
+    "fidelity",
+    "n_edges_internal",
+    "n_edges_preserved",
+    "path_fidelity_2",
+    "cycle_consistency",
+    "config",
+    "generated_at",
+    "schema_version",
+)
+
+FUNCTOR_EDGES_COLUMNS: tuple[str, ...] = (
+    "functor_id",
+    "src_symbol_id",
+    "src_repo",
+    "src_qualified_name",
+    "dst_symbol_id",
+    "dst_repo",
+    "dst_qualified_name",
+    "similarity",
+    "margin",
+    "pair_fidelity",
+    "n_edges_incident",
+    "n_edges_preserved",
+    "schema_version",
+)
+
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -359,6 +464,8 @@ __all__ = [
     "CentralityRow",
     "SpectralClusterRow",
     "HomProfileRow",
+    "FunctorRow",
+    "FunctorEdgeRow",
     "NNIndexMeta",
     "ArtifactManifest",
     "EMBEDDINGS_COLUMNS",
@@ -369,4 +476,6 @@ __all__ = [
     "CENTRALITY_COLUMNS",
     "SPECTRAL_CLUSTERS_COLUMNS",
     "HOM_PROFILES_COLUMNS",
+    "FUNCTORS_COLUMNS",
+    "FUNCTOR_EDGES_COLUMNS",
 ]

@@ -22,15 +22,24 @@ export interface ArtifactManifest {
     centrality?:         boolean;
     embedding_dim?:      number | null;
     embeddings?:         boolean;
+    functor_edges?:      boolean;
+    functors?:           boolean;
     generated_at:        string;
+    hom_profiles?:       boolean;
+    kind_weights?:       { [key: string]: number } | null;
     metacoding_data_dir: string;
     motif_instances?:    boolean;
     motifs?:             boolean;
+    n_functor_edges?:    number;
+    n_functors?:         number;
+    n_hom_profiles?:     number;
     n_motif_instances?:  number;
     n_motifs?:           number;
     n_symbols?:          number;
     nn_index?:           boolean;
     notes?:              null | string;
+    profile_depth?:      number | null;
+    profile_vec_dim?:    number | null;
     schema_version?:     number;
     shape_pds?:          boolean;
     spectral_clusters?:  boolean;
@@ -102,6 +111,100 @@ export interface EvidenceRow {
 export interface LineRangeObject {
     end:   number;
     start: number;
+    [property: string]: any;
+}
+
+/**
+ * One object↦object correspondence — a weighted meta-graph edge (Phase 2c).
+ *
+ * Produced alongside ``FunctorRow`` by the functor-discovery runner. This is
+ * the Phase 2c meta-graph edge stream (MetaCoding-at0): Louvain's nodes are
+ * ``(repo, symbol_id)`` across the corpus and each row here is one weighted
+ * meta-edge. ``functor_id`` is the FK back into ``functors.parquet``.
+ *
+ * Null semantics: ``pair_fidelity`` is ``-1`` when the source has no internal
+ * incident edges (no structural evidence — consumers must NOT read this as
+ * 1.0). ``margin`` is the σ gap to the best unaccepted alternative for this
+ * source; low margin = the assignment was a near-coin-flip among lookalikes
+ * (expected often under BORDERLINE seeds).
+ */
+export interface FunctorEdgeRow {
+    dst_qualified_name: string;
+    dst_repo:           string;
+    dst_symbol_id:      string;
+    functor_id:         string;
+    margin:             number;
+    n_edges_incident:   number;
+    n_edges_preserved:  number;
+    pair_fidelity:      number;
+    schema_version?:    number;
+    similarity:         number;
+    src_qualified_name: string;
+    src_repo:           string;
+    src_symbol_id:      string;
+    [property: string]: any;
+}
+
+/**
+ * One discovered (approximate) functor ``F : C_src → C_dst`` — Phase 2b.
+ *
+ * Produced by the TS functor-discovery runner (``src/ctkr/functorRunner.ts``,
+ * MetaCoding §6 Task 3). One row per ``(repo_src, repo_dst, config)`` — a
+ * *directed* pair, so both directions of a repo pair appear as separate rows.
+ * Python never writes these (TS owns Phase 2 per MetaCoding-p4b); this model
+ * is the canonical schema authority so the codegen'd TS mirror and any
+ * Python-side L3/analysis readers agree on shape and column order.
+ *
+ * Null semantics (§1.3): metrics with no evidence are stored as the sentinel
+ * ``-1.0`` (a real float on disk — Parquet floats are not nullable in the
+ * ``-1`` convention this artifact set uses) and surfaced as ``null`` by
+ * consumers. ``fidelity`` is ``-1`` when ``n_edges_internal == 0`` (an
+ * edgeless domain preserves nothing and proves nothing — it must fail any
+ * ``min_fidelity > 0`` filter, NOT read as perfect 1.0). ``path_fidelity_2``
+ * is ``-1`` when the 2-path composition diagnostic was not computed.
+ * ``cycle_consistency`` is ``-1`` when the reverse-direction functor was not
+ * computed under the same config.
+ */
+export interface FunctorRow {
+    config:            string;
+    coverage:          number;
+    cycle_consistency: number;
+    fidelity:          number;
+    functor_id:        string;
+    generated_at:      string;
+    n_edges_internal:  number;
+    n_edges_preserved: number;
+    n_mapped:          number;
+    n_objects_src:     number;
+    path_fidelity_2:   number;
+    repo_dst:          string;
+    repo_src:          string;
+    schema_version?:   number;
+    [property: string]: any;
+}
+
+/**
+ * One symbol's hom-profile — raw integer edge counts by (kind, direction).
+ *
+ * Produced by L1 (``ctkr hom-profiles``, MetaCoding-23q.1). The vector
+ * is stored at **maximal precision** as unsigned integer counts (no
+ * L1-normalisation, no quantisation, no kinds_filter baked into the
+ * numbers). Per ``docs/notes/entropy-as-dial.md`` granularity is a
+ * caller-tunable knob, so downstream tools re-normalise / discretize
+ * at query time rather than the writer baking a choice into the bytes.
+ *
+ * Vector dimension is ``2 * len(EDGE_KINDS)`` from
+ * ``ctkr.graph_loader.EDGE_KINDS`` (currently 28). Ordering convention:
+ * for each ``ek in EDGE_KINDS``, the ``(ek, "in")`` slot precedes the
+ * ``(ek, "out")`` slot. The canonical ``_DIMS`` list in
+ * ``ctkr.hom_profiles`` is the single source of truth for the order.
+ */
+export interface HomProfileRow {
+    profile_vec:     number[];
+    qualified_name:  string;
+    repo:            string;
+    schema_version?: number;
+    symbol_id:       string;
     [property: string]: any;
 }
 

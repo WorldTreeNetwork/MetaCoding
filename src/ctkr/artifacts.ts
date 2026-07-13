@@ -18,6 +18,8 @@ import type {
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
+  FunctorEdgeRow,
+  FunctorRow,
   HomProfileRow,
   MotifInstanceRow,
   MotifRow,
@@ -46,6 +48,37 @@ export interface CtkrHandle {
     motifId: string,
     opts?: { limit?: number },
   ): Promise<MotifInstanceRow[]>;
+
+  /**
+   * Returns discovered functor rows (functors.parquet, Phase 2b) with optional
+   * pushdown filters, mirroring `motifs`. One row per directed `(repo_src,
+   * repo_dst, config)` run. Ordered by `coverage * fidelity` descending (the
+   * MCP tool's "best available" ordering); fidelity `-1` (edgeless / no
+   * evidence) sorts to the bottom and is dropped by any `minFidelity > 0`.
+   */
+  functors(opts?: {
+    repoSrc?: string;
+    repoDst?: string;
+    minCoverage?: number;
+    minFidelity?: number;
+    limit?: number;
+  }): Promise<FunctorRow[]>;
+
+  /**
+   * Returns the object↦object correspondence rows for one functor
+   * (functor_edges.parquet), mirroring `motifInstances`. Ordered by
+   * `pair_fidelity` descending then `similarity` descending; the `-1`
+   * (no-evidence) pair-fidelity sentinel sorts last. `minPairFidelity`
+   * filters out no-evidence rows when `> -1`.
+   */
+  functorEdges(
+    functorId: string,
+    opts?: {
+      minPairFidelity?: number;
+      minSimilarity?: number;
+      limit?: number;
+    },
+  ): Promise<FunctorEdgeRow[]>;
 
   embeddings(opts?: { symbolIds?: string[] }): Promise<EmbeddingRow[]>;
 
@@ -338,6 +371,76 @@ class CtkrHandleImpl implements CtkrHandle {
     const sql = `SELECT * FROM read_parquet('${this.path("motif_instances.parquet")}') WHERE motif_id = $motif_id ${limitClause}`;
     const result = await this.conn.runAndReadAll(sql, { motif_id: motifId });
     return toObjects(result) as unknown as MotifInstanceRow[];
+  }
+
+  async functors(opts?: {
+    repoSrc?: string;
+    repoDst?: string;
+    minCoverage?: number;
+    minFidelity?: number;
+    limit?: number;
+  }): Promise<FunctorRow[]> {
+    await this.requireArtifact("functors");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+
+    if (opts?.repoSrc !== undefined) {
+      clauses.push(`repo_src = $repo_src`);
+      params["repo_src"] = opts.repoSrc;
+    }
+    if (opts?.repoDst !== undefined) {
+      clauses.push(`repo_dst = $repo_dst`);
+      params["repo_dst"] = opts.repoDst;
+    }
+    if (opts?.minCoverage !== undefined) {
+      clauses.push(`coverage >= ${opts.minCoverage}`);
+    }
+    if (opts?.minFidelity !== undefined) {
+      // A `-1` fidelity (edgeless / no evidence) must fail any `minFidelity > 0`.
+      clauses.push(`fidelity >= ${opts.minFidelity}`);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    // Path is server-controlled (ctkrDir validated at open time) — not user input.
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("functors.parquet")}') ${where} ` +
+      `ORDER BY coverage * fidelity DESC, functor_id ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as FunctorRow[];
+  }
+
+  async functorEdges(
+    functorId: string,
+    opts?: {
+      minPairFidelity?: number;
+      minSimilarity?: number;
+      limit?: number;
+    },
+  ): Promise<FunctorEdgeRow[]> {
+    await this.requireArtifact("functor_edges");
+
+    const clauses: string[] = [`functor_id = $functor_id`];
+    const params: Record<string, string> = { functor_id: functorId };
+
+    if (opts?.minPairFidelity !== undefined) {
+      clauses.push(`pair_fidelity >= ${opts.minPairFidelity}`);
+    }
+    if (opts?.minSimilarity !== undefined) {
+      clauses.push(`similarity >= ${opts.minSimilarity}`);
+    }
+
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("functor_edges.parquet")}') ` +
+      `WHERE ${clauses.join(" AND ")} ` +
+      `ORDER BY pair_fidelity DESC, similarity DESC, src_symbol_id ${limitClause}`;
+    const result = await this.conn.runAndReadAll(sql, params);
+    return toObjects(result) as unknown as FunctorEdgeRow[];
   }
 
   async embeddings(opts?: {
@@ -727,6 +830,8 @@ export type {
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
+  FunctorEdgeRow,
+  FunctorRow,
   HomProfileRow,
   MotifInstanceRow,
   MotifRow,
