@@ -296,14 +296,16 @@ function resolveScipWanted(flag: string | undefined): boolean {
     return true;
   }
   if (have.any) return true;
-  console.warn(
-    "metacoding: SCIP indexers not detected — running tree-sitter only.\n" +
-      "  They normally ship bundled with metacoding; if missing, for full\n" +
-      "  CALLS/REFERENCES/IMPLEMENTS edges (needed for CTKR Phase 2+) install:\n" +
+  console.error(
+    "metacoding: SCIP indexers not detected — refusing to index.\n" +
+      "  A tree-sitter-only index lacks the CALLS/REFERENCES/IMPLEMENTS edges\n" +
+      "  that hom-profiles, role-equivalence, and CTKR Phase 2+ depend on —\n" +
+      "  it is almost not worth building. They normally ship bundled with\n" +
+      "  metacoding; if missing, install via:\n" +
       "    bun add -g @sourcegraph/scip-typescript @sourcegraph/scip-python\n" +
-      "  Pass --scip false to suppress this warning.",
+      "  To index anyway in degraded tree-sitter-only mode, pass --scip false.",
   );
-  return false;
+  process.exit(1);
 }
 
 function detectScipLanguages(repoPath: string): ScipLanguage[] {
