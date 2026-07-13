@@ -255,6 +255,11 @@ class ArtifactManifest(BaseModel):
     hom_profiles: bool = False
     embedding_dim: int | None = None
     profile_vec_dim: int | None = None
+    # Per-edge-kind weights applied to hom-profile dimensions (MetaCoding-23q.1
+    # weighting variant). None/absent means raw UInt32 counts (the maximal-
+    # precision default). A non-empty mapping means the profile_vec was scaled
+    # by these multipliers and is therefore a Float64 variant, NOT raw counts.
+    kind_weights: dict[str, float] | None = None
     n_symbols: NonNegativeInt = 0
     n_motifs: NonNegativeInt = 0
     n_motif_instances: NonNegativeInt = 0

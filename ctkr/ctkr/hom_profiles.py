@@ -27,6 +27,26 @@ their surviving endpoint — dropping ``file`` does not blank the
 ``CONTAINS:in`` counts of the methods that ``file`` contained, because
 those edges are real graph-structural facts about the methods.
 
+Per-edge-kind weighting
+------------------------
+
+``kind_weights`` (MetaCoding-23q.1 weighting variant) multiplies every
+dimension belonging to a given edge kind (both ``:in`` and ``:out``) by
+a float before the vector is emitted. Unspecified kinds default to
+``1.0``. This exists to *down-weight structural-scaffolding edges*
+(especially ``CONTAINS``, which is dominated by directory/containment
+tree structure rather than behaviour — see
+``docs/notes/entropy-as-dial.md``) so role-discrimination reflects
+behaviour rather than the folder tree.
+
+**Precision caveat (honest accounting).** Weighting scales the integer
+counts, so the profile vector is *no longer* the raw ``UInt32``
+maximal-precision artifact — it becomes a distinct ``Float64`` variant.
+The weights used are recorded in the manifest's ``kind_weights`` field
+so the artifact is self-describing and never silently confused with raw
+counts. When ``kind_weights`` is ``None``/empty the integer raw-count
+path is preserved byte-for-byte (backward compatible).
+
 Determinism
 -----------
 
@@ -39,7 +59,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,6 +98,10 @@ class HomProfilesStats:
     n_edges: int
     profile_vec_dim: int
     kinds_filter: tuple[str, ...]
+    # Empty when no weights applied (raw-count path). Otherwise the
+    # (kind, weight) pairs the profile vectors were scaled by, sorted.
+    kind_weights: tuple[tuple[str, float], ...]
+    weighted: bool
     elapsed_seconds: float
 
 
@@ -85,6 +109,7 @@ def compute_hom_profiles(
     g: nx.MultiDiGraph,
     *,
     kinds_filter: Iterable[str] | None = None,
+    kind_weights: Mapping[str, float] | None = None,
 ) -> tuple[pl.DataFrame, HomProfilesStats]:
     """Compute per-symbol hom-profiles over the graph.
 
@@ -98,13 +123,23 @@ def compute_hom_profiles(
         symbols so a filtered-out ``file`` still contributes
         ``CONTAINS:in`` counts to the methods it contains. None or an
         empty iterable keeps every symbol.
+    kind_weights
+        Per-edge-kind float multipliers applied to that kind's ``:in``
+        and ``:out`` dimensions before emit. Unspecified kinds default
+        to ``1.0``. None or an empty mapping (or one whose every value
+        is exactly ``1.0``) preserves the raw integer-count path exactly
+        (backward compatible). When any weight differs from ``1.0`` the
+        ``profile_vec`` becomes ``Float64`` — a distinct, non-raw
+        artifact variant; the weights used are surfaced on the returned
+        stats and should be recorded in the manifest.
 
     Returns
     -------
     (pl.DataFrame, HomProfilesStats)
         DataFrame columns in ``HOM_PROFILES_COLUMNS`` order; one row
-        per surviving symbol. ``profile_vec`` is a length-``NDIM``
-        list of unsigned integer counts (raw, no normalisation).
+        per surviving symbol. ``profile_vec`` is a length-``NDIM`` list
+        of unsigned integer counts (raw) unless ``kind_weights`` scaled
+        it, in which case it is a length-``NDIM`` list of floats.
     """
     start = time.perf_counter()
     n_nodes_input = g.number_of_nodes()
@@ -112,6 +147,13 @@ def compute_hom_profiles(
     excluded_kinds: frozenset[str] = (
         frozenset(kinds_filter) if kinds_filter else frozenset()
     )
+
+    # Normalise weights: keep only entries that actually change a count
+    # (weight != 1.0). If nothing changes, we stay on the integer path.
+    effective_weights: dict[str, float] = {
+        k: float(w) for k, w in (kind_weights or {}).items() if float(w) != 1.0
+    }
+    weighted = bool(effective_weights)
 
     # We count edges over the FULL graph then filter at emit, so excluded
     # kinds still contribute to their neighbors' counts (the o7k invariant).
@@ -125,6 +167,20 @@ def compute_hom_profiles(
         if in_dim is not None:
             raw_counts[dst][in_dim] += 1
 
+    # Per-dimension weight vector (1.0 for unspecified kinds). Only built
+    # when weighting is active so the default path is untouched.
+    weight_vec: list[float] = (
+        [effective_weights.get(kind, 1.0) for (kind, _dir) in DIMS]
+        if weighted
+        else []
+    )
+
+    def _profile_for(nid: str) -> list[int] | list[float]:
+        counts = raw_counts[nid]
+        if not weighted:
+            return counts
+        return [c * w for c, w in zip(counts, weight_vec, strict=True)]
+
     rows: list[dict[str, Any]] = []
     for nid in sorted(g.nodes()):
         node_attrs = g.nodes[nid]
@@ -136,12 +192,14 @@ def compute_hom_profiles(
                 "symbol_id": nid,
                 "repo": node_attrs.get("repo", "") or "",
                 "qualified_name": node_attrs.get("qualified_name", "") or "",
-                "profile_vec": raw_counts[nid],
+                "profile_vec": _profile_for(nid),
                 "schema_version": SCHEMA_VERSION,
             }
         )
 
-    df = pl.DataFrame(rows, schema=_polars_schema()).select(HOM_PROFILES_COLUMNS)
+    df = pl.DataFrame(rows, schema=_polars_schema(weighted=weighted)).select(
+        HOM_PROFILES_COLUMNS
+    )
     elapsed = round(time.perf_counter() - start, 3)
 
     stats = HomProfilesStats(
@@ -150,19 +208,34 @@ def compute_hom_profiles(
         n_edges=n_edges,
         profile_vec_dim=NDIM,
         kinds_filter=tuple(sorted(excluded_kinds)),
+        kind_weights=tuple(sorted(effective_weights.items())),
+        weighted=weighted,
         elapsed_seconds=elapsed,
     )
     return df, stats
 
 
-def write_hom_profiles(df: pl.DataFrame, out_path: str | Path) -> None:
-    """The UInt32 cast is load-bearing — it enforces the maximal-precision
-    contract from ``docs/notes/entropy-as-dial.md`` even when a caller hands
-    us a Float column. Don't relax it."""
+def write_hom_profiles(
+    df: pl.DataFrame, out_path: str | Path, *, weighted: bool = False
+) -> None:
+    """Write the hom-profiles parquet.
+
+    Default (``weighted=False``): the UInt32 cast is load-bearing — it
+    enforces the maximal-precision contract from
+    ``docs/notes/entropy-as-dial.md`` even when a caller hands us a Float
+    column. Don't relax it.
+
+    ``weighted=True``: the ``profile_vec`` was scaled by per-kind
+    weights and is therefore a deliberate Float64 variant, NOT raw
+    counts. We cast to ``Float64`` (never UInt32 — that would truncate
+    fractional weights to garbage) and rely on the manifest's
+    ``kind_weights`` field to mark the artifact as non-raw.
+    """
     p = Path(out_path).expanduser().resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
+    dtype = pl.List(pl.Float64) if weighted else pl.List(pl.UInt32)
     df = df.select(HOM_PROFILES_COLUMNS).with_columns(
-        pl.col("profile_vec").cast(pl.List(pl.UInt32))
+        pl.col("profile_vec").cast(dtype)
     )
     df.write_parquet(p)
 
@@ -173,6 +246,7 @@ def write_manifest(
     hom_profiles: bool = True,
     n_hom_profiles: int = 0,
     profile_vec_dim: int | None = None,
+    kind_weights: Mapping[str, float] | None = None,
     notes: str | None = None,
 ) -> Path:
     """Merge hom-profile presence into ``<data_dir>/ctkr/manifest.json``.
@@ -204,6 +278,8 @@ def write_manifest(
         "hom_profiles": hom_profiles,
         "n_hom_profiles": int(n_hom_profiles),
         "profile_vec_dim": profile_vec_dim,
+        # None (raw UInt32 counts) unless a weighting variant was written.
+        "kind_weights": dict(kind_weights) if kind_weights else None,
     }
     if notes is not None:
         merged["notes"] = notes
@@ -216,17 +292,19 @@ def write_manifest(
 # ----- internals -----
 
 
-def _polars_schema() -> dict[str, pl.DataType]:
+def _polars_schema(*, weighted: bool = False) -> dict[str, pl.DataType]:
     """Polars schema mapping for the row dicts produced by compute_hom_profiles.
 
     Pinned so an empty rows list still yields a DataFrame with the right
-    columns (rather than tripping polars' schema-inference path).
+    columns (rather than tripping polars' schema-inference path). When
+    ``weighted`` the profile vector carries fractional weights and must
+    be ``Float64``; otherwise it stays the raw ``UInt32`` count vector.
     """
     return {
         "symbol_id": pl.Utf8,
         "repo": pl.Utf8,
         "qualified_name": pl.Utf8,
-        "profile_vec": pl.List(pl.UInt32),
+        "profile_vec": pl.List(pl.Float64) if weighted else pl.List(pl.UInt32),
         "schema_version": pl.Int64,
     }
 

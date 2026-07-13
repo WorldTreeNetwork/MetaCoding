@@ -108,6 +108,102 @@ def test_kinds_filter_drops_rows_but_preserves_neighbor_counts() -> None:
     assert m_a_row["profile_vec"][contains_in] == 1
 
 
+def test_kind_weights_default_unchanged() -> None:
+    """No weights (and all-1.0 weights) must reproduce the raw-count path."""
+    g = _toy_graph()
+    df_base, stats_base = compute_hom_profiles(g)
+    df_none, _ = compute_hom_profiles(g, kind_weights=None)
+    df_ones, stats_ones = compute_hom_profiles(
+        g, kind_weights={"CONTAINS": 1.0, "CALLS": 1.0}
+    )
+
+    assert df_base.equals(df_none)
+    assert df_base.equals(df_ones)
+    # An all-1.0 mapping is a no-op → stays on the integer/raw path.
+    assert stats_base.weighted is False
+    assert stats_ones.weighted is False
+    assert stats_ones.kind_weights == ()
+    assert df_base.schema["profile_vec"] == pl.List(pl.UInt32)
+
+
+def test_kind_weight_zero_zeroes_dimension() -> None:
+    """A weight of 0.0 must zero every dimension of that edge kind."""
+    g = _toy_graph()
+    df, stats = compute_hom_profiles(g, kind_weights={"CONTAINS": 0.0})
+
+    assert stats.weighted is True
+    assert stats.kind_weights == (("CONTAINS", 0.0),)
+    # Weighted output is a Float64 variant, not raw UInt32.
+    assert df.schema["profile_vec"] == pl.List(pl.Float64)
+
+    contains_in = DIM_IDX[("CONTAINS", "in")]
+    contains_out = DIM_IDX[("CONTAINS", "out")]
+    calls_in = DIM_IDX[("CALLS", "in")]
+    calls_out = DIM_IDX[("CALLS", "out")]
+    rows = {r["symbol_id"]: r for r in df.iter_rows(named=True)}
+
+    # Every CONTAINS dim is zeroed everywhere; CALLS dims are untouched.
+    for vec in (rows["f1"], rows["m_a"], rows["m_b"]):
+        assert vec["profile_vec"][contains_in] == 0.0
+        assert vec["profile_vec"][contains_out] == 0.0
+    # m_a keeps its CALLS counts (1 in, 1 out) unchanged.
+    assert rows["m_a"]["profile_vec"][calls_in] == 1.0
+    assert rows["m_a"]["profile_vec"][calls_out] == 1.0
+
+
+def test_kind_weight_fractional_scales_correctly() -> None:
+    """A fractional weight must scale exactly and leave other kinds alone."""
+    g = _toy_graph()
+    df_base, _ = compute_hom_profiles(g)
+    df, stats = compute_hom_profiles(g, kind_weights={"CONTAINS": 0.25})
+
+    assert stats.weighted is True
+    assert stats.kind_weights == (("CONTAINS", 0.25),)
+
+    contains_in = DIM_IDX[("CONTAINS", "in")]
+    contains_out = DIM_IDX[("CONTAINS", "out")]
+    calls_in = DIM_IDX[("CALLS", "in")]
+    calls_out = DIM_IDX[("CALLS", "out")]
+
+    base = {r["symbol_id"]: r["profile_vec"] for r in df_base.iter_rows(named=True)}
+    weighted = {r["symbol_id"]: r["profile_vec"] for r in df.iter_rows(named=True)}
+
+    for sid in ("f1", "m_a", "m_b"):
+        assert weighted[sid][contains_in] == base[sid][contains_in] * 0.25
+        assert weighted[sid][contains_out] == base[sid][contains_out] * 0.25
+        # Non-weighted kinds are byte-identical to the raw counts.
+        assert weighted[sid][calls_in] == base[sid][calls_in]
+        assert weighted[sid][calls_out] == base[sid][calls_out]
+
+
+def test_weighted_write_preserves_floats_and_manifest_records_weights(
+    tmp_path: Path,
+) -> None:
+    """Weighted parquet stays Float64 (not truncated to UInt32) and the
+    manifest records the weights so the artifact is self-describing."""
+    g = _toy_graph()
+    df, stats = compute_hom_profiles(g, kind_weights={"CONTAINS": 0.25})
+    out = tmp_path / "hom_profiles.parquet"
+    write_hom_profiles(df, out, weighted=stats.weighted)
+
+    back = pl.read_parquet(out)
+    assert back.schema["profile_vec"] == pl.List(pl.Float64)
+    contains_out = DIM_IDX[("CONTAINS", "out")]
+    f1 = next(r for r in back.iter_rows(named=True) if r["symbol_id"] == "f1")
+    # f1 had CONTAINS:out == 1 → 0.25 after weighting; would be 0 if truncated.
+    assert f1["profile_vec"][contains_out] == 0.25
+
+    path = write_manifest(
+        tmp_path,
+        hom_profiles=True,
+        n_hom_profiles=df.height,
+        profile_vec_dim=NDIM,
+        kind_weights=dict(stats.kind_weights),
+    )
+    m = ArtifactManifest.model_validate_json(path.read_text())
+    assert m.kind_weights == {"CONTAINS": 0.25}
+
+
 def test_output_is_deterministic() -> None:
     g = _toy_graph()
     df1, _ = compute_hom_profiles(g)

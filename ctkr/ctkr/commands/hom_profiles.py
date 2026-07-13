@@ -10,6 +10,14 @@ The ``--kinds-filter`` flag implements the resolution to MetaCoding-o7k
 from the output without rebalancing edge counts on the surviving
 endpoints. Common usage: ``--kinds-filter file`` to drop file-node
 rows whose hom-profiles are dominated by ``CONTAINS:in=1.0``.
+
+The ``--kind-weight KIND=W`` flag (repeatable, MetaCoding-23q.1
+weighting variant) scales an edge kind's profile dimensions by a float
+before write — e.g. ``--kind-weight CONTAINS=0.25`` to down-weight the
+directory/containment scaffolding so role discrimination reflects
+behaviour rather than the folder tree. Weighting turns the vector into
+a Float64 variant (no longer raw UInt32 counts); the weights are
+recorded in the manifest's ``kind_weights`` field.
 """
 
 from __future__ import annotations
@@ -20,13 +28,49 @@ import time
 from pathlib import Path
 
 from ctkr.commands._common import add_common_flags, resolve_data_dir
-from ctkr.graph_loader import load_graph
+from ctkr.graph_loader import EDGE_KINDS, load_graph
 from ctkr.hom_profiles import (
     NDIM,
     compute_hom_profiles,
     write_hom_profiles,
     write_manifest,
 )
+
+
+def _parse_kind_weights(
+    raw: list[str] | None,
+) -> dict[str, float]:
+    """Parse repeated ``KIND=W`` flags into a ``{kind: weight}`` dict.
+
+    Raises ``ValueError`` on malformed entries, non-float weights,
+    negative weights, or unknown edge kinds (typo protection — an
+    unrecognised kind would silently no-op otherwise).
+    """
+    weights: dict[str, float] = {}
+    for item in raw or []:
+        if "=" not in item:
+            raise ValueError(
+                f"--kind-weight expects KIND=W, got {item!r} (no '=')."
+            )
+        kind, _, val = item.partition("=")
+        kind = kind.strip()
+        try:
+            weight = float(val.strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"--kind-weight weight for {kind!r} is not a float: {val!r}."
+            ) from exc
+        if weight < 0.0:
+            raise ValueError(
+                f"--kind-weight for {kind!r} must be >= 0, got {weight}."
+            )
+        if kind not in EDGE_KINDS:
+            raise ValueError(
+                f"--kind-weight kind {kind!r} is not a known edge kind. "
+                f"Valid kinds: {', '.join(EDGE_KINDS)}."
+            )
+        weights[kind] = weight
+    return weights
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -54,6 +98,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--kind-weight",
+        action="append",
+        default=None,
+        metavar="KIND=W",
+        help=(
+            "Scale an edge kind's profile dimensions by float W (repeatable). "
+            "Unspecified kinds default to 1.0. Weighting produces a Float64 "
+            "variant (not raw counts); weights are recorded in the manifest. "
+            "Example: --kind-weight CONTAINS=0.25 to down-weight containment "
+            "scaffolding."
+        ),
+    )
+    p.add_argument(
         "--out",
         default=None,
         help="Output path. Default: <data_dir>/ctkr/hom_profiles.parquet.",
@@ -75,14 +132,33 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     kinds_filter = set(args.kinds_filter) if args.kinds_filter else None
+    try:
+        kind_weights = _parse_kind_weights(args.kind_weight)
+    except ValueError as exc:
+        sys.stderr.write(f"ERROR: {exc}\n")
+        return 2
     filter_label = sorted(kinds_filter) if kinds_filter else "(none)"
-    sys.stderr.write(f"computing hom-profiles (kinds_filter={filter_label})...\n")
-    df, stats = compute_hom_profiles(g, kinds_filter=kinds_filter)
+    weights_label = (
+        ", ".join(f"{k}={w}" for k, w in sorted(kind_weights.items()))
+        if kind_weights
+        else "(none)"
+    )
+    sys.stderr.write(
+        f"computing hom-profiles (kinds_filter={filter_label}, "
+        f"kind_weights={weights_label})...\n"
+    )
+    df, stats = compute_hom_profiles(
+        g, kinds_filter=kinds_filter, kind_weights=kind_weights
+    )
 
     canonical_out = (data_dir / "ctkr" / "hom_profiles.parquet").resolve()
     out = Path(args.out).expanduser().resolve() if args.out else canonical_out
     sys.stderr.write(f"writing {df.height:,} rows to {out}...\n")
-    write_hom_profiles(df, out)
+    write_hom_profiles(df, out, weighted=stats.weighted)
+
+    # Record the weights used (None on the raw-count path) so the artifact
+    # is self-describing and never confused with maximal-precision counts.
+    manifest_kind_weights = dict(stats.kind_weights) if stats.weighted else None
 
     # Skip manifest update when --out points outside the canonical path;
     # the manifest's "artifact present" promise must match where it lives.
@@ -92,6 +168,7 @@ def run(args: argparse.Namespace) -> int:
             hom_profiles=True,
             n_hom_profiles=df.height,
             profile_vec_dim=NDIM,
+            kind_weights=manifest_kind_weights,
         )
     else:
         manifest_path = None
@@ -105,11 +182,17 @@ def run(args: argparse.Namespace) -> int:
         ",".join(sorted(kinds_filter)) if kinds_filter else "(none)"
     )
     manifest_desc = str(manifest_path) if manifest_path else "(skipped — non-canonical --out)"
+    weights_desc = weights_label
+    precision_desc = (
+        "Float64 (weighted variant)" if stats.weighted else "UInt32 (raw counts)"
+    )
     sys.stderr.write(
         "\n"
         f"  rows            : {df.height:,}\n"
         f"  profile_vec_dim : {NDIM}\n"
         f"  kinds_filter    : {filter_desc}\n"
+        f"  kind_weights    : {weights_desc}\n"
+        f"  precision       : {precision_desc}\n"
         f"  output          : {out}\n"
         f"  manifest        : {manifest_desc}\n"
         f"  elapsed         : {elapsed}s (compute {stats.elapsed_seconds}s)\n"
@@ -124,6 +207,8 @@ def run(args: argparse.Namespace) -> int:
                     "rows": df.height,
                     "profile_vec_dim": NDIM,
                     "kinds_filter": sorted(kinds_filter) if kinds_filter else [],
+                    "kind_weights": dict(stats.kind_weights),
+                    "weighted": stats.weighted,
                     "output": str(out),
                     "manifest": str(manifest_path) if manifest_path else None,
                     "elapsed_seconds": elapsed,
