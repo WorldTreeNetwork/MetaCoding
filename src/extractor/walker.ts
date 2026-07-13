@@ -377,10 +377,17 @@ export function detectGrammar(filename: string): Grammar | null {
   if (filename.endsWith(".tsx")) return "tsx";
   if (filename.endsWith(".ts")) return "typescript";
   if (filename.endsWith(".py")) return "python";
+  // PHP, plus the extensionless-`<?php` file types Drupal uses (farmOS and
+  // other Drupal codebases put real PHP in .module/.install/.theme/etc.).
   if (
     filename.endsWith(".php") ||
     filename.endsWith(".phtml") ||
-    filename.endsWith(".inc")
+    filename.endsWith(".inc") ||
+    filename.endsWith(".module") ||
+    filename.endsWith(".install") ||
+    filename.endsWith(".theme") ||
+    filename.endsWith(".profile") ||
+    filename.endsWith(".engine")
   ) {
     return "php";
   }
