@@ -24,9 +24,11 @@ import { openCtkrArtifacts } from "../ctkr/artifacts.ts";
 import { EDGE_KIND_VALUES } from "../store/types.ts";
 import type { ToolDescription } from "./tools.ts";
 import type {
+  ArtifactManifest,
   CentralityRow,
   EdgeKind,
   EvidenceRow,
+  FunctorRow,
   MotifRow,
   PatternRow,
   SpectralClusterRow,
@@ -101,6 +103,46 @@ export interface CentralityResult {
   _note?: string;
 }
 
+/** Functor-level summary for ctkr.functor_between (§4). One directed run. */
+export interface FunctorSummary {
+  functor_id: string;
+  repo_src: string;
+  repo_dst: string;
+  coverage: number;
+  fidelity: number;
+  n_mapped: number;
+  n_objects_src: number;
+  /** Sampled 2-path composition diagnostic; omitted when not computed (−1). */
+  path_fidelity_2?: number;
+  generated_at: string;
+}
+
+/** One object↦object correspondence row returned by ctkr.functor_between. */
+export interface FunctorMappingRow {
+  src_symbol_id: string;
+  src_qualified_name: string;
+  dst_symbol_id: string;
+  dst_qualified_name: string;
+  similarity: number;
+  /** Assignment confidence — low = coin-flip among lookalikes. */
+  margin: number;
+  /** null = no structural evidence (isolated pair); never read as 1.0. */
+  pair_fidelity: number | null;
+}
+
+/** Result shape for ctkr.functor_between (§4). */
+export interface FunctorBetweenResult {
+  /** null when the pair has no artifact row passing the filters. */
+  functor: FunctorSummary | null;
+  /** B→A summary; present only when direction="both". */
+  reverse?: FunctorSummary | null;
+  /** filtered + truncated correspondence rows for the primary direction. */
+  mapping: FunctorMappingRow[];
+  truncated: boolean;
+  /** Explanatory landscape note (alternatives, best-available, staleness, …). */
+  _note?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -150,6 +192,16 @@ const ROLE_EQUIVALENT_SCHEMA = {
   k: z.number().int().min(1).max(500).optional(),
   scope: z.string().optional(),
   cross_repo_only: z.boolean().optional(),
+};
+
+const FUNCTOR_BETWEEN_SCHEMA = {
+  repo_a: z.string().min(1),
+  repo_b: z.string().min(1),
+  direction: z.enum(["a_to_b", "b_to_a", "both"]).optional(),
+  min_coverage: z.number().min(0).max(1).optional(),
+  min_fidelity: z.number().min(0).max(1).optional(),
+  min_pair_fidelity: z.number().min(0).max(1).optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
 };
 
 // ---------------------------------------------------------------------------
@@ -492,6 +544,212 @@ export async function roleEquivalent(input: {
 }
 
 // ---------------------------------------------------------------------------
+// ctkr.functor_between (§4)
+// ---------------------------------------------------------------------------
+
+/** Project a FunctorRow onto the read-side summary shape. */
+function toFunctorSummary(row: FunctorRow): FunctorSummary {
+  const summary: FunctorSummary = {
+    functor_id: row.functor_id,
+    repo_src: row.repo_src,
+    repo_dst: row.repo_dst,
+    coverage: row.coverage,
+    fidelity: row.fidelity,
+    n_mapped: row.n_mapped,
+    n_objects_src: row.n_objects_src,
+    generated_at: row.generated_at,
+  };
+  // path_fidelity_2 is the −1 sentinel when not computed (§3.1) — omit it.
+  if (row.path_fidelity_2 !== undefined && row.path_fidelity_2 >= 0) {
+    summary.path_fidelity_2 = row.path_fidelity_2;
+  }
+  return summary;
+}
+
+/**
+ * Staleness check (§4): the functor's `config.hom_profiles_generated_at` is
+ * stamped from the manifest generation it was seeded against. When it differs
+ * from the current manifest generation, the correspondence may be built on an
+ * older hom-profile set — surface it rather than silently serve stale maps.
+ */
+function stalenessNote(
+  row: FunctorRow,
+  manifest: ArtifactManifest,
+): string | null {
+  let cfg: Record<string, unknown>;
+  try {
+    cfg = JSON.parse(row.config) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const stamp = cfg["hom_profiles_generated_at"];
+  const current = manifest.generated_at;
+  if (
+    typeof stamp === "string" &&
+    typeof current === "string" &&
+    stamp !== current
+  ) {
+    return (
+      "functor was discovered against an older hom-profile generation " +
+      "— re-run the discovery runner"
+    );
+  }
+  return null;
+}
+
+export async function functorBetween(input: {
+  repo_a: string;
+  repo_b: string;
+  direction?: "a_to_b" | "b_to_a" | "both";
+  min_coverage?: number;
+  min_fidelity?: number;
+  min_pair_fidelity?: number;
+  limit?: number;
+}): Promise<FunctorBetweenResult> {
+  const direction = input.direction ?? "a_to_b";
+  const minCoverage = input.min_coverage ?? 0;
+  const minFidelity = input.min_fidelity ?? 0;
+  const minPairFidelity = input.min_pair_fidelity ?? 0;
+  const limit = input.limit ?? 200;
+
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    // Missing-artifact error mode (§4): explicit, actionable message. Checked
+    // up front so it fires before any read (mirrors the loader's discipline,
+    // but with the runner-specific wording the design calls for).
+    const manifest = await handle.manifest();
+    if (!manifest.functors) {
+      throw new Error(
+        `functor artifacts not found in ${dataDir} — run the functor discovery runner first`,
+      );
+    }
+
+    // The primary direction decides which stored (src, dst) row carries the
+    // returned mapping. "both" keeps a→b primary and adds the reverse summary.
+    const [primarySrc, primaryDst] =
+      direction === "b_to_a"
+        ? [input.repo_b, input.repo_a]
+        : [input.repo_a, input.repo_b];
+
+    const notes: string[] = [];
+
+    // Best functor for the primary direction among those passing the filters.
+    // The loader orders by coverage×fidelity DESC, so passing[0] is the pick
+    // and the rest are alternative configs.
+    const passing = await handle.functors({
+      repoSrc: primarySrc,
+      repoDst: primaryDst,
+      minCoverage,
+      minFidelity,
+    });
+
+    let functor: FunctorSummary | null = null;
+    let mapping: FunctorMappingRow[] = [];
+    let truncated = false;
+
+    if (passing.length > 0) {
+      const chosen = passing[0]!;
+      functor = toFunctorSummary(chosen);
+
+      if (passing.length > 1) {
+        const n = passing.length - 1;
+        notes.push(
+          `${n} alternative config${n === 1 ? "" : "s"} for this pair not shown ` +
+            `(returned the max coverage×fidelity row)`,
+        );
+      }
+
+      const stale = stalenessNote(chosen, manifest);
+      if (stale) notes.push(stale);
+
+      // min_pair_fidelity is the query-time strictness dial (MetaCoding-ebg).
+      // At 0 we keep no-evidence pairs (−1 → surfaced as null); a positive
+      // threshold drops them, since the loader's `pair_fidelity >= x` filter
+      // excludes the −1 sentinel. Fetch one extra row to detect truncation.
+      const edgeOpts: { minPairFidelity?: number; limit: number } = {
+        limit: limit + 1,
+      };
+      if (minPairFidelity > 0) edgeOpts.minPairFidelity = minPairFidelity;
+      const edges = await handle.functorEdges(chosen.functor_id, edgeOpts);
+      truncated = edges.length > limit;
+      mapping = edges.slice(0, limit).map((e) => ({
+        src_symbol_id: e.src_symbol_id,
+        src_qualified_name: e.src_qualified_name,
+        dst_symbol_id: e.dst_symbol_id,
+        dst_qualified_name: e.dst_qualified_name,
+        similarity: e.similarity,
+        margin: e.margin,
+        pair_fidelity: e.pair_fidelity === -1 ? null : e.pair_fidelity,
+      }));
+    } else {
+      // No functor passes the filters. Distinguish "pair present but below the
+      // thresholds" (report best-available so agents learn the landscape) from
+      // "no such functor" (unknown repo, or ordered pair never discovered).
+      const all = await handle.functors({
+        repoSrc: primarySrc,
+        repoDst: primaryDst,
+      });
+      if (all.length > 0) {
+        const best = all[0]!;
+        const fidStr =
+          best.fidelity < 0
+            ? "null (no internal edges)"
+            : best.fidelity.toFixed(2);
+        notes.push(
+          `no functor ${primarySrc}→${primaryDst} meets ` +
+            `min_coverage=${minCoverage}/min_fidelity=${minFidelity}; best available: ` +
+            `coverage=${best.coverage.toFixed(2)}, fidelity=${fidStr}`,
+        );
+      } else {
+        // Unknown-repo error mode (§4): list the repos that do appear.
+        const allFunctors = await handle.functors();
+        const repos = new Set<string>();
+        for (const f of allFunctors) {
+          repos.add(f.repo_src);
+          repos.add(f.repo_dst);
+        }
+        const unknown = [primarySrc, primaryDst].filter((r) => !repos.has(r));
+        const available = [...repos].sort();
+        if (unknown.length > 0) {
+          notes.push(
+            `unknown repo${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}; ` +
+              `available repos: ${available.join(", ") || "(none)"}`,
+          );
+        } else {
+          notes.push(
+            `no functor computed for ${primarySrc}→${primaryDst} ` +
+              `(both repos are present in other pairs — run discovery for this ordered pair)`,
+          );
+        }
+      }
+    }
+
+    const result: FunctorBetweenResult = { functor, mapping, truncated };
+
+    if (direction === "both") {
+      const rev = await handle.functors({
+        repoSrc: input.repo_b,
+        repoDst: input.repo_a,
+        minCoverage,
+        minFidelity,
+      });
+      result.reverse = rev.length > 0 ? toFunctorSummary(rev[0]!) : null;
+      if (rev.length === 0) {
+        notes.push(
+          `no reverse functor ${input.repo_b}→${input.repo_a} meets the filters`,
+        );
+      }
+    }
+
+    if (notes.length > 0) result._note = notes.join("; ");
+    return result;
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -610,10 +868,51 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       },
     },
   },
+  {
+    name: "ctkr.functor_between",
+    summary:
+      "Discover how two repos' designs correspond: the maximal partial " +
+      "structure-preserving map (functor) between them, with per-correspondence " +
+      "fidelity. Reads functors.parquet / functor_edges.parquet (discovery is the " +
+      "batch runner's job). direction picks the stored direction(s); min_coverage / " +
+      "min_fidelity gate the functor (min_fidelity=1.0 = strict functors only); " +
+      "min_pair_fidelity filters mapping rows; results note alternatives, " +
+      "best-available scores, and hom-profile staleness.",
+    input_schema: {
+      type: "object",
+      required: ["repo_a", "repo_b"],
+      properties: {
+        repo_a: { type: "string", description: "Source repo (domain C_A)." },
+        repo_b: { type: "string", description: "Target repo (codomain C_B)." },
+        direction: {
+          type: "string",
+          enum: ["a_to_b", "b_to_a", "both"],
+          default: "a_to_b",
+          description: "Which stored direction to return; 'both' adds the reverse summary.",
+        },
+        min_coverage: { type: "number", minimum: 0, maximum: 1, default: 0 },
+        min_fidelity: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          default: 0,
+          description: "1.0 returns only strict (pure) functors.",
+        },
+        min_pair_fidelity: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          default: 0,
+          description: "Query-time strictness dial over the mapping rows.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 5000, default: 200 },
+      },
+    },
+  },
 ];
 
 /**
- * Register all six CTKR tools on the given McpServer.
+ * Register all seven CTKR tools on the given McpServer.
  * Call this from server.ts after the existing graph tool registrations.
  * Keep the registrations here in sync with CTKR_TOOL_DESCRIPTIONS above.
  */
@@ -757,6 +1056,40 @@ export function registerCtkrTools(server: McpServer): void {
         metric: args.metric,
       });
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.functor_between",
+    {
+      description:
+        "Discover how two repos' designs correspond: the maximal partial " +
+        "structure-preserving map (functor) between them, with per-correspondence " +
+        "fidelity. Reads functors.parquet / functor_edges.parquet only — discovery " +
+        "is the batch runner's job. " +
+        "direction ('a_to_b' | 'b_to_a' | 'both') selects the stored direction; " +
+        "'both' also returns the reverse (B→A) summary. " +
+        "min_coverage / min_fidelity gate which functor is returned (min_fidelity=1.0 " +
+        "returns only strict/pure functors; a −1 no-evidence fidelity always fails a " +
+        "positive threshold). min_pair_fidelity filters the returned mapping rows " +
+        "(pair_fidelity=null means an isolated pair with no structural evidence — " +
+        "never read as 1.0). limit caps mapping rows (sorted pair_fidelity desc, then " +
+        "similarity desc). When no functor passes the filters the result carries " +
+        "functor:null plus a _note giving the best-available scores, unknown-repo " +
+        "listing, or a hom-profile staleness flag.",
+      inputSchema: FUNCTOR_BETWEEN_SCHEMA,
+    },
+    async (args) => {
+      const result = await functorBetween({
+        repo_a: args.repo_a,
+        repo_b: args.repo_b,
+        direction: args.direction,
+        min_coverage: args.min_coverage,
+        min_fidelity: args.min_fidelity,
+        min_pair_fidelity: args.min_pair_fidelity,
+        limit: args.limit,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
 }
