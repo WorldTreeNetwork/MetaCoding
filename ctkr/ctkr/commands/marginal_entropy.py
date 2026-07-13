@@ -18,7 +18,12 @@ import math
 import sys
 from typing import Any
 
-from ctkr.commands._common import add_common_flags, resolve_data_dir
+from ctkr.commands._common import (
+    add_common_flags,
+    add_kind_weight_flag,
+    parse_kind_weights,
+    resolve_data_dir,
+)
 from ctkr.graph_loader import EDGE_KINDS, load_graph
 from ctkr.hom_profiles import DIM_IDX, NDIM
 
@@ -34,6 +39,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     add_common_flags(p)
+    add_kind_weight_flag(p)
     p.set_defaults(func=run)
 
 
@@ -66,18 +72,30 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write("ERROR: empty graph — nothing to analyse.\n")
         return 1
 
-    # ── 1. Compute raw hom-profiles ──────────────────────────────────────────
-    sys.stderr.write("computing raw hom-profiles...\n")
-    raw_counts: dict[str, list[int]] = {nid: [0] * NDIM for nid in g.nodes()}
+    # ── 1. Compute hom-profiles ──────────────────────────────────────────────
+    try:
+        kind_weights = parse_kind_weights(getattr(args, "kind_weight", None), EDGE_KINDS)
+    except ValueError as exc:
+        sys.stderr.write(f"ERROR: {exc}\n")
+        return 2
+    if kind_weights:
+        weights_label = ", ".join(f"{k}={w}" for k, w in sorted(kind_weights.items()))
+        sys.stderr.write(f"computing hom-profiles (kind_weights={weights_label})...\n")
+    else:
+        sys.stderr.write("computing raw hom-profiles...\n")
+    # Each edge contributes its kind's weight (default 1.0). Ablation deltas are
+    # then measured relative to this (possibly weighted) baseline.
+    raw_counts: dict[str, list[float]] = {nid: [0.0] * NDIM for nid in g.nodes()}
 
     for src, dst, data in g.edges(data=True):
         kind = data.get("kind", "")
+        w = kind_weights.get(kind, 1.0)
         out_key = (kind, "out")
         in_key = (kind, "in")
         if out_key in DIM_IDX:
-            raw_counts[src][DIM_IDX[out_key]] += 1
+            raw_counts[src][DIM_IDX[out_key]] += w
         if in_key in DIM_IDX:
-            raw_counts[dst][DIM_IDX[in_key]] += 1
+            raw_counts[dst][DIM_IDX[in_key]] += w
 
     # ── 2. Baseline entropy ──────────────────────────────────────────────────
     baseline_profiles: collections.Counter[tuple[float, ...]] = collections.Counter()

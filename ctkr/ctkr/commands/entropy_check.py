@@ -32,7 +32,12 @@ import random
 import sys
 from typing import Any
 
-from ctkr.commands._common import add_common_flags, resolve_data_dir
+from ctkr.commands._common import (
+    add_common_flags,
+    add_kind_weight_flag,
+    parse_kind_weights,
+    resolve_data_dir,
+)
 from ctkr.graph_loader import EDGE_KINDS, load_graph
 from ctkr.hom_profiles import DIM_IDX as _DIM_IDX
 from ctkr.hom_profiles import DIMS as _DIMS_TUPLE
@@ -73,6 +78,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=5,
         help="Number of top profiles for dominant-coverage calculation (default: 5).",
     )
+    add_kind_weight_flag(p)
     p.set_defaults(func=run)
 
 
@@ -88,22 +94,35 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write("ERROR: empty graph — nothing to analyse.\n")
         return 1
 
-    # ── 1. Compute raw hom-profiles ──────────────────────────────────────────
-    sys.stderr.write("computing hom-profiles...\n")
+    # ── 1. Compute hom-profiles ──────────────────────────────────────────────
+    try:
+        kind_weights = parse_kind_weights(getattr(args, "kind_weight", None), EDGE_KINDS)
+    except ValueError as exc:
+        sys.stderr.write(f"ERROR: {exc}\n")
+        return 2
+    if kind_weights:
+        weights_label = ", ".join(f"{k}={w}" for k, w in sorted(kind_weights.items()))
+        sys.stderr.write(f"computing hom-profiles (kind_weights={weights_label})...\n")
+    else:
+        sys.stderr.write("computing hom-profiles...\n")
 
-    # raw_counts[node_id] = list of ints, length _NDIM
-    raw_counts: dict[str, list[int]] = {
-        nid: [0] * _NDIM for nid in g.nodes()
+    # counts[node_id] = list of floats, length _NDIM. Each edge contributes its
+    # kind's weight (default 1.0) so the profile scored here matches what the
+    # hom-profiles writer emits for the same --kind-weight — the diagnostic is
+    # no longer blind to weighting.
+    raw_counts: dict[str, list[float]] = {
+        nid: [0.0] * _NDIM for nid in g.nodes()
     }
 
     for src, dst, data in g.edges(data=True):
         kind = data.get("kind", "")
+        w = kind_weights.get(kind, 1.0)
         out_key = (kind, "out")
         in_key = (kind, "in")
         if out_key in _DIM_IDX:
-            raw_counts[src][_DIM_IDX[out_key]] += 1
+            raw_counts[src][_DIM_IDX[out_key]] += w
         if in_key in _DIM_IDX:
-            raw_counts[dst][_DIM_IDX[in_key]] += 1
+            raw_counts[dst][_DIM_IDX[in_key]] += w
 
     # ── 2. L1-normalise → profile tuples ────────────────────────────────────
     # Isolated nodes (all-zero vector) get the zero-profile tuple.

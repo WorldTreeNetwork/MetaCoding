@@ -55,6 +55,60 @@ def add_common_flags(p: argparse.ArgumentParser) -> None:
     )
 
 
+def add_kind_weight_flag(p: argparse.ArgumentParser) -> None:
+    """Add the repeatable ``--kind-weight KIND=W`` flag.
+
+    Shared by ``hom-profiles`` (write-time weighting) and the diagnostics
+    (``entropy-check`` / ``marginal-entropy``) so the profile a diagnostic
+    scores matches what the writer would emit for the same weights.
+    """
+    p.add_argument(
+        "--kind-weight",
+        action="append",
+        default=None,
+        metavar="KIND=W",
+        help=(
+            "Scale an edge kind's profile dimensions by float W (repeatable). "
+            "Unspecified kinds default to 1.0. Example: --kind-weight "
+            "CONTAINS=0.25 to down-weight containment scaffolding."
+        ),
+    )
+
+
+def parse_kind_weights(
+    raw: list[str] | None, valid_kinds: Iterable[str]
+) -> dict[str, float]:
+    """Parse repeated ``KIND=W`` flags into a ``{kind: weight}`` dict.
+
+    Raises ``ValueError`` on malformed entries, non-float weights, negative
+    weights, or unknown edge kinds (typo protection — an unrecognised kind
+    would silently no-op otherwise). Mirrors the writer's parser so the two
+    lanes can never diverge on validation.
+    """
+    valid = set(valid_kinds)
+    weights: dict[str, float] = {}
+    for item in raw or []:
+        if "=" not in item:
+            raise ValueError(f"--kind-weight expects KIND=W, got {item!r} (no '=').")
+        kind, _, val = item.partition("=")
+        kind = kind.strip()
+        try:
+            weight = float(val.strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"--kind-weight weight for {kind!r} is not a float: {val!r}."
+            ) from exc
+        if weight < 0.0:
+            raise ValueError(f"--kind-weight for {kind!r} must be >= 0, got {weight}.")
+        if kind not in valid:
+            raise ValueError(
+                f"--kind-weight kind {kind!r} is not a known edge kind. "
+                f"Valid kinds: {', '.join(sorted(valid))}."
+            )
+        weights[kind] = weight
+    return weights
+
+
 def emit(rows: list[Mapping[str, Any]], *, as_json: bool, columns: Iterable[str]) -> None:
     """Emit a list of rows as either JSON or a fixed-width table."""
     if as_json:
