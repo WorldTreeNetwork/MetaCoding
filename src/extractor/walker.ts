@@ -6,7 +6,7 @@
 // indexed root). Symbol ids include repo so cross-repo names don't clash.
 //
 // Multi-language dispatch: `.ts` / `.tsx` -> TypeScript extractor;
-// `.py` -> Python extractor.
+// `.py` -> Python extractor; `.php` -> PHP extractor.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
@@ -22,8 +22,9 @@ import { fileContentHash } from "./identity";
 import { makeParser, type TsParser } from "./parser";
 import { extractTypeScript, type ExtractOpts as TsExtractOpts } from "./typescript";
 import { extractPython, type ExtractPyOpts } from "./python";
+import { extractPhp, type ExtractPhpOpts } from "./php";
 
-type Grammar = "typescript" | "tsx" | "python";
+type Grammar = "typescript" | "tsx" | "python" | "php";
 
 export interface WalkOpts {
   branch?: string;
@@ -78,6 +79,7 @@ interface ParserCache {
   typescript: TsParser;
   tsx: TsParser;
   python: TsParser;
+  php: TsParser;
 }
 
 let cachedParsers: ParserCache | null = null;
@@ -87,6 +89,7 @@ async function getParsers(): Promise<ParserCache> {
     typescript: await makeParser("typescript"),
     tsx: await makeParser("tsx"),
     python: await makeParser("python"),
+    php: await makeParser("php"),
   };
   return cachedParsers;
 }
@@ -225,6 +228,11 @@ async function indexOne(
       filePath: f.rel, branch, repo, repo_commit_sha, indexed_at, perCommitIdentity,
     };
     result = extractPython(tree, eo);
+  } else if (f.grammar === "php") {
+    const eo: ExtractPhpOpts = {
+      filePath: f.rel, branch, repo, repo_commit_sha, indexed_at, perCommitIdentity,
+    };
+    result = extractPhp(tree, eo);
   } else {
     const eo: TsExtractOpts = {
       filePath: f.rel, grammar: f.grammar, branch, repo, repo_commit_sha, indexed_at, perCommitIdentity,
@@ -246,15 +254,21 @@ async function indexOne(
   // resolver, then collect WRITES_FIELD / CONSTRUCTS / RETURNS_TYPE candidates.
   // Targets are resolved later (end of directory walk) when all repo symbols
   // are in the index — supports cross-file `new Foo()` etc.
+  //
+  // PHP is registered in the resolver (so ts/py candidates can resolve into
+  // PHP symbols by name) but has no behavior-edge extractor of its own yet —
+  // extractEdgeCandidates only understands "ts"/"py", so we skip the pass.
   if (resolver && pendingCandidates) {
     for (const sym of result.symbols) resolver.add(sym);
-    const edgeLang = f.grammar === "python" ? "py" : "ts";
-    const er = extractEdgeCandidates(tree, {
-      language: edgeLang,
-      filePath: f.rel,
-      symbols: result.symbols,
-    });
-    for (const c of er.candidates) pendingCandidates.push(c);
+    if (f.grammar !== "php") {
+      const edgeLang = f.grammar === "python" ? "py" : "ts";
+      const er = extractEdgeCandidates(tree, {
+        language: edgeLang,
+        filePath: f.rel,
+        symbols: result.symbols,
+      });
+      for (const c of er.candidates) pendingCandidates.push(c);
+    }
   }
 
   tree.delete();
@@ -363,5 +377,12 @@ export function detectGrammar(filename: string): Grammar | null {
   if (filename.endsWith(".tsx")) return "tsx";
   if (filename.endsWith(".ts")) return "typescript";
   if (filename.endsWith(".py")) return "python";
+  if (
+    filename.endsWith(".php") ||
+    filename.endsWith(".phtml") ||
+    filename.endsWith(".inc")
+  ) {
+    return "php";
+  }
   return null;
 }
