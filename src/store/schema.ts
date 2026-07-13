@@ -20,6 +20,8 @@ const PLAIN_EDGES: EdgeKind[] = [
   "WRITES_FIELD",
   "RETURNS_TYPE",
   "CONSTRUCTS",
+  // Exception-flow edge (bead MetaCoding-ijo).
+  "RAISES",
 ];
 
 const COUNTED_EDGES: EdgeKind[] = ["CALLS", "REFERENCES"];

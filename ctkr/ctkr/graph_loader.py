@@ -45,6 +45,8 @@ EDGE_KINDS: tuple[str, ...] = (
     "WRITES_FIELD",
     "RETURNS_TYPE",
     "CONSTRUCTS",
+    # Exception-flow edge (bead MetaCoding-ijo).
+    "RAISES",
 )
 
 

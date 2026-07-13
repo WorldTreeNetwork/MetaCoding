@@ -31,6 +31,7 @@ export interface NeighborRow {
 const VALID_EDGE_KINDS: ReadonlyArray<EdgeKind> = [
   "CALLS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
   "INJECTS", "CONTAINS", "IMPORTS", "ANNOTATES", "TYPE_OF",
+  "READS_FIELD", "WRITES_FIELD", "RETURNS_TYPE", "CONSTRUCTS", "RAISES",
 ];
 
 export interface GraphNeighborsInput {

@@ -1,6 +1,7 @@
 // Tree-sitter behavior-edge extraction.
 //
-// Emits WRITES_FIELD, CONSTRUCTS, RETURNS_TYPE, READS_FIELD, TYPE_OF edges.
+// Emits WRITES_FIELD, CONSTRUCTS, RETURNS_TYPE, READS_FIELD, TYPE_OF,
+// RAISES, and ANNOTATES (decorator application) edges.
 //
 // MetaCoding-3s5: initial WRITES_FIELD, CONSTRUCTS, RETURNS_TYPE pass.
 // MetaCoding-9le: READS_FIELD (member-access reads in TS + Python) and
@@ -213,6 +214,10 @@ function walkTs(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
       tsHandleReturnType(node, scopes, out);
       break;
     }
+    case "throw_statement": {
+      tsHandleThrow(node, scopes, out);
+      break;
+    }
     case "member_expression": {
       // Emit READS_FIELD for every member-expression that is NOT the direct LHS
       // of a plain assignment (augmented assignments are both read and write,
@@ -224,6 +229,11 @@ function walkTs(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
     case "public_field_definition": {
       // `field: SomeType;` in a class/interface body — emit TYPE_OF.
       tsHandleFieldTypeOf(node, scopes, out);
+      break;
+    }
+    case "decorator": {
+      // `@Foo` or `@Foo()` on a class/method — emit ANNOTATES.
+      tsHandleDecorator(node, scopes, out);
       break;
     }
   }
@@ -297,6 +307,50 @@ function tsHandleNew(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void
     kind: "CONSTRUCTS",
     src_id: src.id,
     target: { kinds: ["class", "interface"], shortName },
+  });
+}
+
+function tsHandleThrow(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  // `throw new Error(...)` → new_expression with constructor "Error".
+  // `throw expr` where expr is an identifier → re-throw of a caught variable (skip).
+  // We only emit RAISES for `throw new X(...)` — the constructor name is the type.
+  const expr = node.namedChildren[0];
+  if (!expr) return;
+  let shortName: string | null = null;
+  if (expr.type === "new_expression") {
+    const ctor = expr.childForFieldName("constructor");
+    if (ctor?.type === "identifier") {
+      shortName = ctor.text;
+    } else if (ctor?.type === "member_expression") {
+      const prop = ctor.childForFieldName("property");
+      if (prop?.type === "property_identifier") shortName = prop.text;
+    }
+  } else if (expr.type === "identifier") {
+    // `throw X` — bare identifier throw (e.g. `throw myError`). Skip: not a type.
+    return;
+  } else if (expr.type === "call_expression") {
+    // `throw Error(...)` — call without `new` (common in JS).
+    const fn = expr.childForFieldName("function");
+    if (fn?.type === "identifier") {
+      shortName = fn.text;
+    } else if (fn?.type === "member_expression") {
+      const prop = fn.childForFieldName("property");
+      if (prop?.type === "property_identifier") shortName = prop.text;
+    }
+  }
+  if (!shortName) return;
+
+  const src = findEnclosingScope(
+    scopes,
+    node.startPosition.row,
+    node.startPosition.column,
+    CALLABLE_KINDS,
+  );
+  if (!src) return;
+  out.push({
+    kind: "RAISES",
+    src_id: src.id,
+    target: { kinds: ["class", "interface", "type_alias"], shortName },
   });
 }
 
@@ -389,6 +443,66 @@ function tsHandleReadsField(
     kind: "READS_FIELD",
     src_id: src.id,
     target: { kinds: ["field"], shortName, scopeQn: cls?.qualifiedName },
+  });
+}
+
+/**
+ * Emit ANNOTATES for a TS decorator (`@Foo` or `@Foo()`).
+ *
+ * The decorator node is a child of the decorated declaration. We find the
+ * decorated symbol (the next sibling declaration) by looking at the parent
+ * and finding the enclosing class/method/function scope that contains this
+ * position.
+ */
+function tsHandleDecorator(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  // The decorator's value is accessed via the first named child.
+  // `@Foo` → child is `identifier` "Foo"
+  // `@Foo()` → child is `call_expression` whose `function` is "Foo"
+  // `@ns.Foo` → child is `member_expression`
+  const child = node.namedChildren[0];
+  if (!child) return;
+  let shortName: string | null = null;
+  if (child.type === "identifier") {
+    shortName = child.text;
+  } else if (child.type === "call_expression") {
+    const fn = child.childForFieldName("function");
+    if (fn?.type === "identifier") shortName = fn.text;
+    else if (fn?.type === "member_expression") {
+      const prop = fn.childForFieldName("property");
+      if (prop?.type === "property_identifier") shortName = prop.text;
+    }
+  } else if (child.type === "member_expression") {
+    const prop = child.childForFieldName("property");
+    if (prop?.type === "property_identifier") shortName = prop.text;
+  }
+  if (!shortName) return;
+
+  // The decorated symbol is the parent declaration. The decorator is a child
+  // of the declaration node, so find the innermost scope at the decorator's
+  // position — that's the decorated symbol itself (class or method).
+  // But the decorator is INSIDE the declaration, so findEnclosingScope will
+  // return the declaration. We want the decorator to point TO the decorated
+  // symbol, so: src = decorator function, dst = decorated symbol.
+  // Edge semantics: decorator ANNOTATES decorated_symbol.
+  // We emit the candidate with src = decorator name (resolved as function/class)
+  // and dst = the enclosing scope (the decorated class/method).
+  const decorated = findEnclosingScope(
+    scopes,
+    node.startPosition.row,
+    node.startPosition.column,
+    ["class", "interface", "method", "function"],
+  );
+  if (!decorated) return;
+
+  out.push({
+    kind: "ANNOTATES",
+    src_id: decorated.id,  // We can't resolve the decorator to a symbol id yet,
+    // so we flip: the decorated symbol is the src (known), and the decorator
+    // name is the target (resolved later). This means the edge direction is
+    // decorated → decorator. Semantics: "symbol is annotated by decorator".
+    // Both directions carry entropy; this is consistent with how SCIP would
+    // surface it (the decoration is a reference from the decorated site).
+    target: { kinds: ["function", "class"], shortName },
   });
 }
 
@@ -498,6 +612,14 @@ function walkPy(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
       pyHandleReturnType(node, scopes, out);
       break;
     }
+    case "raise_statement": {
+      pyHandleRaise(node, scopes, out);
+      break;
+    }
+    case "decorated_definition": {
+      pyHandleDecorators(node, scopes, out);
+      break;
+    }
     case "attribute": {
       // Emit READS_FIELD for every `self.attr` / `cls.attr` read access that
       // is NOT the direct LHS of a plain assignment (augmented handled above).
@@ -593,6 +715,97 @@ const BUILTIN_TYPES = new Set([
   // pydantic / dataclass-style framework primitives common in many repos
   "BaseModel", "Field", "dataclass",
 ]);
+
+/**
+ * Emit ANNOTATES edges for Python decorators on a `decorated_definition`.
+ *
+ * A `decorated_definition` has `decorator` children and a `definition` child.
+ * Each `decorator` has a child that is the decorator expression:
+ *   `@foo` → identifier "foo"
+ *   `@foo()` → call whose function is "foo"
+ *   `@mod.foo` → attribute whose attribute is "foo"
+ */
+function pyHandleDecorators(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  // Find the decorated symbol: it's the `definition` child (function_definition
+  // or class_definition), which should already be in the scope index.
+  const defNode = node.childForFieldName("definition");
+  if (!defNode) return;
+
+  // The decorated symbol position is the decorated_definition's position
+  // (since the python.ts extractor uses node.startPosition which includes decorators).
+  const decorated = findEnclosingScope(
+    scopes,
+    node.startPosition.row,
+    node.startPosition.column,
+    ["class", "method", "function"],
+  );
+  if (!decorated) return;
+
+  // Iterate over decorator children.
+  for (const child of node.namedChildren) {
+    if (child.type !== "decorator") continue;
+    const expr = child.namedChildren[0];
+    if (!expr) continue;
+    let shortName: string | null = null;
+    if (expr.type === "identifier") {
+      shortName = expr.text;
+    } else if (expr.type === "call") {
+      const fn = expr.childForFieldName("function");
+      if (fn?.type === "identifier") shortName = fn.text;
+      else if (fn?.type === "attribute") {
+        const attr = fn.childForFieldName("attribute");
+        if (attr?.type === "identifier") shortName = attr.text;
+      }
+    } else if (expr.type === "attribute") {
+      const attr = expr.childForFieldName("attribute");
+      if (attr?.type === "identifier") shortName = attr.text;
+    }
+    if (!shortName) continue;
+
+    out.push({
+      kind: "ANNOTATES",
+      src_id: decorated.id,
+      target: { kinds: ["function", "class"], shortName },
+    });
+  }
+}
+
+function pyHandleRaise(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  // `raise X(...)` → the first named child is a `call` whose `function` is the type.
+  // `raise X` → the first named child is an `identifier` (bare re-raise of variable → skip).
+  // `raise` (no argument) → re-raise in except block → skip.
+  const expr = node.namedChildren[0];
+  if (!expr) return;
+  let shortName: string | null = null;
+  if (expr.type === "call") {
+    const fn = expr.childForFieldName("function");
+    if (fn?.type === "identifier") {
+      shortName = fn.text;
+    } else if (fn?.type === "attribute") {
+      const attr = fn.childForFieldName("attribute");
+      if (attr?.type === "identifier") shortName = attr.text;
+    }
+  }
+  // `raise X` where X is an identifier — could be a class or a variable.
+  // We emit only when it looks like a class (uppercase) to match CONSTRUCTS heuristic.
+  if (!shortName && expr.type === "identifier" && /^[A-Z]/.test(expr.text)) {
+    shortName = expr.text;
+  }
+  if (!shortName) return;
+
+  const src = findEnclosingScope(
+    scopes,
+    node.startPosition.row,
+    node.startPosition.column,
+    CALLABLE_KINDS,
+  );
+  if (!src) return;
+  out.push({
+    kind: "RAISES",
+    src_id: src.id,
+    target: { kinds: ["class"], shortName },
+  });
+}
 
 function pyHandleReturnType(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
   // tree-sitter-python exposes return type via field name "return_type"

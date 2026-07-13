@@ -128,9 +128,10 @@ def synth_export(tmp_path: Path) -> Path:
 
 
 def test_edge_kinds_match_ts_definition() -> None:
-    # 14 edge kinds in MetaCoding's src/store/types.ts EdgeKind union
-    # (10 original + 4 behavior-capturing edges from MetaCoding-e54).
-    assert len(EDGE_KINDS) == 14
+    # 15 edge kinds in MetaCoding's src/store/types.ts EdgeKind union
+    # (10 original + 4 behavior-capturing edges from MetaCoding-e54
+    #  + 1 exception-flow edge RAISES from MetaCoding-ijo).
+    assert len(EDGE_KINDS) == 15
     assert "CALLS" in EDGE_KINDS
     assert "IMPLEMENTS" in EDGE_KINDS
     assert "IMPORTS" in EDGE_KINDS
@@ -138,6 +139,7 @@ def test_edge_kinds_match_ts_definition() -> None:
     assert "WRITES_FIELD" in EDGE_KINDS
     assert "RETURNS_TYPE" in EDGE_KINDS
     assert "CONSTRUCTS" in EDGE_KINDS
+    assert "RAISES" in EDGE_KINDS
 
 
 def test_resolve_paths_direct(synth_export: Path) -> None:

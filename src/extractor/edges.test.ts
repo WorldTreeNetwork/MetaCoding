@@ -609,6 +609,149 @@ x: Bar = None
 });
 
 // ---------------------------------------------------------------------------
+// TypeScript RAISES (bead MetaCoding-ijo.1)
+// ---------------------------------------------------------------------------
+
+describe("TypeScript RAISES", () => {
+  test("throw new Error() emits RAISES to Error class", () => {
+    const src = `
+class AppError {}
+function fail() {
+  throw new AppError();
+}`;
+    const r = runTs(src);
+    const edges = resolveAll(r);
+    const raises = edges.filter((e) => e.kind === "RAISES" && e.dst_qn.includes("::AppError"));
+    expect(raises.length).toBeGreaterThan(0);
+    expect(raises[0]!.src_qn).toContain("fail");
+  });
+
+  test("throw Error() without new emits RAISES", () => {
+    const src = `
+class ValidationError {}
+function validate() {
+  throw ValidationError();
+}`;
+    const r = runTs(src);
+    const edges = resolveAll(r);
+    const raises = edges.filter((e) => e.kind === "RAISES" && e.dst_qn.includes("::ValidationError"));
+    expect(raises.length).toBeGreaterThan(0);
+  });
+
+  test("throw variable (re-throw) does NOT emit RAISES", () => {
+    const src = `
+function rethrow(e: unknown) {
+  throw e;
+}`;
+    const r = runTs(src);
+    const raises = r.candidates.filter((c) => c.kind === "RAISES");
+    expect(raises.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Python RAISES (bead MetaCoding-ijo.1)
+// ---------------------------------------------------------------------------
+
+describe("Python RAISES", () => {
+  test("raise CustomError() emits RAISES", () => {
+    const src = `class CustomError:
+    pass
+
+def fail():
+    raise CustomError()
+`;
+    const r = runPy(src);
+    const edges = resolveAll(r);
+    const raises = edges.filter((e) => e.kind === "RAISES" && e.dst_qn.includes("::CustomError"));
+    expect(raises.length).toBeGreaterThan(0);
+    expect(raises[0]!.src_qn).toContain("fail");
+  });
+
+  test("raise bare class name emits RAISES when uppercase", () => {
+    const src = `class StopSignal:
+    pass
+
+def halt():
+    raise StopSignal
+`;
+    const r = runPy(src);
+    const edges = resolveAll(r);
+    const raises = edges.filter((e) => e.kind === "RAISES" && e.dst_qn.includes("::StopSignal"));
+    expect(raises.length).toBeGreaterThan(0);
+  });
+
+  test("bare raise (re-raise) does NOT emit RAISES", () => {
+    const src = `def handler():
+    try:
+        pass
+    except Exception:
+        raise
+`;
+    const r = runPy(src);
+    const raises = r.candidates.filter((c) => c.kind === "RAISES");
+    expect(raises.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TypeScript ANNOTATES (decorator application, bead MetaCoding-ijo.2)
+// ---------------------------------------------------------------------------
+
+describe("TypeScript ANNOTATES (decorators)", () => {
+  test("@Decorator on a method emits ANNOTATES", () => {
+    const src = `
+function Log() {}
+class Service {
+  @Log
+  handle() {}
+}`;
+    const r = runTs(src);
+    const edges = resolveAll(r);
+    const ann = edges.filter((e) => e.kind === "ANNOTATES" && e.dst_qn.includes("::Log"));
+    expect(ann.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Python ANNOTATES (decorator application, bead MetaCoding-ijo.2)
+// ---------------------------------------------------------------------------
+
+describe("Python ANNOTATES (decorators)", () => {
+  test("@decorator on a function emits ANNOTATES", () => {
+    const src = `def my_decorator(f):
+    return f
+
+@my_decorator
+def hello():
+    pass
+`;
+    const r = runPy(src);
+    const edges = resolveAll(r);
+    const ann = edges.filter((e) => e.kind === "ANNOTATES" && e.dst_qn.includes("::my_decorator"));
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.src_qn).toContain("hello");
+  });
+
+  test("@decorator() with call on a class emits ANNOTATES", () => {
+    const src = `def register(name):
+    def wrapper(cls):
+        return cls
+    return wrapper
+
+@register("foo")
+class MyClass:
+    pass
+`;
+    const r = runPy(src);
+    const edges = resolveAll(r);
+    const ann = edges.filter((e) => e.kind === "ANNOTATES" && e.dst_qn.includes("::register"));
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.src_qn).toContain("MyClass");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Resolver behaviour
 // ---------------------------------------------------------------------------
 

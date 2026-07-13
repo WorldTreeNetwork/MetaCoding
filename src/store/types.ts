@@ -58,20 +58,23 @@ export type EdgeKind =
   | "INJECTS"
   | "CONTAINS"
   | "IMPORTS"
-  | "ANNOTATES"
+  | "ANNOTATES"    // decorator/annotation → decorated symbol (Python @dec, TS @Decorator)
   | "TYPE_OF"
   // Behavior-capturing edges added by bead MetaCoding-e54 to raise
   // the typed-edge entropy above the 4.0-bit threshold for Phase 2a.
   | "READS_FIELD"    // method/function → field (read access occurrence)
   | "WRITES_FIELD"   // method/function → field (write access occurrence)
   | "RETURNS_TYPE"   // function/method → type symbol (return-type relationship)
-  | "CONSTRUCTS";    // call-site method/function → constructor symbol
+  | "CONSTRUCTS"     // call-site method/function → constructor symbol
+  // Exception-flow edge added by bead MetaCoding-ijo.
+  | "RAISES";        // function/method → exception/error type it throws/raises
 
 /** Frozen runtime array of every EdgeKind string — single source of truth. */
 export const EDGE_KIND_VALUES = [
   "CALLS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
   "INJECTS", "CONTAINS", "IMPORTS", "ANNOTATES", "TYPE_OF",
   "READS_FIELD", "WRITES_FIELD", "RETURNS_TYPE", "CONSTRUCTS",
+  "RAISES",
 ] as const satisfies readonly EdgeKind[];
 
 export interface Edge {

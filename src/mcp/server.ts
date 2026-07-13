@@ -89,6 +89,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
   const EDGE_KIND = z.enum([
     "CALLS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
     "INJECTS", "CONTAINS", "IMPORTS", "ANNOTATES", "TYPE_OF",
+    "READS_FIELD", "WRITES_FIELD", "RETURNS_TYPE", "CONSTRUCTS", "RAISES",
   ]);
   const TOKEN_KIND = z.enum([
     "literal", "identifier", "comment", "annotation_arg", "config_value",
