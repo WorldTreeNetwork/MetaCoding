@@ -28,14 +28,16 @@ import {
   qualifiedNameOf,
   shortNameOf,
   kindOf,
-  filePathOf,
+  phpQualifiedName,
+  phpShortName,
+  phpRealFile,
 } from "./symbol";
 
 export interface LoadScipOpts {
   branch: string;
   repo: string;
   /** Maps the SCIP scheme/file-extension to one of our `language` codes. */
-  language?: "ts" | "py";
+  language?: "ts" | "py" | "php";
   /** git rev-parse HEAD at index time; null when not in a git repo. */
   repo_commit_sha?: string | null;
   /** ISO-8601 timestamp (UTC) at the moment the index was started. */
@@ -44,6 +46,11 @@ export interface LoadScipOpts {
    *  symbols. External SCIP refs (externalQn at line 139) are NEVER sha-scoped
    *  — they're invariant across branches. bead MetaCoding-izn. */
   perCommitIdentity?: boolean;
+  /** PHP only: PSR-4 namespace-prefix -> dir map used to prepare the repo.
+   *  Lets the loader recover real file paths from scip-php's namespace-derived
+   *  relative_path so PHP symbols reconcile with the Tree-sitter lane. See
+   *  phpRealFile in ./symbol and scripts/scip-php-prep.ts (writes the sidecar). */
+  phpPsr4Map?: Record<string, string>;
 }
 
 export interface LoadScipStats {
@@ -83,7 +90,18 @@ export async function loadScip(
       if (!(occ.symbol_roles & scip.SymbolRole.Definition)) continue;
       const parsed = parseScipSymbol(occ.symbol);
       if (!parsed || parsed.isLocal) continue;
-      const qn = qualifiedNameOf(parsed);
+      // PHP (scip-php) names symbols by FQN, not file path; reconcile against
+      // the Tree-sitter lane's `<file>::Class::member` shape. scip-php's
+      // relative_path is namespace-derived (elides the PSR-4 `/src/` root), so
+      // when a PSR-4 map is available we recover the true path; otherwise we
+      // fall back to relative_path. See phpQualifiedName / phpRealFile.
+      const isPhp = opts.language === "php";
+      const phpFile = isPhp
+        ? (opts.phpPsr4Map && phpRealFile(parsed, opts.phpPsr4Map)) || doc.relative_path
+        : doc.relative_path;
+      const qn = isPhp
+        ? phpQualifiedName(parsed, phpFile)
+        : qualifiedNameOf(parsed);
       const lang = opts.language ?? guessLanguageFromQn(qn);
       const idSha = opts.perCommitIdentity ? opts.repo_commit_sha ?? undefined : undefined;
       const id = symbolId(lang, opts.repo, qn, idSha);
@@ -95,8 +113,8 @@ export async function loadScip(
         language: lang,
         repo: opts.repo,
         qualified_name: qn,
-        short_name: shortNameOf(parsed),
-        file: doc.relative_path,
+        short_name: isPhp ? phpShortName(parsed) : shortNameOf(parsed),
+        file: phpFile,
         line: occ.range[0] ?? 0,
         col: occ.range[1] ?? 0,
         end_line: occ.range[2] ?? occ.range[0] ?? 0,
@@ -142,8 +160,7 @@ export async function loadScip(
   // Build a kind-lookup map so pass-2b can check field/type kinds without
   // re-parsing the SCIP symbol string.  Keyed on the SCIP symbol string.
   const kindByScip = new Map<string, string>();
-  for (const [scipSym, def] of defByScip) {
-    // We stored ourId; recover the kind from the DefRecord via defByScip.
+  for (const scipSym of defByScip.keys()) {
     // Re-parse the symbol to get the kind — cheaper than a round-trip to DB.
     const parsed = parseScipSymbol(scipSym);
     if (parsed) kindByScip.set(scipSym, kindOf(parsed));
@@ -203,6 +220,49 @@ export async function loadScip(
     }
     docDefs.sort((a, b) => rangeArea(a.range) - rangeArea(b.range));
 
+    // Some indexers (scip-php) emit no enclosing_range on definitions, so the
+    // range-containment lookup above can never match — a def's `range` is just
+    // its name token. In that case, synthesize scopes from definition START
+    // positions: a reference belongs to the container definition (class /
+    // interface / enum / function / method) with the greatest start position at
+    // or before the reference. Sorted ascending, the last such container is the
+    // innermost (methods start after their enclosing class), giving
+    // method-level attribution with class-level fallback.
+    const hasEnclosing = doc.occurrences.some(
+      (o) =>
+        !!(o.symbol_roles & scip.SymbolRole.Definition) &&
+        !!o.enclosing_range &&
+        o.enclosing_range.length > 0,
+    );
+    const containerDefs = hasEnclosing
+      ? []
+      : doc.occurrences
+          .filter((o) => {
+            if (!(o.symbol_roles & scip.SymbolRole.Definition)) return false;
+            if (!defByScip.has(o.symbol)) return false;
+            const k = kindByScip.get(o.symbol) ?? "";
+            return (
+              k === "method" ||
+              k === "function" ||
+              k === "class" ||
+              k === "interface" ||
+              k === "enum"
+            );
+          })
+          .map((o) => ({ start: o.range, ourId: defByScip.get(o.symbol)!.ourId }))
+          .sort((a, b) => a.start[0]! - b.start[0]! || a.start[1]! - b.start[1]!);
+
+    const findCaller = (occRange: number[]): { ourId: string } | undefined => {
+      if (hasEnclosing) return docDefs.find((d) => rangeContains(d.range, occRange));
+      // Greatest container start <= reference start (containerDefs is ascending).
+      let best: { ourId: string } | undefined;
+      for (const c of containerDefs) {
+        if (posLE(c.start, occRange)) best = c;
+        else break;
+      }
+      return best;
+    };
+
     for (const occ of doc.occurrences) {
       if (occ.symbol_roles & scip.SymbolRole.Definition) continue;
       const targetDef = defByScip.get(occ.symbol);
@@ -210,7 +270,7 @@ export async function loadScip(
         externalRefsSkipped++;
         continue;
       }
-      const caller = docDefs.find((d) => rangeContains(d.range, occ.range));
+      const caller = findCaller(occ.range);
       if (!caller) continue;
 
       const targetKind = kindByScip.get(occ.symbol) ?? "";
@@ -252,6 +312,15 @@ function rangeArea(range: number[]): number {
   const r = expand(range);
   // Approximate "size" by line span; finer-grained ordering not needed.
   return (r.el - r.sl) * 1_000_000 + (r.ec - r.sc);
+}
+
+// True when position `a` (a [line, col, ...] range start) is at or before the
+// start of range `b`. Used to attribute a reference to the nearest preceding
+// container definition when enclosing_range is absent (scip-php).
+function posLE(a: number[], b: number[]): boolean {
+  const al = a[0] ?? 0, ac = a[1] ?? 0;
+  const bl = b[0] ?? 0, bc = b[1] ?? 0;
+  return al < bl || (al === bl && ac <= bc);
 }
 
 function rangeContains(outer: number[], inner: number[]): boolean {

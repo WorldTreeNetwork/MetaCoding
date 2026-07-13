@@ -13,7 +13,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
-import { parseScipSymbol, kindOf } from "./symbol.ts";
+import { parseScipSymbol, kindOf, phpRealFile } from "./symbol.ts";
 import type { Edge, EdgeKind } from "../store/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -375,5 +375,113 @@ describe("CONSTRUCTS edge", () => {
     );
     expect(ctorEdges.length).toBeGreaterThan(0);
     expect(refEdges.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PHP (scip-php) reconciliation.
+//
+// scip-php differs from scip-typescript in two ways the loader must handle:
+//   1. Symbols are named by PHP FQN, not file path (`App/Demo#tweak().`), so
+//      the file comes from Document.relative_path and qualified_name is rebuilt
+//      as `<file>::Class::member` to match the Tree-sitter lane.
+//   2. It emits NO enclosing_range, so reference->caller attribution falls back
+//      to nearest-preceding-container-by-start-position.
+// ---------------------------------------------------------------------------
+function buildPhpScipBytes(relPath: string, occurrences: OccSpec[]): Uint8Array {
+  const doc = new scip.Document({
+    relative_path: relPath,
+    language: "php",
+    occurrences: occurrences.map((o) => new scip.Occurrence({
+      symbol: o.symbol,
+      range: o.range,
+      enclosing_range: o.enclosing_range ?? [],
+      symbol_roles: o.symbol_roles,
+    })),
+    symbols: [],
+  });
+  return new scip.Index({ documents: [doc] }).serialize();
+}
+
+const PHP_OPTS = { branch: "main", repo: "test-repo", language: "php" as const };
+const P = "scip-php composer fixture/app 1.0.0";
+const DEF = scip.SymbolRole.Definition;
+
+describe("PHP scip-php reconciliation", () => {
+  test("qualified_name rebuilt as <file>::Class::member from FQN + doc path", async () => {
+    const captured: { id: string; qn: string; short: string; kind: string }[] = [];
+    const store = {
+      async upsertSymbol(s: any) { captured.push({ id: s.id, qn: s.qualified_name, short: s.short_name, kind: s.kind }); },
+      async addEdge() {}, async fileHash() { return null; },
+      async deleteFileData() {}, writeTokens() {},
+    } as unknown as Parameters<typeof loadScip>[0];
+
+    const bytes = buildPhpScipBytes("src/Demo.php", [
+      { symbol: `${P} App/Demo#`, range: [3, 6, 3, 10], symbol_roles: DEF },
+      { symbol: `${P} App/Demo#tweak().`, range: [5, 20, 5, 25], symbol_roles: DEF },
+      { symbol: `${P} App/Demo#$name.`, range: [4, 12, 4, 17], symbol_roles: DEF },
+    ]);
+    await withTmpScip(bytes, (p) => loadScip(store, p, PHP_OPTS));
+
+    const byQn = new Map(captured.map((c) => [c.qn, c]));
+    expect(byQn.get("src/Demo.php::Demo")?.kind).toBe("class");
+    expect(byQn.get("src/Demo.php::Demo::tweak")?.kind).toBe("method");
+    // Field: leading `$` stripped to match the Tree-sitter lane.
+    expect(byQn.get("src/Demo.php::Demo::name")?.kind).toBe("field");
+    expect(byQn.get("src/Demo.php::Demo::name")?.short).toBe("name");
+  });
+
+  test("reference attributed to nearest preceding container (no enclosing_range)", async () => {
+    const { edges, store } = makeStubStore();
+    // Two methods; a reference inside go()'s body targets run(). With no
+    // enclosing_range, the ref at line 12 must attribute to go() (starts L11),
+    // not run() (starts L6) — nearest-preceding container wins.
+    const bytes = buildPhpScipBytes("src/Demo.php", [
+      { symbol: `${P} App/Demo#`, range: [1, 6, 1, 10], symbol_roles: DEF },
+      { symbol: `${P} App/Demo#run().`, range: [6, 20, 6, 23], symbol_roles: DEF },
+      { symbol: `${P} App/Demo#go().`, range: [11, 20, 11, 22], symbol_roles: DEF },
+      { symbol: `${P} App/Demo#run().`, range: [12, 15, 12, 18], symbol_roles: 0 },
+    ]);
+    await withTmpScip(bytes, (p) => loadScip(store, p, PHP_OPTS));
+
+    const refs = edges.filter((e) => e.kind === "REFERENCES");
+    expect(refs.length).toBe(1);
+    // src should be go(), dst should be run().
+    // (We can't see qns here, but distinct ids prove attribution happened.)
+    expect(refs[0]!.src_id).not.toBe(refs[0]!.dst_id);
+  });
+});
+
+describe("phpRealFile — recover real path from FQN + PSR-4 map", () => {
+  const PSR4 = {
+    "Drupal\\asset\\": "modules/core/asset/src/",
+    "Drupal\\Tests\\asset\\": "modules/core/asset/tests/src/",
+    "Drupal\\farm_id_tag\\": "modules/core/id_tag/src/",
+  };
+  const parse = (raw: string) => parseScipSymbol(raw)!;
+
+  test("class in a sub-namespace maps through the elided /src/ root", () => {
+    const sym = parse("scip-php composer x 1 Drupal/asset/Entity/Asset#");
+    expect(phpRealFile(sym, PSR4)).toBe("modules/core/asset/src/Entity/Asset.php");
+  });
+
+  test("method inherits its class's file", () => {
+    const sym = parse("scip-php composer x 1 Drupal/asset/Entity/Asset#getName().");
+    expect(phpRealFile(sym, PSR4)).toBe("modules/core/asset/src/Entity/Asset.php");
+  });
+
+  test("class at the namespace root (no remainder)", () => {
+    const sym = parse("scip-php composer x 1 Drupal/farm_id_tag/FarmIdTagHelper#");
+    expect(phpRealFile(sym, PSR4)).toBe("modules/core/id_tag/src/FarmIdTagHelper.php");
+  });
+
+  test("longest-prefix wins (Tests\\asset over asset)", () => {
+    const sym = parse("scip-php composer x 1 Drupal/Tests/asset/Functional/AssetCRUDTest#");
+    expect(phpRealFile(sym, PSR4)).toBe("modules/core/asset/tests/src/Functional/AssetCRUDTest.php");
+  });
+
+  test("returns null when no prefix matches (falls back to relative_path)", () => {
+    const sym = parse("scip-php composer x 1 Symfony/Component/Foo#");
+    expect(phpRealFile(sym, PSR4)).toBeNull();
   });
 });

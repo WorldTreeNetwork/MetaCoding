@@ -220,6 +220,77 @@ export function qualifiedNameOf(sym: ScipSymbol): string {
   return tail.length === 0 ? filePath : `${filePath}::${tail.join("::")}`;
 }
 
+// ---- PHP reconciliation ----
+//
+// scip-php names symbols by PHP FQN, not file path: e.g. the descriptors of
+// `App/Demo#tweak().` are [App (namespace), Demo (type), tweak (method)] with
+// NO source-file segment. So filePathOf() returns null and the generic
+// qualifiedNameOf() dot-joins to `App.Demo.tweak`, which does not match the
+// Tree-sitter lane's `<file>::Class::method` shape.
+//
+// The file is instead carried per-document (Document.relative_path). Given
+// that path, we rebuild the Tree-sitter-compatible qualified_name by dropping
+// the namespace-prefix descriptors (the PHP namespace is not part of our qn —
+// the extractor walks bodyless `namespace X;` classes under the file node) and
+// joining the remaining type/method/term names under the file path. Fields
+// carry a leading `$` in SCIP (`$name`) which the Tree-sitter lane strips, so
+// we strip it here too.
+function phpMeaningfulNames(sym: ScipSymbol): string[] {
+  return sym.descriptors
+    .filter(
+      (d) =>
+        d.suffix !== "namespace" &&
+        d.suffix !== "type_parameter" &&
+        d.suffix !== "parameter",
+    )
+    .map((d) => (d.name.startsWith("$") ? d.name.slice(1) : d.name));
+}
+
+export function phpQualifiedName(sym: ScipSymbol, filePath: string): string {
+  const tail = phpMeaningfulNames(sym);
+  return tail.length === 0 ? filePath : `${filePath}::${tail.join("::")}`;
+}
+
+export function phpShortName(sym: ScipSymbol): string {
+  const names = phpMeaningfulNames(sym);
+  return names[names.length - 1] ?? shortNameOf(sym);
+}
+
+// scip-php derives Document.relative_path from the PSR-4 namespace, not the
+// filesystem — e.g. `modules/core/asset/src/Entity/Asset.php` is reported as
+// `modules/core/assetEntity/Asset.php` (the `/src/` PSR-4 root is elided). That
+// breaks reconciliation with the Tree-sitter lane, which uses real paths.
+//
+// Given the PSR-4 map used to prepare the repo (namespace-prefix -> dir, e.g.
+// `Drupal\asset\` -> `modules/core/asset/src/`), we recover the true file path
+// deterministically from the symbol's FQN: longest matching prefix + the
+// remaining namespace segments as directories + `<Type>.php`. Drupal (and PSR-4
+// generally) guarantees one class per file named after the class, so this is
+// exact. Returns null when no prefix matches (fall back to relative_path).
+export function phpRealFile(
+  sym: ScipSymbol,
+  psr4Map: Record<string, string>,
+): string | null {
+  const nsSegments = sym.descriptors
+    .filter((d) => d.suffix === "namespace")
+    .map((d) => d.name);
+  const typeName = sym.descriptors.find((d) => d.suffix === "type")?.name;
+  if (!typeName || nsSegments.length === 0) return null;
+
+  const fqnNs = nsSegments.join("\\") + "\\"; // e.g. "Drupal\asset\Entity\"
+  let best: { prefix: string; dir: string } | null = null;
+  for (const [prefix, dir] of Object.entries(psr4Map)) {
+    if (fqnNs.startsWith(prefix) && (!best || prefix.length > best.prefix.length)) {
+      best = { prefix, dir };
+    }
+  }
+  if (!best) return null;
+
+  const remainder = fqnNs.slice(best.prefix.length).replace(/\\/g, "/"); // "Entity/"
+  const dir = best.dir.endsWith("/") ? best.dir : best.dir + "/";
+  return `${dir}${remainder}${typeName}.php`;
+}
+
 export function shortNameOf(sym: ScipSymbol): string {
   const meaningful = sym.descriptors.filter(
     (d) => d.suffix !== "type_parameter" && d.suffix !== "parameter",

@@ -8,7 +8,7 @@
 // care which indexer produced the file.
 
 import { resolve, join, dirname, basename } from "node:path";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
@@ -50,7 +50,15 @@ export function resolveScipBin(binary: string): string | null {
   return Bun.which(binary);
 }
 
-export type ScipLanguage = "typescript" | "python";
+export type ScipLanguage = "typescript" | "python" | "php";
+
+// scip-php is a PHP tool (davidrjenni/scip-php), not an npm binary, so we run
+// it through its published Docker image rather than resolveScipBin. Override
+// the image with METACODING_SCIP_PHP_IMAGE. The indexer requires an installed
+// composer autoloader in the target (composer.json + composer.lock + vendor/);
+// for Drupal repos, prep that first with scripts/scip-php-prep.ts.
+export const SCIP_PHP_IMAGE =
+  process.env.METACODING_SCIP_PHP_IMAGE ?? "davidrjenni/scip-php:latest";
 
 export interface RunScipOpts {
   language: ScipLanguage;
@@ -71,7 +79,8 @@ interface IndexerSpec {
   args(opts: RunScipOpts, outPath: string): string[];
 }
 
-const INDEXERS: Record<ScipLanguage, IndexerSpec> = {
+// php is not here — it runs via Docker in runScipPhp, not a resolveScipBin binary.
+const INDEXERS: Record<Exclude<ScipLanguage, "php">, IndexerSpec> = {
   typescript: {
     binary: "scip-typescript",
     args(opts, outPath) {
@@ -128,6 +137,9 @@ export async function runScip(opts: RunScipOpts): Promise<RunScipResult> {
   const t0 = performance.now();
   const targetRepo = resolve(opts.targetRepo);
   const outPath = resolve(opts.output ?? join(targetRepo, "index.scip"));
+
+  if (opts.language === "php") return runScipPhp(targetRepo, outPath, t0);
+
   const spec = INDEXERS[opts.language];
 
   const bin = resolveScipBin(spec.binary) ?? spec.binary;
@@ -149,6 +161,48 @@ export async function runScip(opts: RunScipOpts): Promise<RunScipResult> {
     throw new Error(`${spec.binary} reported success but ${outPath} not found`);
   }
 
+  return { scipPath: outPath, durationMs: performance.now() - t0 };
+}
+
+// scip-php runs in Docker: mount the target at /src, cwd /src, and it writes
+// /src/index.scip (it has no --output flag). We then move that into outPath.
+// Requires an installed composer autoloader in the target — see SCIP_PHP_IMAGE.
+async function runScipPhp(
+  targetRepo: string,
+  outPath: string,
+  t0: number,
+): Promise<RunScipResult> {
+  const producedPath = join(targetRepo, "index.scip");
+  const argv = [
+    "docker", "run", "--rm",
+    "-v", `${targetRepo}:/src`,
+    "-w", "/src",
+    "--entrypoint", "scip-php",
+    SCIP_PHP_IMAGE,
+    "--memory-limit=2G",
+  ];
+
+  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(
+      `scip-php (docker ${SCIP_PHP_IMAGE}) exited ${exitCode}\n` +
+        `stdout:\n${stdout}\nstderr:\n${stderr}\n` +
+        `Note: scip-php needs composer.json + composer.lock + an installed vendor/ ` +
+        `in the target. For Drupal repos, run scripts/scip-php-prep.ts first.`,
+    );
+  }
+  if (!existsSync(producedPath)) {
+    throw new Error(`scip-php reported success but ${producedPath} not found`);
+  }
+  if (resolve(producedPath) !== resolve(outPath)) {
+    renameSync(producedPath, outPath);
+  }
   return { scipPath: outPath, durationMs: performance.now() - t0 };
 }
 
