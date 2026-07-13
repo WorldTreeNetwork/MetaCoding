@@ -251,12 +251,31 @@ def run(args: argparse.Namespace) -> int:
         )
     elif shannon_entropy < 4.0 or dominant_top5_coverage > 70.0:
         verdict = "BLOCKED"
+        # Compute genuinely-absent edge kinds from the live graph rather
+        # than hardcoding names that may already exist (bead MetaCoding-ijo.4).
+        present_kinds: set[str] = set()
+        for _, _, data in g.edges(data=True):
+            k = data.get("kind", "")
+            if k:
+                present_kinds.add(k)
+        absent_kinds = [ek for ek in EDGE_KINDS if ek not in present_kinds]
+        if absent_kinds:
+            absent_str = ", ".join(absent_kinds)
+            absent_hint = (
+                f"\n  Edge kinds in the schema but absent from this corpus:\n"
+                f"    {absent_str}.\n"
+                f"  Consider extending the extractor to emit these."
+            )
+        else:
+            absent_hint = (
+                "\n  All defined edge kinds are present. Consider adding new edge\n"
+                "  kinds (e.g. domain-specific relationships) for finer discrimination."
+            )
         reason = (
             f"shannon_entropy={shannon_entropy:.3f} (threshold 4.0)  /  "
             f"dominant_top5_coverage={dominant_top5_coverage:.1f}% (threshold 70%).\n"
-            "  Need richer edge types before hom-profiles will earn their keep.\n"
-            "  Recommend filing a bead to extend the extractor lane with:\n"
-            "    READS_FIELD, WRITES_FIELD, RAISES, RETURNS_TYPE, CONSTRUCTS, DECORATES."
+            "  Need richer edge types before hom-profiles will earn their keep."
+            f"{absent_hint}"
         )
     else:
         verdict = "BORDERLINE"
