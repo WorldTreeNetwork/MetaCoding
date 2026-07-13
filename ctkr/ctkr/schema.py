@@ -260,6 +260,11 @@ class ArtifactManifest(BaseModel):
     # precision default). A non-empty mapping means the profile_vec was scaled
     # by these multipliers and is therefore a Float64 variant, NOT raw counts.
     kind_weights: dict[str, float] | None = None
+    # Neighborhood depth of the hom-profile artifact. 1 (default) = raw
+    # per-symbol typed-edge counts; 2 = one Weisfeiler-Leman refinement
+    # round (self ++ per-(kind,dir)-block neighbor-mean). None on manifests
+    # written before this field existed (treat as 1).
+    profile_depth: int | None = None
     n_symbols: NonNegativeInt = 0
     n_motifs: NonNegativeInt = 0
     n_motif_instances: NonNegativeInt = 0

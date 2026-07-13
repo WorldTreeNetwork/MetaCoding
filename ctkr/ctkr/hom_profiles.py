@@ -103,6 +103,14 @@ class HomProfilesStats:
     kind_weights: tuple[tuple[str, float], ...]
     weighted: bool
     elapsed_seconds: float
+    # Neighborhood depth of the emitted profile. 1 (default) = the raw
+    # per-symbol typed-edge count vector (byte-identical to the original
+    # artifact). 2 = one round of Weisfeiler-Leman color refinement: each
+    # symbol's 1-hop vector is concatenated with, per (edge_kind,
+    # direction) block, the mean 1-hop vector of the neighbors reached via
+    # that block (splits many 1-WL automorphism orbits). See
+    # ``docs/notes/functor-spike/2hop-findings.md``.
+    depth: int = 1
 
 
 def compute_hom_profiles(
@@ -110,6 +118,7 @@ def compute_hom_profiles(
     *,
     kinds_filter: Iterable[str] | None = None,
     kind_weights: Mapping[str, float] | None = None,
+    depth: int = 1,
 ) -> tuple[pl.DataFrame, HomProfilesStats]:
     """Compute per-symbol hom-profiles over the graph.
 
@@ -132,15 +141,36 @@ def compute_hom_profiles(
         ``profile_vec`` becomes ``Float64`` — a distinct, non-raw
         artifact variant; the weights used are surfaced on the returned
         stats and should be recorded in the manifest.
+    depth
+        Neighborhood radius of the emitted profile. ``1`` (default) is
+        the original per-symbol typed-edge count vector — byte-identical
+        to the pre-existing artifact. ``2`` performs **one round of
+        Weisfeiler-Leman color refinement**: each symbol's 1-hop vector
+        is concatenated with, for every ``(edge_kind, direction)`` block
+        in ``DIMS`` order, the *mean* 1-hop vector of the neighbors
+        reached from the symbol via that block (all-zeros when the block
+        has no neighbor). This keys neighbor aggregation by the
+        connecting edge type, so two symbols that are indistinguishable
+        at 1 hop but sit in different structural contexts split apart —
+        the direct attack on 1-WL automorphism orbits. The output vector
+        has ``NDIM + NDIM*NDIM`` dimensions and is always ``Float64``
+        (means are fractional). Only ``1`` and ``2`` are supported.
+        Neighbor 1-hop vectors are drawn over the FULL graph (so an
+        excluded-``kind`` neighbor still contributes its real structural
+        profile), exactly mirroring the o7k edge-counting invariant.
 
     Returns
     -------
     (pl.DataFrame, HomProfilesStats)
         DataFrame columns in ``HOM_PROFILES_COLUMNS`` order; one row
-        per surviving symbol. ``profile_vec`` is a length-``NDIM`` list
-        of unsigned integer counts (raw) unless ``kind_weights`` scaled
-        it, in which case it is a length-``NDIM`` list of floats.
+        per surviving symbol. At ``depth=1`` ``profile_vec`` is a
+        length-``NDIM`` list of unsigned integer counts (raw) unless
+        ``kind_weights`` scaled it, in which case it is a length-``NDIM``
+        list of floats. At ``depth=2`` it is a length-``NDIM+NDIM*NDIM``
+        list of floats.
     """
+    if depth not in (1, 2):
+        raise ValueError(f"depth must be 1 or 2, got {depth!r}.")
     start = time.perf_counter()
     n_nodes_input = g.number_of_nodes()
     n_edges = g.number_of_edges()
@@ -181,6 +211,67 @@ def compute_hom_profiles(
             return counts
         return [c * w for c, w in zip(counts, weight_vec, strict=True)]
 
+    # ── 2-hop (one WL refinement round) neighbor aggregation ────────────────
+    # For each emitted symbol, accumulate the SUM of each neighbor's 1-hop
+    # profile into the block keyed by the connecting (edge_kind, direction),
+    # plus a per-block neighbor count so we can emit the block MEAN. Neighbor
+    # 1-hop vectors are taken over the full graph (excluded kinds included) so
+    # the o7k invariant holds at depth 2 as well.
+    float_output = weighted or depth == 2
+    out_dim = NDIM + NDIM * NDIM if depth == 2 else NDIM
+
+    nbr_sum: dict[str, list[float]] = {}
+    nbr_cnt: dict[str, list[int]] = {}
+    if depth == 2:
+        # 1-hop profiles for every node (neighbors may be excluded symbols).
+        base_prof: dict[str, list[float]] = {
+            nid: [float(x) for x in _profile_for(nid)] for nid in g.nodes()
+        }
+        emitted_ids = {
+            nid
+            for nid in g.nodes()
+            if (g.nodes[nid].get("kind") or "") not in excluded_kinds
+        }
+        nbr_sum = {nid: [0.0] * (NDIM * NDIM) for nid in emitted_ids}
+        nbr_cnt = {nid: [0] * NDIM for nid in emitted_ids}
+        for src, dst, data in g.edges(data=True):
+            kind = data.get("kind", "")
+            od = DIM_IDX.get((kind, "out"))
+            idm = DIM_IDX.get((kind, "in"))
+            # src reaches dst via this kind's OUT block.
+            if od is not None and src in nbr_sum:
+                block = nbr_sum[src]
+                base = od * NDIM
+                prof_dst = base_prof[dst]
+                for j in range(NDIM):
+                    block[base + j] += prof_dst[j]
+                nbr_cnt[src][od] += 1
+            # dst reaches src via this kind's IN block.
+            if idm is not None and dst in nbr_sum:
+                block = nbr_sum[dst]
+                base = idm * NDIM
+                prof_src = base_prof[src]
+                for j in range(NDIM):
+                    block[base + j] += prof_src[j]
+                nbr_cnt[dst][idm] += 1
+
+    def _emit_vec(nid: str) -> list[int] | list[float]:
+        one_hop = _profile_for(nid)
+        if depth == 1:
+            return one_hop
+        vec: list[float] = [float(x) for x in one_hop]
+        sums = nbr_sum[nid]
+        cnts = nbr_cnt[nid]
+        for d in range(NDIM):
+            c = cnts[d]
+            base = d * NDIM
+            if c:
+                inv = 1.0 / c
+                vec.extend(sums[base + j] * inv for j in range(NDIM))
+            else:
+                vec.extend(0.0 for _ in range(NDIM))
+        return vec
+
     rows: list[dict[str, Any]] = []
     for nid in sorted(g.nodes()):
         node_attrs = g.nodes[nid]
@@ -192,12 +283,12 @@ def compute_hom_profiles(
                 "symbol_id": nid,
                 "repo": node_attrs.get("repo", "") or "",
                 "qualified_name": node_attrs.get("qualified_name", "") or "",
-                "profile_vec": _profile_for(nid),
+                "profile_vec": _emit_vec(nid),
                 "schema_version": SCHEMA_VERSION,
             }
         )
 
-    df = pl.DataFrame(rows, schema=_polars_schema(weighted=weighted)).select(
+    df = pl.DataFrame(rows, schema=_polars_schema(weighted=float_output)).select(
         HOM_PROFILES_COLUMNS
     )
     elapsed = round(time.perf_counter() - start, 3)
@@ -206,11 +297,12 @@ def compute_hom_profiles(
         n_nodes_input=n_nodes_input,
         n_nodes_emitted=df.height,
         n_edges=n_edges,
-        profile_vec_dim=NDIM,
+        profile_vec_dim=out_dim,
         kinds_filter=tuple(sorted(excluded_kinds)),
         kind_weights=tuple(sorted(effective_weights.items())),
         weighted=weighted,
         elapsed_seconds=elapsed,
+        depth=depth,
     )
     return df, stats
 
@@ -247,6 +339,7 @@ def write_manifest(
     n_hom_profiles: int = 0,
     profile_vec_dim: int | None = None,
     kind_weights: Mapping[str, float] | None = None,
+    profile_depth: int = 1,
     notes: str | None = None,
 ) -> Path:
     """Merge hom-profile presence into ``<data_dir>/ctkr/manifest.json``.
@@ -280,6 +373,10 @@ def write_manifest(
         "profile_vec_dim": profile_vec_dim,
         # None (raw UInt32 counts) unless a weighting variant was written.
         "kind_weights": dict(kind_weights) if kind_weights else None,
+        # Neighborhood depth of the emitted profile (1 = raw counts, the
+        # default; 2 = one WL refinement round). Recorded so a 2-hop
+        # artifact is never silently confused with the 1-hop default.
+        "profile_depth": int(profile_depth),
     }
     if notes is not None:
         merged["notes"] = notes

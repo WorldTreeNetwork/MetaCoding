@@ -336,6 +336,168 @@ def test_write_manifest_preserves_unknown_fields(tmp_path: Path) -> None:
     assert on_disk["n_hom_profiles"] == 7
 
 
+def _one_hop_identical_pair_graph() -> nx.MultiDiGraph:
+    """Two methods that are byte-identical at 1 hop but differ at 2 hops.
+
+    ``u`` and ``v`` each have exactly one ``CALLS:out`` edge → identical
+    1-hop profiles. But ``u`` calls ``a`` (which itself calls ``c``, so
+    ``a`` has ``CALLS:out=1``) while ``v`` calls ``b`` (a sink, ``CALLS:out=0``).
+    One WL round therefore splits ``u`` from ``v`` via the ``(CALLS,out)``
+    neighbor-mean block. This is the exact 1-WL-orbit collapse that motivated
+    depth 2.
+    """
+    g = nx.MultiDiGraph()
+    for n in ("u", "v", "a", "b", "c"):
+        g.add_node(n, repo="r", qualified_name=f"r.{n}", kind="method")
+    g.add_edge("u", "a", key="CALLS", kind="CALLS")
+    g.add_edge("v", "b", key="CALLS", kind="CALLS")
+    g.add_edge("a", "c", key="CALLS", kind="CALLS")
+    return g
+
+
+def test_depth_default_is_one_and_unchanged() -> None:
+    """depth=1 (default and explicit) reproduces the raw-count artifact."""
+    g = _toy_graph()
+    df_default, stats_default = compute_hom_profiles(g)
+    df_one, stats_one = compute_hom_profiles(g, depth=1)
+
+    assert stats_default.depth == 1
+    assert stats_one.depth == 1
+    assert stats_default.profile_vec_dim == NDIM
+    assert df_default.equals(df_one)
+    # Raw UInt32 path preserved.
+    assert df_default.schema["profile_vec"] == pl.List(pl.UInt32)
+
+
+def test_depth2_dim_and_dtype() -> None:
+    g = _toy_graph()
+    df, stats = compute_hom_profiles(g, depth=2)
+
+    assert stats.depth == 2
+    assert stats.profile_vec_dim == NDIM + NDIM * NDIM
+    # Block means are fractional → a Float64 variant, never raw counts.
+    assert df.schema["profile_vec"] == pl.List(pl.Float64)
+    for row in df.iter_rows(named=True):
+        assert len(row["profile_vec"]) == NDIM + NDIM * NDIM
+
+
+def test_depth2_self_prefix_equals_one_hop() -> None:
+    """The first NDIM dims of every depth-2 vector are the symbol's 1-hop
+    profile verbatim (as floats)."""
+    g = _toy_graph()
+    df1, _ = compute_hom_profiles(g)
+    df2, _ = compute_hom_profiles(g, depth=2)
+    one = {r["symbol_id"]: r["profile_vec"] for r in df1.iter_rows(named=True)}
+    two = {r["symbol_id"]: r["profile_vec"] for r in df2.iter_rows(named=True)}
+    for sid, v1 in one.items():
+        assert two[sid][:NDIM] == [float(x) for x in v1]
+
+
+def test_depth2_splits_one_hop_identical_orbit() -> None:
+    """Two symbols identical at 1 hop must diverge at 2 hops — the WL split."""
+    g = _one_hop_identical_pair_graph()
+    df1, _ = compute_hom_profiles(g, depth=1)
+    df2, _ = compute_hom_profiles(g, depth=2)
+
+    one = {r["symbol_id"]: r["profile_vec"] for r in df1.iter_rows(named=True)}
+    two = {r["symbol_id"]: r["profile_vec"] for r in df2.iter_rows(named=True)}
+
+    # Precondition: u and v are byte-identical at 1 hop.
+    assert one["u"] == one["v"]
+    # Depth 2 breaks the tie.
+    assert two["u"] != two["v"]
+
+    # Concretely: u's (CALLS,out) block mean = profile of a (CALLS:out=1),
+    # v's = profile of b (CALLS:out=0). Check that exact dimension.
+    calls_out = DIM_IDX[("CALLS", "out")]
+    block_base = NDIM + calls_out * NDIM
+    assert two["u"][block_base + calls_out] == 1.0  # a calls c
+    assert two["v"][block_base + calls_out] == 0.0  # b is a sink
+
+
+def test_depth2_block_mean_averages_multiple_neighbors() -> None:
+    """A block with N neighbors emits the MEAN of their 1-hop profiles."""
+    g = nx.MultiDiGraph()
+    for n in ("s", "x", "y"):
+        g.add_node(n, repo="r", qualified_name=f"r.{n}", kind="method")
+    # s calls x and y. x has one further out-call (to y); y is a sink.
+    g.add_edge("s", "x", key="CALLS", kind="CALLS")
+    g.add_edge("s", "y", key="CALLS", kind="CALLS")
+    g.add_edge("x", "y", key="CALLS", kind="CALLS")
+
+    df, _ = compute_hom_profiles(g, depth=2)
+    rows = {r["symbol_id"]: r["profile_vec"] for r in df.iter_rows(named=True)}
+    calls_out = DIM_IDX[("CALLS", "out")]
+    block_base = NDIM + calls_out * NDIM
+    # neighbors of s via (CALLS,out) = {x, y}; x has CALLS:out=1, y has 0.
+    # mean = 0.5.
+    assert rows["s"][block_base + calls_out] == 0.5
+
+
+def test_depth2_neighbor_mean_includes_excluded_kinds() -> None:
+    """o7k invariant at depth 2: an excluded-kind neighbor still contributes
+    its real 1-hop profile to the emitting symbol's block mean."""
+    g = _toy_graph()  # f1 (file) --CONTAINS--> m_a
+    df, _ = compute_hom_profiles(g, kinds_filter={"file"}, depth=2)
+    rows = {r["symbol_id"]: r["profile_vec"] for r in df.iter_rows(named=True)}
+    assert set(rows) == {"m_a", "m_b"}  # file row dropped
+
+    contains_in = DIM_IDX[("CONTAINS", "in")]
+    contains_out = DIM_IDX[("CONTAINS", "out")]
+    # m_a reaches f1 via (CONTAINS,in); f1's 1-hop profile has CONTAINS:out=1.
+    block_base = NDIM + contains_in * NDIM
+    # neighbors of m_a via (CONTAINS,in) = {f1} only (single neighbor → mean=f1).
+    assert rows["m_a"][block_base + contains_out] == 1.0
+
+
+def test_depth2_deterministic() -> None:
+    g = _one_hop_identical_pair_graph()
+    df1, _ = compute_hom_profiles(g, depth=2)
+    df2, _ = compute_hom_profiles(g, depth=2)
+    assert df1.equals(df2)
+
+
+def test_invalid_depth_raises() -> None:
+    g = _toy_graph()
+    for bad in (0, 3, -1):
+        try:
+            compute_hom_profiles(g, depth=bad)
+        except ValueError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(f"depth={bad} should raise ValueError")
+
+
+def test_depth2_write_roundtrip_and_manifest(tmp_path: Path) -> None:
+    g = _toy_graph()
+    df, stats = compute_hom_profiles(g, depth=2)
+    out = tmp_path / "hom_profiles.parquet"
+    write_hom_profiles(df, out, weighted=True)  # depth-2 is a Float64 variant
+
+    back = pl.read_parquet(out)
+    assert back.schema["profile_vec"] == pl.List(pl.Float64)
+    assert len(back["profile_vec"][0].to_list()) == NDIM + NDIM * NDIM
+
+    path = write_manifest(
+        tmp_path,
+        hom_profiles=True,
+        n_hom_profiles=df.height,
+        profile_vec_dim=stats.profile_vec_dim,
+        profile_depth=stats.depth,
+    )
+    m = ArtifactManifest.model_validate_json(path.read_text())
+    assert m.profile_depth == 2
+    assert m.profile_vec_dim == NDIM + NDIM * NDIM
+
+
+def test_write_manifest_default_depth_is_one(tmp_path: Path) -> None:
+    path = write_manifest(
+        tmp_path, hom_profiles=True, n_hom_profiles=1, profile_vec_dim=NDIM
+    )
+    m = ArtifactManifest.model_validate_json(path.read_text())
+    assert m.profile_depth == 1
+
+
 def test_write_manifest_overwrites_malformed(tmp_path: Path) -> None:
     ctkr_dir = tmp_path / "ctkr"
     ctkr_dir.mkdir()

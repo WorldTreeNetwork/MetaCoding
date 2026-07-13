@@ -2,6 +2,13 @@
 
 **2026-07-13 · GATE FAILS (honestly) · throwaway harness, NOT production code.**
 
+> **Follow-up (2026-07-13): [`2hop-findings.md`](./2hop-findings.md) — GATE NOW CLEARS.**
+> 2-hop hom-profiles (one WL refinement round, opt-in `ctkr hom-profiles --depth 2`) break the
+> symmetry diagnosed below: `rename_fork_correctness` **0.86 → 0.987**, structural
+> candidate_recall **0.836 → 0.998**. The 22.5% zero-profile ceiling below is real and untouched
+> but does not block the gate. The root-cause diagnosis below stands; the fix turned out to be
+> the WL-refinement lever, not (only) upstream richer edges.
+
 Implements Steps 0–4 of [`ct-functor-discovery.md`](../../design/ct-functor-discovery.md) §2.2
 (hom-profile KNN blocking → similarity-flooding propagation → greedy extraction → fidelity
 scoring) and measures the three numbers the §8.3 review demands, on a real scip-indexed repo

@@ -30,7 +30,6 @@ from pathlib import Path
 from ctkr.commands._common import add_common_flags, resolve_data_dir
 from ctkr.graph_loader import EDGE_KINDS, load_graph
 from ctkr.hom_profiles import (
-    NDIM,
     compute_hom_profiles,
     write_hom_profiles,
     write_manifest,
@@ -111,6 +110,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        choices=(1, 2),
+        help=(
+            "Neighborhood depth of the profile. 1 (default) = raw per-symbol "
+            "typed-edge counts (byte-identical to the historical artifact). "
+            "2 = one Weisfeiler-Leman refinement round: each symbol's 1-hop "
+            "vector concatenated with, per (edge_kind,direction) block, the "
+            "mean 1-hop vector of neighbors reached via that block. Splits "
+            "many 1-WL automorphism orbits (functor-discovery seeds). Depth-2 "
+            "output is a Float64 variant of NDIM+NDIM*NDIM dims."
+        ),
+    )
+    p.add_argument(
         "--out",
         default=None,
         help="Output path. Default: <data_dir>/ctkr/hom_profiles.parquet.",
@@ -143,18 +157,23 @@ def run(args: argparse.Namespace) -> int:
         if kind_weights
         else "(none)"
     )
+    depth = int(getattr(args, "depth", 1))
     sys.stderr.write(
         f"computing hom-profiles (kinds_filter={filter_label}, "
-        f"kind_weights={weights_label})...\n"
+        f"kind_weights={weights_label}, depth={depth})...\n"
     )
     df, stats = compute_hom_profiles(
-        g, kinds_filter=kinds_filter, kind_weights=kind_weights
+        g, kinds_filter=kinds_filter, kind_weights=kind_weights, depth=depth
     )
+
+    # Depth-2 profiles carry fractional block means → Float64, exactly like
+    # the weighted variant. Either condition forces the non-raw write path.
+    float_output = stats.weighted or stats.depth > 1
 
     canonical_out = (data_dir / "ctkr" / "hom_profiles.parquet").resolve()
     out = Path(args.out).expanduser().resolve() if args.out else canonical_out
     sys.stderr.write(f"writing {df.height:,} rows to {out}...\n")
-    write_hom_profiles(df, out, weighted=stats.weighted)
+    write_hom_profiles(df, out, weighted=float_output)
 
     # Record the weights used (None on the raw-count path) so the artifact
     # is self-describing and never confused with maximal-precision counts.
@@ -167,8 +186,9 @@ def run(args: argparse.Namespace) -> int:
             data_dir,
             hom_profiles=True,
             n_hom_profiles=df.height,
-            profile_vec_dim=NDIM,
+            profile_vec_dim=stats.profile_vec_dim,
             kind_weights=manifest_kind_weights,
+            profile_depth=stats.depth,
         )
     else:
         manifest_path = None
@@ -183,13 +203,17 @@ def run(args: argparse.Namespace) -> int:
     )
     manifest_desc = str(manifest_path) if manifest_path else "(skipped — non-canonical --out)"
     weights_desc = weights_label
-    precision_desc = (
-        "Float64 (weighted variant)" if stats.weighted else "UInt32 (raw counts)"
-    )
+    if stats.depth > 1:
+        precision_desc = f"Float64 (depth-{stats.depth} WL-refined variant)"
+    elif stats.weighted:
+        precision_desc = "Float64 (weighted variant)"
+    else:
+        precision_desc = "UInt32 (raw counts)"
     sys.stderr.write(
         "\n"
         f"  rows            : {df.height:,}\n"
-        f"  profile_vec_dim : {NDIM}\n"
+        f"  profile_vec_dim : {stats.profile_vec_dim}\n"
+        f"  depth           : {stats.depth}\n"
         f"  kinds_filter    : {filter_desc}\n"
         f"  kind_weights    : {weights_desc}\n"
         f"  precision       : {precision_desc}\n"
@@ -205,7 +229,8 @@ def run(args: argparse.Namespace) -> int:
             json.dumps(
                 {
                     "rows": df.height,
-                    "profile_vec_dim": NDIM,
+                    "profile_vec_dim": stats.profile_vec_dim,
+                    "depth": stats.depth,
                     "kinds_filter": sorted(kinds_filter) if kinds_filter else [],
                     "kind_weights": dict(stats.kind_weights),
                     "weighted": stats.weighted,
