@@ -254,6 +254,85 @@ describe("READS_FIELD edge", () => {
 });
 
 // ---------------------------------------------------------------------------
+// CALLS (bead MetaCoding-slh) — derived from a reference to a callable target.
+// ---------------------------------------------------------------------------
+describe("CALLS edge", () => {
+  test("reference to a function target emits CALLS *and* keeps REFERENCES", async () => {
+    const bytes = buildScipBytes([
+      // Definition: caller method (enclosing scope for the reference below).
+      {
+        symbol: SCIP_METHOD,
+        range: METHOD_RANGE,
+        enclosing_range: METHOD_RANGE,
+        symbol_roles: scip.SymbolRole.Definition,
+      },
+      // Definition: the callee function, defined outside the caller's body.
+      { symbol: SCIP_FN, range: [30, 0, 40, 1], symbol_roles: scip.SymbolRole.Definition },
+      // Reference to the function INSIDE the method body — i.e. a call-site.
+      { symbol: SCIP_FN, range: [10, 4, 10, 10], symbol_roles: 0 },
+    ]);
+
+    const { edges, store } = makeStubStore();
+    await withTmpScip(bytes, (p) => loadScip(store, p, OPTS));
+
+    const callEdges = edges.filter((e) => e.kind === "CALLS");
+    expect(callEdges.length).toBeGreaterThan(0);
+    // REFERENCES is preserved for the same (caller → callee) pair.
+    const refEdges = edges.filter(
+      (e) => e.kind === "REFERENCES" &&
+        callEdges.some((c) => c.src_id === e.src_id && c.dst_id === e.dst_id),
+    );
+    expect(refEdges.length).toBeGreaterThan(0);
+  });
+
+  test("reference to a method target emits CALLS", async () => {
+    // A second method calls MyClass#myMethod().
+    const SCIP_CALLER = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyClass# caller().";
+    const CALLER_RANGE = [30, 0, 45, 1];
+    const bytes = buildScipBytes([
+      {
+        symbol: SCIP_CALLER,
+        range: CALLER_RANGE,
+        enclosing_range: CALLER_RANGE,
+        symbol_roles: scip.SymbolRole.Definition,
+      },
+      {
+        symbol: SCIP_METHOD,
+        range: METHOD_RANGE,
+        enclosing_range: METHOD_RANGE,
+        symbol_roles: scip.SymbolRole.Definition,
+      },
+      // Reference to myMethod() inside caller()'s body.
+      { symbol: SCIP_METHOD, range: [35, 6, 35, 14], symbol_roles: 0 },
+    ]);
+
+    const { edges, store } = makeStubStore();
+    await withTmpScip(bytes, (p) => loadScip(store, p, OPTS));
+
+    const callEdges = edges.filter((e) => e.kind === "CALLS");
+    expect(callEdges.length).toBeGreaterThan(0);
+  });
+
+  test("reference to a field target does NOT emit CALLS", async () => {
+    const bytes = buildScipBytes([
+      {
+        symbol: SCIP_METHOD,
+        range: METHOD_RANGE,
+        enclosing_range: METHOD_RANGE,
+        symbol_roles: scip.SymbolRole.Definition,
+      },
+      { symbol: SCIP_FIELD, range: [2, 2, 2, 10], symbol_roles: scip.SymbolRole.Definition },
+      { symbol: SCIP_FIELD, range: [12, 4, 12, 11], symbol_roles: scip.SymbolRole.ReadAccess },
+    ]);
+
+    const { edges, store } = makeStubStore();
+    await withTmpScip(bytes, (p) => loadScip(store, p, OPTS));
+
+    expect(edges.filter((e) => e.kind === "CALLS").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RETURNS_TYPE
 // ---------------------------------------------------------------------------
 describe("RETURNS_TYPE edge", () => {

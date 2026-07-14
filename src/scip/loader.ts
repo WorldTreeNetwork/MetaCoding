@@ -285,6 +285,22 @@ export async function loadScip(
         enqueue("CONSTRUCTS", caller.ourId, targetDef.ourId);
       } else {
         enqueue("REFERENCES", caller.ourId, targetDef.ourId);
+        // CALLS derivation (bead MetaCoding-slh). SCIP's occurrence model has
+        // no "call" role, so scip-python/scip-typescript emit every call-site
+        // as a plain REFERENCES occurrence and the typed CALLS edge — the
+        // single highest-leverage who-calls-whom signal for the CTKR
+        // hom-profiles — is never produced (CALLS was empirically 0 on the
+        // Orchestrators corpus). A reference whose resolved target is a
+        // callable (function or method) is, to high recall, an invocation, so
+        // we ADD a distinct CALLS edge here while KEEPING the REFERENCES edge
+        // (a call-site is legitimately both). Heuristic caveat: a function
+        // reference is usually but not always a call — e.g. higher-order
+        // passing (`map(fn)`) or taking a method reference without invoking it
+        // — so this is high-recall, not exact. CALLS is a distinct, populated
+        // profile dimension; REFERENCES semantics are preserved unchanged.
+        if (targetKind === "function" || targetKind === "method") {
+          enqueue("CALLS", caller.ourId, targetDef.ourId);
+        }
       }
     }
   }
