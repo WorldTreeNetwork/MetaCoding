@@ -31,6 +31,7 @@ const FUNCTORS_COLSPEC: [string, string][] = [
   ["n_edges_preserved", "INTEGER"],
   ["path_fidelity_2", "FLOAT"],
   ["cycle_consistency", "FLOAT"],
+  ["ambiguity_mass", "FLOAT"],
   ["config", "VARCHAR"],
   ["generated_at", "VARCHAR"],
   ["schema_version", "INTEGER"],
@@ -46,6 +47,7 @@ const FUNCTOR_EDGES_COLSPEC: [string, string][] = [
   ["dst_qualified_name", "VARCHAR"],
   ["similarity", "FLOAT"],
   ["margin", "FLOAT"],
+  ["is_ambiguous", "BOOLEAN"],
   ["pair_fidelity", "FLOAT"],
   ["n_edges_incident", "INTEGER"],
   ["n_edges_preserved", "INTEGER"],
@@ -104,6 +106,16 @@ const FUNCTORS: Record<string, unknown>[] = [
     n_edges_internal: 2, n_edges_preserved: 2, path_fidelity_2: -1,
     cycle_consistency: 1.0, config: cfg(MANIFEST_GEN), generated_at: MANIFEST_GEN, schema_version: 1,
   },
+  // F7 epsilon→zeta — SATURATED map (MetaCoding-265): high coverage but
+  // ambiguity_mass 0.75, most mappings coin-flip ties. The per-symbol map is
+  // aggregate-only; the tool must surface that.
+  {
+    functor_id: "f:sat_ez", repo_src: "epsilon", repo_dst: "zeta",
+    n_objects_src: 4, n_mapped: 4, coverage: 1.0, fidelity: 0.9,
+    n_edges_internal: 6, n_edges_preserved: 5, path_fidelity_2: -1,
+    cycle_consistency: 0.8, ambiguity_mass: 0.75,
+    config: cfg(MANIFEST_GEN), generated_at: MANIFEST_GEN, schema_version: 1,
+  },
 ];
 
 // F1 mapping — 4 rows with a spread of pair_fidelity incl. a −1 no-evidence row.
@@ -144,6 +156,28 @@ const EDGES: Record<string, unknown>[] = [
     dst_symbol_id: "d3", dst_repo: "delta", dst_qualified_name: "delta.D3",
     similarity: 1.0, margin: 0.0, pair_fidelity: 1.0, n_edges_incident: 1, n_edges_preserved: 1, schema_version: 1,
   },
+  // F7 saturated mapping: 3 of 4 rows are coin-flip ties (is_ambiguous, tiny
+  // margin); e1→z1 is the one confidently-resolved row (margin 0.5).
+  {
+    functor_id: "f:sat_ez", src_symbol_id: "e1", src_repo: "epsilon", src_qualified_name: "epsilon.E1",
+    dst_symbol_id: "z1", dst_repo: "zeta", dst_qualified_name: "zeta.Z1",
+    similarity: 0.95, margin: 0.5, is_ambiguous: false, pair_fidelity: 1.0, n_edges_incident: 2, n_edges_preserved: 2, schema_version: 1,
+  },
+  {
+    functor_id: "f:sat_ez", src_symbol_id: "e2", src_repo: "epsilon", src_qualified_name: "epsilon.E2",
+    dst_symbol_id: "z2", dst_repo: "zeta", dst_qualified_name: "zeta.Z2",
+    similarity: 0.9, margin: 0.005, is_ambiguous: true, pair_fidelity: 0.5, n_edges_incident: 2, n_edges_preserved: 1, schema_version: 1,
+  },
+  {
+    functor_id: "f:sat_ez", src_symbol_id: "e3", src_repo: "epsilon", src_qualified_name: "epsilon.E3",
+    dst_symbol_id: "z3", dst_repo: "zeta", dst_qualified_name: "zeta.Z3",
+    similarity: 0.88, margin: 0.001, is_ambiguous: true, pair_fidelity: 1.0, n_edges_incident: 1, n_edges_preserved: 1, schema_version: 1,
+  },
+  {
+    functor_id: "f:sat_ez", src_symbol_id: "e4", src_repo: "epsilon", src_qualified_name: "epsilon.E4",
+    dst_symbol_id: "z4", dst_repo: "zeta", dst_qualified_name: "zeta.Z4",
+    similarity: 0.87, margin: 0.0, is_ambiguous: true, pair_fidelity: 1.0, n_edges_incident: 1, n_edges_preserved: 1, schema_version: 1,
+  },
 ];
 
 async function writeParquet(
@@ -163,11 +197,30 @@ async function writeParquet(
   conn.closeSync();
 }
 
+// MetaCoding-265: default the additive ambiguity columns so the pre-265 rows
+// above stay terse; rows that exercise ambiguity set the fields explicitly.
+const withFunctorDefaults = (r: Record<string, unknown>): Record<string, unknown> => ({
+  ambiguity_mass: 0.0,
+  ...r,
+});
+const withEdgeDefaults = (r: Record<string, unknown>): Record<string, unknown> => ({
+  is_ambiguous: false,
+  ...r,
+});
+
 async function buildFixture(dir: string): Promise<void> {
   const ctkr = join(dir, "ctkr");
   await mkdir(ctkr, { recursive: true });
-  await writeParquet(join(ctkr, "functors.parquet"), FUNCTORS_COLSPEC, FUNCTORS);
-  await writeParquet(join(ctkr, "functor_edges.parquet"), FUNCTOR_EDGES_COLSPEC, EDGES);
+  await writeParquet(
+    join(ctkr, "functors.parquet"),
+    FUNCTORS_COLSPEC,
+    FUNCTORS.map(withFunctorDefaults),
+  );
+  await writeParquet(
+    join(ctkr, "functor_edges.parquet"),
+    FUNCTOR_EDGES_COLSPEC,
+    EDGES.map(withEdgeDefaults),
+  );
   await Bun.write(
     join(ctkr, "manifest.json"),
     JSON.stringify(
@@ -398,6 +451,40 @@ describe("functorBetween", () => {
       repo_a: "alpha", repo_b: "beta", exclude_identity: true,
     });
     expect(res.mapping.length).toBe(4);
+  });
+
+  // --- MetaCoding-265: margin-aware honesty ---
+
+  test("saturated functor surfaces ambiguity_mass, n_ambiguous, is_ambiguous", async () => {
+    const res = await functorBetween({ repo_a: "epsilon", repo_b: "zeta" });
+    expect(res.functor!.functor_id).toBe("f:sat_ez");
+    // The functor-level honesty metric rides on the summary.
+    expect(res.functor!.ambiguity_mass).toBeCloseTo(0.75, 5);
+    // 3 of 4 returned rows are coin-flip ties.
+    expect(res.mapping.length).toBe(4);
+    expect(res.n_ambiguous).toBe(3);
+    expect(res.mapping.filter((m) => m.is_ambiguous).length).toBe(3);
+    // The honest-framing note fires (>=50% coin-flip).
+    expect(res._note).toContain("ambiguity_mass=75%");
+    expect(res._note).toContain("UNRELIABLE");
+  });
+
+  test("min_margin drops coin-flip-tie mapping rows (keeps only resolved)", async () => {
+    const res = await functorBetween({
+      repo_a: "epsilon", repo_b: "zeta", min_margin: 0.1,
+    });
+    // Only e1→z1 (margin 0.5) clears the floor; the three ties are dropped.
+    expect(res.mapping.length).toBe(1);
+    expect(res.mapping[0]!.src_symbol_id).toBe("e1");
+    expect(res.mapping.every((m) => m.margin >= 0.1)).toBe(true);
+    expect(res.n_ambiguous).toBe(0);
+  });
+
+  test("a clean (low-ambiguity) functor carries no ambiguity note", async () => {
+    const res = await functorBetween({ repo_a: "alpha", repo_b: "beta" });
+    expect(res.functor!.ambiguity_mass).toBe(0);
+    expect(res.n_ambiguous).toBe(0);
+    expect(res._note ?? "").not.toContain("UNRELIABLE");
   });
 });
 

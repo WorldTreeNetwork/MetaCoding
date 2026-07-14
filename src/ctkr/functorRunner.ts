@@ -63,6 +63,7 @@ const FUNCTORS_COLSPEC: [string, string][] = [
   ["n_edges_preserved", "INTEGER"],
   ["path_fidelity_2", "FLOAT"],
   ["cycle_consistency", "FLOAT"],
+  ["ambiguity_mass", "FLOAT"],
   ["config", "VARCHAR"],
   ["generated_at", "VARCHAR"],
   ["schema_version", "INTEGER"],
@@ -78,6 +79,7 @@ const FUNCTOR_EDGES_COLSPEC: [string, string][] = [
   ["dst_qualified_name", "VARCHAR"],
   ["similarity", "FLOAT"],
   ["margin", "FLOAT"],
+  ["is_ambiguous", "BOOLEAN"],
   ["pair_fidelity", "FLOAT"],
   ["n_edges_incident", "INTEGER"],
   ["n_edges_preserved", "INTEGER"],
@@ -335,6 +337,10 @@ function buildConfigBlob(
     epsilon_prune: cfg.epsPrune,
     f_min: cfg.fMin,
     delta_amb: cfg.deltaAmb,
+    // Honest-acceptance gate (MetaCoding-265). Folded into the config blob (and
+    // therefore into the content-addressed functor_id, since config-for-id keeps
+    // it) so a gated run is addressable distinctly from an ungated one.
+    commit_min_margin: cfg.commitMinMargin,
     kind_weights: res.kindWeights,
     normalize: cfg.normalize,
     normalization_applied: res.normalizationApplied,
@@ -437,6 +443,7 @@ function buildRows(
     n_edges_preserved: res.nEdgesPreserved,
     path_fidelity_2: -1, // not computed by v1 search (§3.1); sentinel
     cycle_consistency: cycle,
+    ambiguity_mass: res.ambiguityMass, // MetaCoding-265: coin-flip-tie fraction
     config: stableStringify(configBlob),
     generated_at: generatedAt,
     schema_version: SCHEMA_VERSION,
@@ -452,6 +459,7 @@ function buildRows(
     dst_qualified_name: dstMeta.get(m.dstId)?.qualified_name ?? "",
     similarity: m.similarity,
     margin: m.margin,
+    is_ambiguous: m.isAmbiguous, // MetaCoding-265: near-tie coin-flip flag
     // null (isolated pair, no evidence) → -1 sentinel on disk (§1.3).
     pair_fidelity: m.pairFidelity === null ? -1 : m.pairFidelity,
     n_edges_incident: m.nEdgesIncident,

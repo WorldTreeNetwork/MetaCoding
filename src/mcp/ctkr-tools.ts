@@ -119,6 +119,13 @@ export interface FunctorSummary {
   n_objects_src: number;
   /** Sampled 2-path composition diagnostic; omitted when not computed (−1). */
   path_fidelity_2?: number;
+  /**
+   * Fraction of committed mappings that are coin-flip ties (MetaCoding-265).
+   * High (~0.9 on real code) = the per-symbol mapping is an aggregate-only
+   * signal: coverage/fidelity/cycle-consistency stay meaningful, the individual
+   * symbol↦symbol rows are unreliable and must not be read as correspondences.
+   */
+  ambiguity_mass: number;
   generated_at: string;
 }
 
@@ -131,6 +138,8 @@ export interface FunctorMappingRow {
   similarity: number;
   /** Assignment confidence — low = coin-flip among lookalikes. */
   margin: number;
+  /** True = near-tie coin-flip (MetaCoding-265); discount this per-symbol row. */
+  is_ambiguous: boolean;
   /** null = no structural evidence (isolated pair); never read as 1.0. */
   pair_fidelity: number | null;
 }
@@ -143,6 +152,8 @@ export interface FunctorBetweenResult {
   reverse?: FunctorSummary | null;
   /** filtered + truncated correspondence rows for the primary direction. */
   mapping: FunctorMappingRow[];
+  /** Count of returned mapping rows flagged is_ambiguous (coin-flip ties). */
+  n_ambiguous: number;
   truncated: boolean;
   /** Explanatory landscape note (alternatives, best-available, staleness, …). */
   _note?: string;
@@ -329,6 +340,8 @@ const FUNCTOR_BETWEEN_SCHEMA = {
   min_coverage: z.number().min(0).max(1).optional(),
   min_fidelity: z.number().min(0).max(1).optional(),
   min_pair_fidelity: z.number().min(0).max(1).optional(),
+  // MetaCoding-265: margin floor — drop coin-flip-tie mapping rows below it.
+  min_margin: z.number().min(0).max(1).optional(),
   limit: z.number().int().min(1).max(5000).optional(),
   // MetaCoding-4ty: member-set restriction + single-repo endofunctor read-side.
   members_a: z.array(z.string()).optional(),
@@ -1039,6 +1052,8 @@ function toFunctorSummary(row: FunctorRow): FunctorSummary {
     fidelity: row.fidelity,
     n_mapped: row.n_mapped,
     n_objects_src: row.n_objects_src,
+    // Additive column (MetaCoding-265): 0 on functors written before it existed.
+    ambiguity_mass: row.ambiguity_mass ?? 0,
     generated_at: row.generated_at,
   };
   // path_fidelity_2 is the −1 sentinel when not computed (§3.1) — omit it.
@@ -1086,6 +1101,8 @@ export async function functorBetween(input: {
   min_coverage?: number;
   min_fidelity?: number;
   min_pair_fidelity?: number;
+  /** MetaCoding-265: drop mapping rows whose margin < this (coin-flip ties). */
+  min_margin?: number;
   limit?: number;
   /** Restrict returned domain rows to these src symbol_ids (subsystem A). */
   members_a?: string[];
@@ -1102,6 +1119,7 @@ export async function functorBetween(input: {
   const minCoverage = input.min_coverage ?? 0;
   const minFidelity = input.min_fidelity ?? 0;
   const minPairFidelity = input.min_pair_fidelity ?? 0;
+  const minMargin = input.min_margin ?? 0;
   const limit = input.limit ?? 200;
   const excludeIdentity = input.exclude_identity ?? input.repo_a === input.repo_b;
   // members_a/members_b attach to repo_a/repo_b; map them onto the primary
@@ -1172,10 +1190,15 @@ export async function functorBetween(input: {
       // accurate; otherwise keep the cheap limit+1 probe. (MetaCoding-4ty)
       const filtering =
         srcMemberSet !== null || dstMemberSet !== null || excludeIdentity;
-      const edgeOpts: { minPairFidelity?: number; limit: number } = {
+      const edgeOpts: {
+        minPairFidelity?: number;
+        minMargin?: number;
+        limit: number;
+      } = {
         limit: filtering ? 1_000_000 : limit + 1,
       };
       if (minPairFidelity > 0) edgeOpts.minPairFidelity = minPairFidelity;
+      if (minMargin > 0) edgeOpts.minMargin = minMargin;
       let edges = await handle.functorEdges(chosen.functor_id, edgeOpts);
       if (srcMemberSet !== null) {
         edges = edges.filter((e) => srcMemberSet.has(e.src_symbol_id));
@@ -1194,8 +1217,24 @@ export async function functorBetween(input: {
         dst_qualified_name: e.dst_qualified_name,
         similarity: e.similarity,
         margin: e.margin,
+        // Additive column (MetaCoding-265): false on edges written before it.
+        is_ambiguous: e.is_ambiguous ?? false,
         pair_fidelity: e.pair_fidelity === -1 ? null : e.pair_fidelity,
       }));
+
+      // Honest framing (MetaCoding-265): a functor can have high coverage yet an
+      // ambiguity_mass ~0.9 — that is NOT a trustworthy per-symbol map, only an
+      // aggregate signal. Surface it so an agent sees the coin-flip ties rather
+      // than reading the mapping rows as confident correspondences.
+      const am = chosen.ambiguity_mass ?? 0;
+      if (am >= 0.5) {
+        notes.push(
+          `ambiguity_mass=${(am * 100).toFixed(0)}% of this functor's mappings are ` +
+            `coin-flip ties among structural lookalikes — treat the per-symbol ` +
+            `mapping as UNRELIABLE (aggregate coverage/fidelity/cycle-consistency ` +
+            `still meaningful); filter with min_margin or inspect is_ambiguous`,
+        );
+      }
     } else {
       // No functor passes the filters. Distinguish "pair present but below the
       // thresholds" (report best-available so agents learn the landscape) from
@@ -1239,7 +1278,13 @@ export async function functorBetween(input: {
       }
     }
 
-    const result: FunctorBetweenResult = { functor, mapping, truncated };
+    const nAmbiguous = mapping.reduce((n, m) => n + (m.is_ambiguous ? 1 : 0), 0);
+    const result: FunctorBetweenResult = {
+      functor,
+      mapping,
+      n_ambiguous: nAmbiguous,
+      truncated,
+    };
 
     if (direction === "both") {
       const rev = await handle.functors({
@@ -1638,10 +1683,14 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       "fidelity. Reads functors.parquet / functor_edges.parquet (discovery is the " +
       "batch runner's job). direction picks the stored direction(s); min_coverage / " +
       "min_fidelity gate the functor (min_fidelity=1.0 = strict functors only); " +
-      "min_pair_fidelity filters mapping rows; members_a/members_b scope the " +
-      "mapping to a subsystem member-set; exclude_identity drops trivial self-maps " +
-      "for single-repo endofunctor queries (repo_a===repo_b); results note " +
-      "alternatives, best-available scores, and hom-profile staleness.",
+      "min_pair_fidelity filters mapping rows; min_margin drops coin-flip-tie rows " +
+      "(margin below the floor); members_a/members_b scope the mapping to a " +
+      "subsystem member-set; exclude_identity drops trivial self-maps for " +
+      "single-repo endofunctor queries (repo_a===repo_b). The result surfaces " +
+      "ambiguity_mass + n_ambiguous: when ambiguity_mass is high (~0.9 on real " +
+      "code) the per-symbol mapping is coin-flip ties and only aggregate metrics " +
+      "are trustworthy. Results note alternatives, best-available scores, and " +
+      "hom-profile staleness.",
     input_schema: {
       type: "object",
       required: ["repo_a", "repo_b"],
@@ -1668,6 +1717,15 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
           maximum: 1,
           default: 0,
           description: "Query-time strictness dial over the mapping rows.",
+        },
+        min_margin: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          default: 0,
+          description:
+            "Drop mapping rows whose margin < this (coin-flip ties among " +
+            "structural lookalikes, MetaCoding-265) — request only resolved maps.",
         },
         limit: { type: "integer", minimum: 1, maximum: 5000, default: 200 },
         members_a: {
@@ -1994,7 +2052,12 @@ export function registerCtkrTools(server: McpServer): void {
         "returns only strict/pure functors; a −1 no-evidence fidelity always fails a " +
         "positive threshold). min_pair_fidelity filters the returned mapping rows " +
         "(pair_fidelity=null means an isolated pair with no structural evidence — " +
-        "never read as 1.0). members_a/members_b restrict the returned mapping to a " +
+        "never read as 1.0). min_margin drops coin-flip-tie rows (margin below the " +
+        "floor). The result carries ambiguity_mass + n_ambiguous (MetaCoding-265): " +
+        "a high ambiguity_mass (~0.9 on real code) means the per-symbol mapping is " +
+        "near-random ties — treat it as UNRELIABLE and lean on the aggregate " +
+        "coverage/fidelity/cycle-consistency instead; per-row is_ambiguous flags " +
+        "each coin-flip. members_a/members_b restrict the returned mapping to a " +
         "subsystem member-set (symbol_ids on the repo_a/repo_b side). exclude_identity " +
         "drops trivial s↦s rows for single-repo endofunctor queries (default true when " +
         "repo_a===repo_b). limit caps mapping rows (sorted pair_fidelity desc, then " +
@@ -2011,6 +2074,7 @@ export function registerCtkrTools(server: McpServer): void {
         min_coverage: args.min_coverage,
         min_fidelity: args.min_fidelity,
         min_pair_fidelity: args.min_pair_fidelity,
+        min_margin: args.min_margin,
         limit: args.limit,
         members_a: args.members_a,
         members_b: args.members_b,

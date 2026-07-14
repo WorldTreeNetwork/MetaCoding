@@ -499,6 +499,7 @@ class CtkrHandleImpl implements CtkrHandle {
     opts?: {
       minPairFidelity?: number;
       minSimilarity?: number;
+      minMargin?: number;
       limit?: number;
     },
   ): Promise<FunctorEdgeRow[]> {
@@ -512,6 +513,11 @@ class CtkrHandleImpl implements CtkrHandle {
     }
     if (opts?.minSimilarity !== undefined) {
       clauses.push(`similarity >= ${opts.minSimilarity}`);
+    }
+    // MetaCoding-265: margin gate — drop coin-flip ties whose margin is below the
+    // caller's confidence floor, so an agent can request only resolved mappings.
+    if (opts?.minMargin !== undefined) {
+      clauses.push(`margin >= ${opts.minMargin}`);
     }
 
     const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";

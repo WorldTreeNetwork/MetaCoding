@@ -98,6 +98,17 @@ export interface FunctorSearchConfig {
   fMin: number;
   /** Ambiguity threshold on margin (metadata only). */
   deltaAmb: number;
+  /**
+   * HONEST-ACCEPTANCE gate (MetaCoding-265). Default `0` = keep current
+   * behavior exactly (byte-identical). When `> 0`, a committed mapping whose
+   * `margin < commitMinMargin` is FLAGGED `isAmbiguous=true` (never silently
+   * dropped — it stays in the mapping so consumers can inspect it) and is
+   * EXCLUDED from the "confident" coverage/fidelity accounting: on real code
+   * the margin collapses (median 0.0000, ~89% of mappings margin<0.01), so a
+   * near-random tie must not be reported as a confident correspondence. This
+   * does NOT try to map better — it reports the truth about the mapping.
+   */
+  commitMinMargin: number;
   /** Early-exit convergence tolerance on max σ delta. */
   convTol: number;
   /** Competitive-normalization mode (CONDITIONAL per spike). */
@@ -135,6 +146,7 @@ export const DEFAULT_FUNCTOR_CONFIG: FunctorSearchConfig = {
   epsPrune: 0.05,
   fMin: 0.1,
   deltaAmb: 0.02,
+  commitMinMargin: 0, // 0 = keep current behavior (honest-acceptance gate off)
   convTol: 1e-3,
   normalize: "adaptive", // off for high-signal, on for BORDERLINE (§2.2 h.1)
   repairSweeps: 2,
@@ -156,6 +168,13 @@ export interface FunctorMapping {
   nEdgesIncident: number;
   /** of those, preserved. */
   nEdgesPreserved: number;
+  /**
+   * Coin-flip flag (MetaCoding-265): the accepted candidate was a near-tie
+   * among structural lookalikes. `margin < deltaAmb` by default, or
+   * `margin < commitMinMargin` when the honest-acceptance gate is armed.
+   * Kept (not dropped) so consumers can see + discount the per-symbol claim.
+   */
+  isAmbiguous: boolean;
 }
 
 /** Full search result — a `functors.parquet` row plus its mapping rows. */
@@ -171,6 +190,15 @@ export interface FunctorSearchResult {
   nEdgesPreserved: number;
   /** fraction of accepted pairs with margin < deltaAmb. */
   ambiguityRate: number;
+  /**
+   * Functor-level honesty metric (MetaCoding-265): fraction of committed
+   * mappings with `margin < deltaAmb`. High (~0.9 on real name-blind typed-edge
+   * profiles) means the per-symbol correspondence is an aggregate-only signal —
+   * fidelity/cycle-consistency remain meaningful, individual mappings are
+   * coin-flip ties and must not be trusted. Equals `ambiguityRate`; surfaced
+   * under the artifact-facing name that flows into FunctorRow.ambiguity_mass.
+   */
+  ambiguityMass: number;
   roundsRun: number;
   converged: boolean;
   budgetExhausted: boolean;
@@ -812,8 +840,23 @@ export function functorSearch(
     dom = new Set(Fmap.keys());
   }
 
-  // Final metrics.
-  const ff = functorFidelity(src, dst, Fmap, dom);
+  // Honest-acceptance gate (MetaCoding-265). Default (commitMinMargin=0): the
+  // "confident" domain is the whole mapped domain, so coverage/fidelity are
+  // byte-identical to the pre-265 behavior. When armed (>0): a mapping whose
+  // margin < commitMinMargin is flagged AND removed from the confident domain,
+  // so coverage/fidelity account only for mappings the matcher actually
+  // resolved — the ambiguous rows still ship in `mapping` (never dropped).
+  const commitGate =
+    cfg.commitMinMargin > 0 ? cfg.commitMinMargin : cfg.deltaAmb;
+  const confidentDom =
+    cfg.commitMinMargin > 0
+      ? new Set(
+          [...dom].filter((s) => (marginOf.get(s) ?? 1.0) >= cfg.commitMinMargin),
+        )
+      : dom;
+
+  // Final metrics — over the confident domain (== dom under the default gate).
+  const ff = functorFidelity(src, dst, Fmap, confidentDom);
   const fidelity = ff.internal > 0 ? ff.preserved / ff.internal : -1;
 
   const mappedIds = [...Fmap.keys()].sort();
@@ -831,6 +874,7 @@ export function functorSearch(
       pairFidelity: pm.pairFidelity,
       nEdgesIncident: pm.incident,
       nEdgesPreserved: pm.preserved,
+      isAmbiguous: margin < commitGate,
     });
   }
   // Emit sorted by pairFidelity desc (nulls last), then similarity desc, then id.
@@ -843,15 +887,22 @@ export function functorSearch(
   const kindWeights: Record<string, number> = {};
   for (const [k, v] of kindW) kindWeights[k] = v;
 
+  // Coverage counts the confident domain (== full mapping under the default
+  // gate, so unchanged there); n_mapped stays the full committed count so the
+  // ambiguous rows remain visible in the artifact.
+  const coverageDenom = src.ids.length;
+  const ambiguityMass = mapping.length > 0 ? lowMargin / mapping.length : 0;
+
   return {
     mapping,
-    coverage: src.ids.length > 0 ? mapping.length / src.ids.length : 0,
+    coverage: coverageDenom > 0 ? confidentDom.size / coverageDenom : 0,
     fidelity,
     nObjectsSrc: src.ids.length,
     nMapped: mapping.length,
     nEdgesInternal: ff.internal,
     nEdgesPreserved: ff.preserved,
-    ambiguityRate: mapping.length > 0 ? lowMargin / mapping.length : 0,
+    ambiguityRate: ambiguityMass,
+    ambiguityMass,
     roundsRun: prop.roundsRun,
     converged: prop.converged,
     budgetExhausted,

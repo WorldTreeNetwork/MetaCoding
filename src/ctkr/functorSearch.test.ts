@@ -218,6 +218,79 @@ describe("margin column", () => {
 });
 
 // ---------------------------------------------------------------------------
+// MetaCoding-265 — margin-aware honesty: ambiguity_mass + is_ambiguous
+// ---------------------------------------------------------------------------
+
+describe("ambiguity_mass (MetaCoding-265)", () => {
+  // A SATURATED graph: many byte-identical candidates per source, so every
+  // committed assignment is a coin-flip among structural lookalikes. Four src
+  // orbits of two identical members each, mapping into a dst of eight identical
+  // members — the name-blind matcher cannot resolve which twin is which.
+  function saturatedInput(): FunctorSearchInput {
+    const flat = [1, 1, 1, 1];
+    const srcObjects: FunctorObject[] = [];
+    const dstObjects: FunctorObject[] = [];
+    for (let i = 0; i < 8; i++) {
+      srcObjects.push(obj(`s${i}`, "method", [...flat]));
+      dstObjects.push(obj(`t${i}`, "method", [...flat]));
+    }
+    return { srcObjects, dstObjects, srcEdges: [], dstEdges: [] };
+  }
+
+  test("saturated graph → high ambiguity_mass and is_ambiguous flags", () => {
+    const r = functorSearch(saturatedInput(), { normalize: "none" });
+    // Every source has ≥2 identical candidates → margin ~0 everywhere.
+    expect(r.mapping.length).toBeGreaterThan(0);
+    expect(r.ambiguityMass).toBeGreaterThan(0.9);
+    // ambiguity_mass mirrors the legacy ambiguityRate (same criterion).
+    expect(r.ambiguityMass).toBeCloseTo(r.ambiguityRate, 10);
+    // The coin-flip rows are flagged, not silently dropped.
+    const flagged = r.mapping.filter((m) => m.isAmbiguous).length;
+    expect(flagged).toBe(r.mapping.length);
+    for (const m of r.mapping) expect(m.margin).toBeLessThan(DEFAULT_FUNCTOR_CONFIG.deltaAmb);
+  });
+
+  test("clean isomorphism → ambiguity_mass ~0, nothing flagged", () => {
+    // Distinct orthogonal profiles → each source has a unique twin, margin high.
+    const srcObjects = [
+      obj("a1", "class", [5, 0, 0, 0]),
+      obj("a2", "method", [0, 5, 0, 0]),
+      obj("a3", "method", [0, 0, 5, 0]),
+      obj("a4", "field", [0, 0, 0, 5]),
+    ];
+    const dstObjects = [
+      obj("b1", "class", [5, 0, 0, 0]),
+      obj("b2", "method", [0, 5, 0, 0]),
+      obj("b3", "method", [0, 0, 5, 0]),
+      obj("b4", "field", [0, 0, 0, 5]),
+    ];
+    const edges = [edge("a1", "a2", "CONTAINS"), edge("a2", "a3", "CALLS")];
+    const dedges = [edge("b1", "b2", "CONTAINS"), edge("b2", "b3", "CALLS")];
+    const r = functorSearch(
+      { srcObjects, dstObjects, srcEdges: edges, dstEdges: dedges },
+      { normalize: "none" },
+    );
+    expect(r.mapping.length).toBe(4);
+    expect(r.ambiguityMass).toBe(0);
+    expect(r.mapping.every((m) => !m.isAmbiguous)).toBe(true);
+  });
+
+  test("commitMinMargin gate flags low-margin pairs + confident coverage; default unchanged", () => {
+    const input = saturatedInput();
+    const base = functorSearch(input, { normalize: "none" });
+    // Default (commitMinMargin=0): coverage counts every committed mapping.
+    expect(base.coverage).toBeCloseTo(base.nMapped / base.nObjectsSrc, 10);
+
+    // Armed: every mapping is a sub-threshold tie → excluded from confident
+    // coverage, but KEPT in the mapping (never dropped) and all flagged.
+    const gated = functorSearch(input, { normalize: "none", commitMinMargin: 0.1 });
+    expect(gated.nMapped).toBe(base.nMapped); // rows retained
+    expect(gated.coverage).toBe(0); // none confident
+    expect(gated.mapping.every((m) => m.isAmbiguous)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Degenerate inputs — zero-edge and no-candidate must not throw
 // ---------------------------------------------------------------------------
 

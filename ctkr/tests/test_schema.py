@@ -266,6 +266,7 @@ def test_functor_row_parquet_roundtrip(tmp_path: Path) -> None:
             n_edges_preserved=72,
             path_fidelity_2=0.85,
             cycle_consistency=0.91,
+            ambiguity_mass=0.12,
             config='{"alpha":0.3,"rounds":8,"profile_depth":2}',
             generated_at="2026-07-13T00:00:00Z",
         ),
@@ -278,7 +279,8 @@ def test_functor_row_parquet_roundtrip(tmp_path: Path) -> None:
     assert back.columns == list(FUNCTORS_COLUMNS)
     assert back.height == 1
     for d in back.to_dicts():
-        FunctorRow.model_validate(d)
+        parsed = FunctorRow.model_validate(d)
+        assert parsed.ambiguity_mass == 0.12
 
 
 def test_functor_row_null_sentinels_roundtrip(tmp_path: Path) -> None:
@@ -323,6 +325,7 @@ def test_functor_edge_row_parquet_roundtrip(tmp_path: Path) -> None:
             dst_qualified_name="autogen.GroupChatManager",
             similarity=0.88,
             margin=0.04,
+            is_ambiguous=True,  # low margin — a coin-flip tie (MetaCoding-265)
             pair_fidelity=0.75,
             n_edges_incident=8,
             n_edges_preserved=6,
@@ -338,6 +341,7 @@ def test_functor_edge_row_parquet_roundtrip(tmp_path: Path) -> None:
             dst_qualified_name="autogen.Isolated",
             similarity=0.5,
             margin=1.0,
+            is_ambiguous=False,  # lone candidate — margin 1.0, resolved
             pair_fidelity=-1.0,
             n_edges_incident=0,
             n_edges_preserved=0,
@@ -355,6 +359,10 @@ def test_functor_edge_row_parquet_roundtrip(tmp_path: Path) -> None:
     isolated = next(r for r in parsed if r.src_symbol_id == "s2")
     assert isolated.pair_fidelity == -1.0
     assert isolated.margin == 1.0
+    assert isolated.is_ambiguous is False
+    # The low-margin pair is flagged as a coin-flip tie.
+    tie = next(r for r in parsed if r.src_symbol_id == "s1")
+    assert tie.is_ambiguous is True
 
 
 def test_functor_row_rejects_negative_counts() -> None:

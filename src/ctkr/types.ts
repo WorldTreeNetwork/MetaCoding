@@ -333,6 +333,9 @@ export interface FunctorRow {
   path_fidelity_2: number;
   /** Fraction of s with G(F(s)) = s; -1 if reverse not computed. */
   cycle_consistency: number;
+  /** Fraction of committed mappings that are coin-flip ties (margin < delta_amb);
+   *  high = per-symbol map is aggregate-only, individual mappings untrustworthy. */
+  ambiguity_mass: number;
   /** JSON blob of the search config + runtime metadata. */
   config: string;
   generated_at: string; // ISO-8601
@@ -359,6 +362,9 @@ export interface FunctorEdgeRow {
   similarity: number;
   /** σ gap to best unaccepted alternative for this source. */
   margin: number;
+  /** Near-tie coin-flip flag (margin < delta_amb / commit_min_margin); the row
+   *  is kept so consumers can discount the per-symbol claim. */
+  is_ambiguous: boolean;
   /** preserved/total internal incident edges; -1 = no evidence. */
   pair_fidelity: number;
   n_edges_incident: number;

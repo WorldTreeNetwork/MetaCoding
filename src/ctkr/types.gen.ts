@@ -184,6 +184,7 @@ export interface FunctorEdgeRow {
     dst_repo:           string;
     dst_symbol_id:      string;
     functor_id:         string;
+    is_ambiguous?:      boolean;
     margin:             number;
     n_edges_incident:   number;
     n_edges_preserved:  number;
@@ -217,6 +218,7 @@ export interface FunctorEdgeRow {
  * computed under the same config.
  */
 export interface FunctorRow {
+    ambiguity_mass?:   number;
     config:            string;
     coverage:          number;
     cycle_consistency: number;

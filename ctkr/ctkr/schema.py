@@ -526,6 +526,12 @@ class FunctorRow(BaseModel):
     n_edges_preserved: NonNegativeInt  # of those, edges with a same-kind witness in C_B
     path_fidelity_2: float  # sampled 2-path composition diagnostic; -1 if not computed
     cycle_consistency: float  # fraction of s with G(F(s)) = s; -1 if reverse not computed
+    # Fraction of committed mappings that are coin-flip ties (margin < delta_amb;
+    # MetaCoding-265). High (~0.9 on real name-blind typed-edge profiles) means
+    # the per-symbol correspondence is an AGGREGATE-ONLY signal: coverage/
+    # fidelity/cycle_consistency stay meaningful, individual mappings do not.
+    # Additive column (default 0.0) so functors written before it round-trip.
+    ambiguity_mass: float = 0.0
     config: str  # JSON blob of the search config + runtime metadata
     generated_at: str  # ISO 8601
     schema_version: int = SCHEMA_VERSION
@@ -555,6 +561,12 @@ class FunctorEdgeRow(BaseModel):
     dst_qualified_name: str
     similarity: float  # converged (pre-normalization) propagation score σ
     margin: float  # σ gap to best unaccepted alternative for this source
+    # Coin-flip flag (MetaCoding-265): the accepted candidate was a near-tie among
+    # structural lookalikes (margin < delta_amb, or < commit_min_margin when the
+    # honest-acceptance gate is armed). The row is KEPT (never dropped) so a
+    # consumer can see and discount the per-symbol claim. Additive column
+    # (default False) so edges written before it round-trip.
+    is_ambiguous: bool = False
     pair_fidelity: float  # preserved/total internal incident edges; -1 = no evidence
     n_edges_incident: NonNegativeInt  # internal typed edges incident to src (evidence mass)
     n_edges_preserved: NonNegativeInt  # of those, preserved
@@ -826,6 +838,7 @@ FUNCTORS_COLUMNS: tuple[str, ...] = (
     "n_edges_preserved",
     "path_fidelity_2",
     "cycle_consistency",
+    "ambiguity_mass",
     "config",
     "generated_at",
     "schema_version",
@@ -841,6 +854,7 @@ FUNCTOR_EDGES_COLUMNS: tuple[str, ...] = (
     "dst_qualified_name",
     "similarity",
     "margin",
+    "is_ambiguous",
     "pair_fidelity",
     "n_edges_incident",
     "n_edges_preserved",
