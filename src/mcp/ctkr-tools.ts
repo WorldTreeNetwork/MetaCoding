@@ -32,6 +32,7 @@ import type {
   FunctorRow,
   InterfaceRow,
   MotifRow,
+  OperadRow,
   PatternRow,
   SpectralClusterRow,
   SubsystemMemberRow,
@@ -204,6 +205,28 @@ export interface InterfaceOfResult {
   _note?: string;
 }
 
+/** Result shape for ctkr.composition_rules (§4.3 / §8.2, T4). A subsystem's
+ *  composition algebra — its operations, laws, and protocol contract. */
+export interface CompositionRulesResult {
+  subsystem_id: string;
+  repo: string | null;
+  /** Which role quotient the operations were projected through. */
+  view: "orbit" | "similarity";
+  /** The recovered operations (path + fan_in), strongest/protocol first. */
+  operations: OperadRow[];
+  /** Recorded law violations (op_kind="non_operadic"): the composition non-laws. */
+  violations: OperadRow[];
+  /** Distinct role_ids appearing on the boundary (protocol) operations — the
+   *  order-of-operations contract external callers depend on. */
+  protocol_roles: string[];
+  n_operations: number;
+  n_boundary_ops: number;
+  n_missing_composite: number;
+  n_back_call_cycle: number;
+  truncated: boolean;
+  _note?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -267,6 +290,16 @@ const INTERFACE_OF_SCHEMA = {
   repo: z.string().optional(),
   direction: z.enum(["provides", "consumes"]).optional(),
   boundary_shapes_only: z.boolean().optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
+};
+
+const COMPOSITION_RULES_SCHEMA = {
+  subsystem: z.string().optional(),
+  repo: z.string().optional(),
+  view: z.enum(["orbit", "similarity"]).optional(),
+  op_kind: z.enum(["path", "fan_in", "non_operadic"]).optional(),
+  min_support: z.number().int().min(1).optional(),
+  boundary_only: z.boolean().optional(),
   limit: z.number().int().min(1).max(5000).optional(),
 };
 
@@ -848,6 +881,132 @@ export async function interfaceOf(input: {
 }
 
 // ---------------------------------------------------------------------------
+// ctkr.composition_rules (subsystem-extraction §4.3 / §8.2, T4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return a subsystem's composition algebra (Phase 2d, scoped): the operations
+ * recovered by projecting its actual typed call/reference paths onto role
+ * classes, the composition laws they observe, and the protocol contract its
+ * boundary operations impose. The scoped variant of ctkr.composition_rules —
+ * ``subsystem`` restricts to one subsystem's operad (the default, most useful
+ * query); omitting it returns the corpus-scoped operations under the other
+ * filters. Reads operads.parquet only (recovery is the `ctkr operads` batch
+ * runner).
+ */
+export async function compositionRules(input: {
+  subsystem?: string;
+  repo?: string;
+  view?: "orbit" | "similarity";
+  op_kind?: "path" | "fan_in" | "non_operadic";
+  min_support?: number;
+  boundary_only?: boolean;
+  limit?: number;
+}): Promise<CompositionRulesResult> {
+  const limit = input.limit ?? 500;
+  const view = input.view ?? "similarity";
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    const notes: string[] = [];
+    const manifest = await handle.manifest();
+    if (!manifest.operads) {
+      throw new Error(
+        `operad artifacts not found in ${dataDir} — run \`ctkr operads\` ` +
+          `(Stage C §4.3) after \`ctkr roles\` (T3) to generate them`,
+      );
+    }
+
+    // Over-fetch by one to detect truncation.
+    const rows = await handle.operads({
+      repo: input.repo,
+      subsystemId: input.subsystem,
+      view,
+      opKind: input.op_kind,
+      minSupport: input.min_support,
+      boundaryOnly: input.boundary_only,
+      limit: limit + 1,
+    });
+
+    if (rows.length === 0) {
+      // Distinguish an unknown subsystem from a genuinely operad-free one.
+      if (input.subsystem !== undefined) {
+        const all = await handle.operads({ repo: input.repo, view, limit: 100000 });
+        const known = new Set(all.map((r) => r.subsystem_id));
+        if (!known.has(input.subsystem)) {
+          const sample = [...known].sort().slice(0, 12);
+          notes.push(
+            `unknown subsystem "${input.subsystem}"` +
+              (input.repo ? ` in repo "${input.repo}"` : "") +
+              ` for view "${view}"; known subsystem_ids include: ` +
+              `${sample.join(", ") || "(none)"}` +
+              (known.size > sample.length ? ` (+${known.size - sample.length} more)` : ""),
+          );
+        } else {
+          notes.push(
+            `subsystem "${input.subsystem}" has no operations matching the ` +
+              `filters (raise nothing / lower min_support, or it is a leaf ` +
+              `subsystem with no recurring role-paths)`,
+          );
+        }
+      } else {
+        notes.push("no operations match the requested filters");
+      }
+      const empty: CompositionRulesResult = {
+        subsystem_id: input.subsystem ?? "",
+        repo: input.repo ?? null,
+        view,
+        operations: [],
+        violations: [],
+        protocol_roles: [],
+        n_operations: 0,
+        n_boundary_ops: 0,
+        n_missing_composite: 0,
+        n_back_call_cycle: 0,
+        truncated: false,
+        _note: notes.join("; "),
+      };
+      return empty;
+    }
+
+    const truncated = rows.length > limit;
+    const out = rows.slice(0, limit);
+
+    const operations = out.filter((r) => r.op_kind !== "non_operadic");
+    const violations = out.filter((r) => r.op_kind === "non_operadic");
+    const protocolRoles = [
+      ...new Set(
+        out
+          .filter((r) => r.is_boundary_op)
+          .flatMap((r) => [...r.input_roles, r.output_role]),
+      ),
+    ].sort();
+
+    const result: CompositionRulesResult = {
+      subsystem_id: input.subsystem ?? out[0]!.subsystem_id,
+      repo: out[0]?.repo ?? input.repo ?? null,
+      view,
+      operations,
+      violations,
+      protocol_roles: protocolRoles,
+      n_operations: operations.length,
+      n_boundary_ops: out.filter((r) => r.is_boundary_op).length,
+      n_missing_composite: violations.filter(
+        (r) => r.violation_kind === "missing_composite",
+      ).length,
+      n_back_call_cycle: violations.filter(
+        (r) => r.violation_kind === "back_call_cycle",
+      ).length,
+      truncated,
+    };
+    if (notes.length > 0) result._note = notes.join("; ");
+    return result;
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ctkr.functor_between (§4)
 // ---------------------------------------------------------------------------
 
@@ -1274,6 +1433,54 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     },
   },
   {
+    name: "ctkr.composition_rules",
+    summary:
+      "Return a subsystem's composition algebra (subsystem-extraction Stage C / " +
+      "§4.3, Phase 2d scoped): the operations recovered by projecting its actual " +
+      "typed call/reference paths onto role classes — the composition-algebra a " +
+      "re-implementer needs (not the pieces, but how they combine). op_kind " +
+      "'path' = sequential composition (input_roles ∘ … → output_role); 'fan_in' " +
+      "= n-ary combination (a target role built from arity distinct source " +
+      "roles); 'non_operadic' = a recorded law violation (missing_composite = " +
+      "two generators compose at role level but their composite is never " +
+      "observed; back_call_cycle = an observed 2-cycle between roles). Boundary " +
+      "(protocol) ops — any role public in the T2 interface — carry the order-of-" +
+      "operations contract external callers depend on. Reads operads.parquet " +
+      "(recovery is the `ctkr operads` batch runner). Scope with subsystem " +
+      "(default; the scoped variant), repo, view ('orbit'|'similarity'), op_kind, " +
+      "min_support, boundary_only.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subsystem: {
+          type: "string",
+          description: "subsystem_id (from ctkr.subsystems) — the scoped operad.",
+        },
+        repo: { type: "string", description: "Restrict to one repo." },
+        view: {
+          type: "string",
+          enum: ["orbit", "similarity"],
+          description: "Which role quotient the operations were projected through (default similarity).",
+        },
+        op_kind: {
+          type: "string",
+          enum: ["path", "fan_in", "non_operadic"],
+          description: "Return only this operation family; omit for all.",
+        },
+        min_support: {
+          type: "integer",
+          minimum: 1,
+          description: "Only operations with at least this many concrete instances.",
+        },
+        boundary_only: {
+          type: "boolean",
+          description: "Only boundary (protocol) operations — the external contract.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 5000, default: 500 },
+      },
+    },
+  },
+  {
     name: "ctkr.functor_between",
     summary:
       "Discover how two repos' designs correspond: the maximal partial " +
@@ -1337,7 +1544,7 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
 ];
 
 /**
- * Register all nine CTKR tools on the given McpServer.
+ * Register all ten CTKR tools on the given McpServer.
  * Call this from server.ts after the existing graph tool registrations.
  * Keep the registrations here in sync with CTKR_TOOL_DESCRIPTIONS above.
  */
@@ -1544,6 +1751,51 @@ export function registerCtkrTools(server: McpServer): void {
         repo: args.repo,
         direction: args.direction,
         boundary_shapes_only: args.boundary_shapes_only,
+        limit: args.limit,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.composition_rules",
+    {
+      description:
+        "Return a subsystem's composition algebra (subsystem-extraction Stage C " +
+        "/ §4.3 — Phase 2d operad recovery, scoped single-repo and per-" +
+        "subsystem): the operations recovered by projecting the subsystem's " +
+        "actual typed call/reference paths onto its role classes (T3). This is " +
+        "the composition-algebra a re-implementer most needs and most lacks — " +
+        "not the pieces, but the algebra of how pieces combine. op_kind 'path' = " +
+        "sequential composition (input_roles compose to output_role; arity = " +
+        "steps); 'fan_in' = an n-ary combination (a target role produced by " +
+        "combining arity distinct source roles — the wiring-diagram reading); " +
+        "'non_operadic' = a recorded law violation (violation_kind " +
+        "'missing_composite' = two generators compose at role level but their " +
+        "predicted composite is never actually observed; 'back_call_cycle' = an " +
+        "observed 2-cycle between roles — the 'never calls back except through " +
+        "Callback' non-law). Violations are bookkept, never discarded. Boundary " +
+        "(protocol) operations — is_boundary_op, any role public in the T2 " +
+        "interface — carry the order-of-operations contract external callers " +
+        "depend on (init-before-use, acquire-then-release), the laws a port " +
+        "breaks first and silently; protocol_roles collects them. Every op is " +
+        "invariance_tier 'I' (a port must preserve it). Reads operads.parquet " +
+        "only — recovery is the `ctkr operads` batch runner. Scope with " +
+        "subsystem (subsystem_id from ctkr.subsystems — the scoped variant), " +
+        "repo, view ('orbit' = exact-profile classes | 'similarity' = working " +
+        "classes, default), op_kind, min_support, boundary_only. Results split " +
+        "operations from violations, note truncation, and flag an unknown " +
+        "subsystem.",
+      inputSchema: COMPOSITION_RULES_SCHEMA,
+    },
+    async (args) => {
+      const result = await compositionRules({
+        subsystem: args.subsystem,
+        repo: args.repo,
+        view: args.view,
+        op_kind: args.op_kind,
+        min_support: args.min_support,
+        boundary_only: args.boundary_only,
         limit: args.limit,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

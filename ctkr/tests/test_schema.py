@@ -22,6 +22,7 @@ from ctkr.schema import (
     HOM_PROFILES_COLUMNS,
     MOTIF_INSTANCES_COLUMNS,
     MOTIFS_COLUMNS,
+    OPERADS_COLUMNS,
     SCHEMA_VERSION,
     SHAPE_PDS_COLUMNS,
     WASSERSTEIN_H1_COLUMNS,
@@ -33,6 +34,7 @@ from ctkr.schema import (
     MotifInstanceRow,
     MotifRow,
     NNIndexMeta,
+    OperadRow,
     ShapePDRow,
     WassersteinH1Row,
 )
@@ -408,6 +410,80 @@ def test_manifest_functor_flags_default_false() -> None:
     assert back.functor_edges is False
     assert back.n_functors == 0
     assert back.n_functor_edges == 0
+
+
+# ----- Operad (Phase 2d / T4) schema tests -----
+
+
+def test_operad_row_parquet_roundtrip(tmp_path: Path) -> None:
+    rows = [
+        OperadRow(
+            subsystem_id="ss:X",
+            repo="R",
+            operation_id="op:abc123",
+            view="similarity",
+            op_kind="path",
+            arity=2,
+            input_roles=["role:Handler", "role:Validator"],
+            output_role="role:Loader",
+            edge_kinds=["CALLS"],
+            support=122,
+            is_boundary_op=True,
+            associative_observed=True,
+            law_violations=0,
+            violation_kind="",
+            exemplar_paths=["R::h1 -> R::v1 -> R::l1"],
+            invariance_tier="I",
+            config='{"min_support":2}',
+            generated_at="2026-07-14T00:00:00Z",
+        ),
+        OperadRow(
+            subsystem_id="ss:X",
+            repo="R",
+            operation_id="op:def456",
+            view="similarity",
+            op_kind="non_operadic",
+            arity=2,
+            input_roles=["role:Cache", "role:Store"],
+            output_role="role:Logger",
+            edge_kinds=[],
+            support=3,
+            is_boundary_op=True,
+            associative_observed=False,
+            law_violations=1,
+            violation_kind="missing_composite",
+            exemplar_paths=["Cache -> Store  &  Store -> Logger  (composite unobserved)"],
+            invariance_tier="I",
+            config='{"min_support":2}',
+            generated_at="2026-07-14T00:00:00Z",
+        ),
+    ]
+    out = tmp_path / "operads.parquet"
+    df = pl.DataFrame([r.model_dump() for r in rows]).select(OPERADS_COLUMNS)
+    df.write_parquet(out)
+
+    back = pl.read_parquet(out)
+    assert back.columns == list(OPERADS_COLUMNS)
+    assert back.height == 2
+    parsed = [OperadRow.model_validate(d) for d in back.to_dicts()]
+    viol = next(r for r in parsed if r.op_kind == "non_operadic")
+    assert viol.violation_kind == "missing_composite"
+    assert viol.associative_observed is False
+    assert viol.law_violations == 1
+
+
+def test_manifest_operads_flag_roundtrip() -> None:
+    m = ArtifactManifest(
+        generated_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+        metacoding_data_dir="/tmp/metacoding-scip",
+        operads=True,
+        n_operads=347,
+    )
+    back = ArtifactManifest.model_validate_json(m.model_dump_json())
+    assert back.operads is True
+    assert back.n_operads == 347
+    # Unrelated defaults survive; the flag defaults off on older manifests.
+    assert back.presentations is False
 
 
 # ----- L3 schema tests -----

@@ -40,11 +40,13 @@ export interface ArtifactManifest {
     n_interfaces?:       number;
     n_motif_instances?:  number;
     n_motifs?:           number;
+    n_operads?:          number;
     n_presentations?:    number;
     n_subsystems?:       number;
     n_symbols?:          number;
     nn_index?:           boolean;
     notes?:              null | string;
+    operads?:            boolean;
     presentations?:      boolean;
     profile_depth?:      number | null;
     profile_vec_dim?:    number | null;
@@ -369,6 +371,97 @@ export type Backend = "faiss" | "hnswlib";
 export type Metric = "cosine" | "l2" | "ip";
 
 /**
+ * One recovered composition operation of a subsystem — a relation (§4.3, T4).
+ *
+ * Phase 2d operad recovery, scoped single-repo and per-subsystem. The role
+ * inventory (``presentations.parquet``, T3) gives a subsystem's *generators*
+ * (role classes); this artifact gives its *relations* — the composition
+ * algebra a re-implementer most needs and most lacks: not the pieces, but how
+ * they combine. One row per ``(subsystem_id, view, operation_id)``.
+ *
+ * Operations are mined by projecting the subsystem's actual typed call/
+ * reference paths onto role classes (``parseConfig → validateSchema →
+ * applyDefaults`` becomes the role-path ``Loader ∘ Validator ∘ Defaulter``)
+ * and keeping the role-paths that recur with ``support ≥ k``. Three
+ * ``op_kind`` families:
+ *
+ * - ``"path"`` — a recurring linear role-path (sequential composition). The
+ * terminal role is ``output_role``; the preceding roles are ``input_roles``
+ * (order preserved); ``arity`` = number of composition steps = len(path)-1.
+ * An arity-1 path is a single generator ``R_i → R_j``.
+ * - ``"fan_in"`` — an n-ary combination: a target role invoked/produced by
+ * combining ``arity`` distinct source roles (the multi-fan-in / wiring-
+ * diagram reading, Fong & Spivak ch. 6). ``input_roles`` is the sorted set
+ * of source roles; ``output_role`` the target; ``arity`` = |input_roles|.
+ * - ``"non_operadic"`` — a recorded *law violation*, not a valid operation
+ * (ct-pipeline §2d: "non-operadic composition is interesting in itself" —
+ * recorded, never discarded). ``violation_kind`` says which law broke:
+ * ``"missing_composite"`` (two generators ``R_i→R_j`` and ``R_j→R_k`` both
+ * recur, so they compose at role level, but the predicted 2-step composite
+ * ``R_i→R_j→R_k`` is never actually observed — role-composability without
+ * instance-composition) or ``"back_call_cycle"`` (both ``R_i→R_j`` and
+ * ``R_j→R_i`` recur — an observed 2-cycle, the "Worker never calls
+ * Orchestrator back except through Callback" non-law).
+ *
+ * ``support`` is the number of concrete instances backing the operation.
+ * ``edge_kinds`` are the distinct typed-edge kinds along the composition.
+ * ``exemplar_paths`` are up to a few concrete qualified-name paths (``a -> b
+ * -> c``) so a re-implementer sees the operation, not just its role types.
+ *
+ * ``is_boundary_op`` (the T4 boundary flag) is True when any of the
+ * operation's roles participates in the subsystem's interface (a role with
+ * non-empty ``interface_participation`` in ``presentations.parquet``, which in
+ * turn joins ``interfaces.parquet``, T2). Boundary operations are the
+ * subsystem's **protocol** — the order-of-operations contract external callers
+ * depend on (init-before-use, acquire-then-release), the composition laws a
+ * port breaks first and silently.
+ *
+ * ``associative_observed`` records the empirical associativity/closure law for
+ * ``path`` ops of arity ≥ 2: True when every composable generator pair whose
+ * middle role is shared realizes its predicted 2-step composite as an observed
+ * operation. ``law_violations`` counts the composable generator pairs at this
+ * operation whose composite is *missing* (0 for a fully-closed op). For
+ * ``fan_in`` ops the law fields are trivially satisfied
+ * (``associative_observed=True``, ``law_violations=0``); for ``non_operadic``
+ * rows ``associative_observed=False`` and ``law_violations=1``.
+ *
+ * ``view`` selects which role quotient (``"orbit"`` = exact-profile WL classes,
+ * conservative; ``"similarity"`` = cosine-threshold working classes) the
+ * role-paths were projected through — the same dial as ``presentations.parquet``.
+ * ``invariance_tier`` is ``"I"`` (composition laws over roles are tier-I per
+ * §6.1 — a port must preserve them). ``operation_id`` is content-addressed
+ * (blake3 of subsystem_id + view + op_kind + role signature + config) so
+ * re-runs over the same partition + roles are byte-identical and
+ * ``generated_at`` never enters the id.
+ */
+export interface OperadRow {
+    arity:                number;
+    associative_observed: boolean;
+    config:               string;
+    edge_kinds:           string[];
+    exemplar_paths:       string[];
+    generated_at:         string;
+    input_roles:          string[];
+    invariance_tier:      string;
+    is_boundary_op:       boolean;
+    law_violations:       number;
+    op_kind:              OpKind;
+    operation_id:         string;
+    output_role:          string;
+    repo:                 string;
+    schema_version?:      number;
+    subsystem_id:         string;
+    support:              number;
+    view:                 View;
+    violation_kind:       string;
+    [property: string]: any;
+}
+
+export type OpKind = "path" | "fan_in" | "non_operadic";
+
+export type View = "orbit" | "similarity";
+
+/**
  * One labeled structural element produced by an L3 labeler.
  *
  * ``source_ref`` is a foreign key into the L1 artifact named by
@@ -483,8 +576,6 @@ export interface PresentationRow {
     view:                    View;
     [property: string]: any;
 }
-
-export type View = "orbit" | "similarity";
 
 /**
  * Persistent-homology shape signature for one (repo, homology-dim) pair.

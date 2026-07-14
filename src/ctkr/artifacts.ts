@@ -27,6 +27,7 @@ import type {
   MotifRow,
   NNIndexMeta,
   NNLabelRow,
+  OperadRow,
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,
@@ -170,6 +171,23 @@ export interface CtkrHandle {
     boundaryOnly?: boolean;
     limit?: number;
   }): Promise<DataShapeRow[]>;
+
+  /**
+   * Reads operad (composition-law) rows (operads.parquet, Stage C / §4.3, T4).
+   * Filter by repo, subsystem_id, view ("orbit" | "similarity"), op_kind
+   * ("path" | "fan_in" | "non_operadic"), a support floor, and/or boundaryOnly
+   * (only protocol ops). Ordered by is_boundary_op desc (protocol ops first),
+   * then support desc (the strongest laws first), then operation_id.
+   */
+  operads(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    view?: "orbit" | "similarity";
+    opKind?: "path" | "fan_in" | "non_operadic";
+    minSupport?: number;
+    boundaryOnly?: boolean;
+    limit?: number;
+  }): Promise<OperadRow[]>;
 
   /**
    * Reads rows from hom_profiles.parquet. Filters by symbol IDs and/or
@@ -806,6 +824,54 @@ class CtkrHandleImpl implements CtkrHandle {
     return toObjects(result) as unknown as DataShapeRow[];
   }
 
+  async operads(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    view?: "orbit" | "similarity";
+    opKind?: "path" | "fan_in" | "non_operadic";
+    minSupport?: number;
+    boundaryOnly?: boolean;
+    limit?: number;
+  }): Promise<OperadRow[]> {
+    await this.requireArtifact("operads");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.subsystemId !== undefined) {
+      clauses.push(`subsystem_id = $subsystem_id`);
+      params["subsystem_id"] = opts.subsystemId;
+    }
+    if (opts?.view !== undefined) {
+      // view is a TS union — safe to compare via a bound param.
+      clauses.push(`view = $view`);
+      params["view"] = opts.view;
+    }
+    if (opts?.opKind !== undefined) {
+      clauses.push(`op_kind = $op_kind`);
+      params["op_kind"] = opts.opKind;
+    }
+    if (opts?.minSupport !== undefined) {
+      clauses.push(`support >= ${opts.minSupport}`);
+    }
+    if (opts?.boundaryOnly) {
+      clauses.push(`is_boundary_op = true`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("operads.parquet")}') ${where} ` +
+      `ORDER BY is_boundary_op DESC, support DESC, operation_id ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as OperadRow[];
+  }
+
   async homProfiles(opts?: {
     symbolIds?: string[];
     repo?: string;
@@ -1015,6 +1081,7 @@ export type {
   MotifRow,
   NNIndexMeta,
   NNLabelRow,
+  OperadRow,
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,

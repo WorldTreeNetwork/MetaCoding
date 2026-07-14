@@ -216,6 +216,58 @@ export interface DataShapeRow {
 }
 
 /**
+ * One recovered composition operation of a subsystem (subsystem-extraction
+ * §4.3, Stage C / T4). Mirrors OperadRow in schema.py.
+ *
+ * Operations are mined by projecting the subsystem's actual typed call/
+ * reference paths onto role classes (T3) and keeping the role-paths that recur.
+ * op_kind: "path" (sequential composition — terminal role is output_role,
+ * preceding roles are input_roles, arity = composition steps); "fan_in" (n-ary
+ * combination — a target role produced by combining arity distinct source
+ * roles); "non_operadic" (a recorded law violation — violation_kind is
+ * "missing_composite" (two generators compose at role level but their composite
+ * is never observed) or "back_call_cycle" (an observed 2-cycle between roles)).
+ * is_boundary_op = any role participates in the T2 interface (a protocol op).
+ * invariance_tier is "I" — composition laws over roles are port-invariant.
+ */
+export interface OperadRow {
+  /** FK → subsystems.parquet. */
+  subsystem_id: string;
+  repo: string;
+  /** Content-addressed: blake3(subsystem_id + view + op_kind + role sig + config). */
+  operation_id: string;
+  /** Which role quotient the paths were projected through. */
+  view: "orbit" | "similarity";
+  op_kind: "path" | "fan_in" | "non_operadic";
+  /** Number of input roles (composition steps / fan-in width). */
+  arity: number;
+  /** role_ids feeding the operation (ordered for path, sorted for fan_in). */
+  input_roles: string[];
+  /** role_id of the terminal / target. */
+  output_role: string;
+  /** Distinct typed-edge kinds along the composition. */
+  edge_kinds: string[];
+  /** Number of concrete instances backing the operation. */
+  support: number;
+  /** Any role participates in the subsystem's interface (a protocol op). */
+  is_boundary_op: boolean;
+  /** Empirical associativity/closure law (path arity≥2); true if n/a. */
+  associative_observed: boolean;
+  /** Count of composable generator pairs whose composite is missing. */
+  law_violations: number;
+  /** "" for real ops; "missing_composite" | "back_call_cycle" for non_operadic. */
+  violation_kind: string;
+  /** Up to a few concrete qualified-name paths ("a -> b -> c"). */
+  exemplar_paths: string[];
+  /** "I" — composition laws over roles are port-invariant (§6.1). */
+  invariance_tier: string;
+  /** JSON blob of the run config + runtime metadata. */
+  config: string;
+  generated_at: string; // ISO-8601
+  schema_version: number;
+}
+
+/**
  * Metadata sidecar for the nn_index/ directory.
  * Mirrors NNIndexMeta in schema.py.
  */
@@ -339,6 +391,10 @@ export interface ArtifactManifest {
   /** Subsystem-extraction Stage B presence flags (§3, T2). */
   interfaces?: boolean;
   data_shapes?: boolean;
+  /** Subsystem-extraction Stage C role inventory (§4.1, T3). */
+  presentations?: boolean;
+  /** Subsystem-extraction Stage C composition laws / operad recovery (§4.3, T4). */
+  operads?: boolean;
   embedding_dim: number | null;
   profile_vec_dim: number | null;
   /** Hom-profile neighbourhood depth the seeds were built at (1 or 2). */
@@ -352,6 +408,8 @@ export interface ArtifactManifest {
   n_subsystems?: number;
   n_interfaces?: number;
   n_data_shapes?: number;
+  n_presentations?: number;
+  n_operads?: number;
   /**
    * Per-repo-lane data-alphabet coverage note (§3): which data-edge kinds are
    * present + the scip/tree-sitter source mix, so a thin data_shapes section
