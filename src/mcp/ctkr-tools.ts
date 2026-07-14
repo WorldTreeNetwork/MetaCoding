@@ -202,6 +202,10 @@ const FUNCTOR_BETWEEN_SCHEMA = {
   min_fidelity: z.number().min(0).max(1).optional(),
   min_pair_fidelity: z.number().min(0).max(1).optional(),
   limit: z.number().int().min(1).max(5000).optional(),
+  // MetaCoding-4ty: member-set restriction + single-repo endofunctor read-side.
+  members_a: z.array(z.string()).optional(),
+  members_b: z.array(z.string()).optional(),
+  exclude_identity: z.boolean().optional(),
 };
 
 // ---------------------------------------------------------------------------
@@ -605,12 +609,30 @@ export async function functorBetween(input: {
   min_fidelity?: number;
   min_pair_fidelity?: number;
   limit?: number;
+  /** Restrict returned domain rows to these src symbol_ids (subsystem A). */
+  members_a?: string[];
+  /** Restrict returned codomain rows to these dst symbol_ids (subsystem B). */
+  members_b?: string[];
+  /**
+   * ENDOFUNCTOR read-side (MetaCoding-4ty): drop trivial `s ↦ s` mapping rows.
+   * Defaults `true` when repo_a === repo_b (a single-repo endofunctor query,
+   * where identities are noise), `false` otherwise.
+   */
+  exclude_identity?: boolean;
 }): Promise<FunctorBetweenResult> {
   const direction = input.direction ?? "a_to_b";
   const minCoverage = input.min_coverage ?? 0;
   const minFidelity = input.min_fidelity ?? 0;
   const minPairFidelity = input.min_pair_fidelity ?? 0;
   const limit = input.limit ?? 200;
+  const excludeIdentity = input.exclude_identity ?? input.repo_a === input.repo_b;
+  // members_a/members_b attach to repo_a/repo_b; map them onto the primary
+  // (src, dst) sides, which flip for direction "b_to_a".
+  const primaryIsBToA = direction === "b_to_a";
+  const srcMemberList = primaryIsBToA ? input.members_b : input.members_a;
+  const dstMemberList = primaryIsBToA ? input.members_a : input.members_b;
+  const srcMemberSet = srcMemberList ? new Set(srcMemberList) : null;
+  const dstMemberSet = dstMemberList ? new Set(dstMemberList) : null;
 
   const dataDir = resolveCtkrDataDir();
   const handle = await openCtkrArtifacts(dataDir);
@@ -667,11 +689,25 @@ export async function functorBetween(input: {
       // At 0 we keep no-evidence pairs (−1 → surfaced as null); a positive
       // threshold drops them, since the loader's `pair_fidelity >= x` filter
       // excludes the −1 sentinel. Fetch one extra row to detect truncation.
+      // When a member/identity filter is active the drop happens AFTER the DB
+      // read, so fetch the whole mapping (not just limit+1) to keep truncation
+      // accurate; otherwise keep the cheap limit+1 probe. (MetaCoding-4ty)
+      const filtering =
+        srcMemberSet !== null || dstMemberSet !== null || excludeIdentity;
       const edgeOpts: { minPairFidelity?: number; limit: number } = {
-        limit: limit + 1,
+        limit: filtering ? 1_000_000 : limit + 1,
       };
       if (minPairFidelity > 0) edgeOpts.minPairFidelity = minPairFidelity;
-      const edges = await handle.functorEdges(chosen.functor_id, edgeOpts);
+      let edges = await handle.functorEdges(chosen.functor_id, edgeOpts);
+      if (srcMemberSet !== null) {
+        edges = edges.filter((e) => srcMemberSet.has(e.src_symbol_id));
+      }
+      if (dstMemberSet !== null) {
+        edges = edges.filter((e) => dstMemberSet.has(e.dst_symbol_id));
+      }
+      if (excludeIdentity) {
+        edges = edges.filter((e) => e.src_symbol_id !== e.dst_symbol_id);
+      }
       truncated = edges.length > limit;
       mapping = edges.slice(0, limit).map((e) => ({
         src_symbol_id: e.src_symbol_id,
@@ -876,8 +912,10 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       "fidelity. Reads functors.parquet / functor_edges.parquet (discovery is the " +
       "batch runner's job). direction picks the stored direction(s); min_coverage / " +
       "min_fidelity gate the functor (min_fidelity=1.0 = strict functors only); " +
-      "min_pair_fidelity filters mapping rows; results note alternatives, " +
-      "best-available scores, and hom-profile staleness.",
+      "min_pair_fidelity filters mapping rows; members_a/members_b scope the " +
+      "mapping to a subsystem member-set; exclude_identity drops trivial self-maps " +
+      "for single-repo endofunctor queries (repo_a===repo_b); results note " +
+      "alternatives, best-available scores, and hom-profile staleness.",
     input_schema: {
       type: "object",
       required: ["repo_a", "repo_b"],
@@ -906,6 +944,24 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
           description: "Query-time strictness dial over the mapping rows.",
         },
         limit: { type: "integer", minimum: 1, maximum: 5000, default: 200 },
+        members_a: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Restrict domain (repo_a) mapping rows to these symbol_ids — a " +
+            "subsystem/member-set scope (MetaCoding-4ty).",
+        },
+        members_b: {
+          type: "array",
+          items: { type: "string" },
+          description: "Restrict codomain (repo_b) mapping rows to these symbol_ids.",
+        },
+        exclude_identity: {
+          type: "boolean",
+          description:
+            "Single-repo endofunctor: drop trivial s↦s rows. Defaults true when " +
+            "repo_a === repo_b, false otherwise.",
+        },
       },
     },
   },
@@ -1073,7 +1129,10 @@ export function registerCtkrTools(server: McpServer): void {
         "returns only strict/pure functors; a −1 no-evidence fidelity always fails a " +
         "positive threshold). min_pair_fidelity filters the returned mapping rows " +
         "(pair_fidelity=null means an isolated pair with no structural evidence — " +
-        "never read as 1.0). limit caps mapping rows (sorted pair_fidelity desc, then " +
+        "never read as 1.0). members_a/members_b restrict the returned mapping to a " +
+        "subsystem member-set (symbol_ids on the repo_a/repo_b side). exclude_identity " +
+        "drops trivial s↦s rows for single-repo endofunctor queries (default true when " +
+        "repo_a===repo_b). limit caps mapping rows (sorted pair_fidelity desc, then " +
         "similarity desc). When no functor passes the filters the result carries " +
         "functor:null plus a _note giving the best-available scores, unknown-repo " +
         "listing, or a hom-profile staleness flag.",
@@ -1088,6 +1147,9 @@ export function registerCtkrTools(server: McpServer): void {
         min_fidelity: args.min_fidelity,
         min_pair_fidelity: args.min_pair_fidelity,
         limit: args.limit,
+        members_a: args.members_a,
+        members_b: args.members_b,
+        exclude_identity: args.exclude_identity,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

@@ -320,6 +320,7 @@ function buildConfigBlob(
   res: FunctorSearchResult,
   homProfilesGeneratedAt: string,
   profileDepth: number,
+  restriction: FunctorRestriction,
 ): Record<string, unknown> {
   return {
     k_seed: cfg.kSeed,
@@ -338,9 +339,43 @@ function buildConfigBlob(
     normalize: cfg.normalize,
     normalization_applied: res.normalizationApplied,
     extraction: "greedy",
+    // MetaCoding-4ty provenance — folded into the functor id (via config-for-id)
+    // so scoped / endofunctor runs are addressable distinctly from whole-repo ones.
+    exclude_identity: cfg.excludeIdentity,
+    src_members_digest: restriction.srcDigest,
+    dst_members_digest: restriction.dstDigest,
     budget_exhausted: res.budgetExhausted,
     hom_profiles_generated_at: homProfilesGeneratedAt,
     profile_depth: profileDepth,
+  };
+}
+
+/** Member-restriction provenance for one directed search. */
+interface FunctorRestriction {
+  srcMembers: ReadonlySet<string> | null;
+  dstMembers: ReadonlySet<string> | null;
+  /** blake2b digest of the sorted src member ids, or "" when unrestricted. */
+  srcDigest: string;
+  /** blake2b digest of the sorted dst member ids, or "" when unrestricted. */
+  dstDigest: string;
+}
+
+/** Deterministic digest of a member set (sorted ids); "" when unrestricted. */
+function memberDigest(members: ReadonlySet<string> | null): string {
+  if (members === null) return "";
+  return blake([...members].sort().join("\n"));
+}
+
+/** Resolve a repo's optional member restriction into a set + its digest. */
+function resolveRestriction(
+  srcMembers: ReadonlySet<string> | null,
+  dstMembers: ReadonlySet<string> | null,
+): FunctorRestriction {
+  return {
+    srcMembers,
+    dstMembers,
+    srcDigest: memberDigest(srcMembers),
+    dstDigest: memberDigest(dstMembers),
   };
 }
 
@@ -484,12 +519,32 @@ export type Direction = "a_to_b" | "b_to_a" | "both";
 export interface RunFunctorDiscoveryOptions {
   /** Absolute path to the `.metacoding/` directory. */
   dataDir: string;
-  /** Repo pairs `[repoA, repoB]`. */
+  /**
+   * Repo pairs `[repoA, repoB]`. A self-pair `[R, R]` runs SINGLE-REPO
+   * ENDOFUNCTOR discovery `F : R → R` (MetaCoding-4ty): unless overridden by
+   * `excludeIdentity`, the trivial diagonal is dropped so internal isomorphic
+   * subsystems surface instead of the identity.
+   */
   pairs: [string, string][];
   /** Which directions to store per pair. Default `"both"`. */
   direction?: Direction;
   /** Search config overrides on top of the spike-pinned defaults. */
   config?: Partial<FunctorSearchConfig>;
+  /**
+   * MEMBER-SET RESTRICTION (MetaCoding-4ty, §5.6). Per-repo object-set filter:
+   * `repo → allowed symbol_ids`. When a repo appears on either side of a pair
+   * and has an entry here, its domain/codomain is scoped to that set (a
+   * subsystem). Absent = the whole repo. The restriction is folded into the
+   * functor's content-addressed `config` (member digest) so a scoped run gets a
+   * distinct `functor_id` from the whole-repo run.
+   */
+  members?: Record<string, string[]>;
+  /**
+   * Endofunctor diagonal exclusion override. Default (undefined): auto — `true`
+   * for self-pairs (`repoA === repoB`), `false` for distinct repos. Set
+   * explicitly to force the mode either way.
+   */
+  excludeIdentity?: boolean;
 }
 
 export interface RunFunctorDiscoveryResult {
@@ -557,6 +612,14 @@ export async function runFunctorDiscovery(
     }
   }
 
+  // Per-repo member restrictions (MetaCoding-4ty): repo → allowed symbol ids.
+  const memberSets = new Map<string, ReadonlySet<string>>();
+  if (opts.members) {
+    for (const [repo, ids] of Object.entries(opts.members)) {
+      memberSets.set(repo, new Set(ids));
+    }
+  }
+
   const generatedAt = new Date().toISOString();
   const functorRows: FunctorRow[] = [];
   const edgeRows: FunctorEdgeRow[] = [];
@@ -571,18 +634,36 @@ export async function runFunctorDiscovery(
     const needAB = direction === "a_to_b" || direction === "both";
     const needBA = direction === "b_to_a" || direction === "both";
 
+    // Endofunctor auto-detection: exclude the diagonal for self-pairs unless the
+    // caller forces the mode. Distinct repos never self-map.
+    const excludeIdentity = opts.excludeIdentity ?? a === b;
+    const cfgPair: FunctorSearchConfig = { ...cfg, excludeIdentity };
+
+    const membersA = memberSets.get(a) ?? null;
+    const membersB = memberSets.get(b) ?? null;
+    const restrAB = resolveRestriction(membersA, membersB);
+    const restrBA = resolveRestriction(membersB, membersA);
+
     const resAB = functorSearch(
-      { srcObjects: ra.objects, srcEdges: ra.edges, dstObjects: rb.objects, dstEdges: rb.edges },
-      cfg,
+      {
+        srcObjects: ra.objects, srcEdges: ra.edges,
+        dstObjects: rb.objects, dstEdges: rb.edges,
+        srcMembers: membersA, dstMembers: membersB,
+      },
+      cfgPair,
     );
     const resBA = functorSearch(
-      { srcObjects: rb.objects, srcEdges: rb.edges, dstObjects: ra.objects, dstEdges: ra.edges },
-      cfg,
+      {
+        srcObjects: rb.objects, srcEdges: rb.edges,
+        dstObjects: ra.objects, dstEdges: ra.edges,
+        srcMembers: membersB, dstMembers: membersA,
+      },
+      cfgPair,
     );
 
     if (needAB) {
       const cyc = direction === "both" ? cycleConsistency(resAB.mapping, resBA.mapping) : -1;
-      const blob = buildConfigBlob(cfg, resAB, homProfilesGeneratedAt, profileDepth);
+      const blob = buildConfigBlob(cfgPair, resAB, homProfilesGeneratedAt, profileDepth, restrAB);
       const { functor, edges } = buildRows(a, b, resAB, cyc, blob, ra.meta, rb.meta, generatedAt);
       functorRows.push(functor);
       edgeRows.push(...edges);
@@ -594,7 +675,7 @@ export async function runFunctorDiscovery(
     }
     if (needBA) {
       const cyc = direction === "both" ? cycleConsistency(resBA.mapping, resAB.mapping) : -1;
-      const blob = buildConfigBlob(cfg, resBA, homProfilesGeneratedAt, profileDepth);
+      const blob = buildConfigBlob(cfgPair, resBA, homProfilesGeneratedAt, profileDepth, restrBA);
       const { functor, edges } = buildRows(b, a, resBA, cyc, blob, rb.meta, ra.meta, generatedAt);
       functorRows.push(functor);
       edgeRows.push(...edges);

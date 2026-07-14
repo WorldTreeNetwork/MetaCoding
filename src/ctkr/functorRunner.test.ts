@@ -238,6 +238,112 @@ test("single-direction run leaves cycle_consistency undefined (-1)", async () =>
   expect(res.summaries[0]!.cycleConsistency).toBe(-1);
 });
 
+// ---------------------------------------------------------------------------
+// MetaCoding-4ty — member-set restriction + single-repo endofunctor mode
+// ---------------------------------------------------------------------------
+
+test("member-restricted run maps only in-set symbols, with a distinct functor_id", async () => {
+  const full = await runFunctorDiscovery({
+    dataDir, pairs: [["base", "fork"]], direction: "a_to_b",
+  });
+  const restricted = await runFunctorDiscovery({
+    dataDir, pairs: [["base", "fork"]], direction: "a_to_b",
+    members: { base: ["b1", "b2"], fork: ["f1", "f2"] },
+  });
+  // Restriction changes the correspondence → a different content-addressed id.
+  expect(restricted.functorIds[0]).not.toBe(full.functorIds[0]);
+
+  const h = await openCtkrArtifacts(dataDir);
+  try {
+    const f = (await h.functors()).find((x) => x.functor_id === restricted.functorIds[0])!;
+    expect(f).toBeDefined();
+    expect(f.n_objects_src).toBe(2); // only b1,b2 in the domain
+    // config records the 4ty provenance
+    const cfg = JSON.parse(f.config);
+    expect(cfg.exclude_identity).toBe(false);
+    expect(typeof cfg.src_members_digest).toBe("string");
+    expect(cfg.src_members_digest.length).toBeGreaterThan(0);
+    const edges = await h.functorEdges(f.functor_id);
+    for (const e of edges) {
+      expect(["b1", "b2"]).toContain(e.src_symbol_id);
+      expect(["f1", "f2"]).toContain(e.dst_symbol_id);
+    }
+  } finally {
+    await h.close();
+  }
+});
+
+test("single-repo endofunctor finds cross-module map, not the identity", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "functor-endo-"));
+  try {
+    const ctkr = join(dir, "ctkr");
+    const exportDir = join(ctkr, "export");
+    await mkdir(exportDir, { recursive: true });
+
+    // One repo "mono" with two isomorphic modules X and Y (cross-module twins).
+    const KINDS: Record<string, string> = {
+      x_c: "class", x_m: "method", x_f: "field",
+      y_c: "class", y_m: "method", y_f: "field",
+    };
+    const VECS: Record<string, number[]> = {
+      x_c: [3, 0, 0], x_m: [0, 3, 0], x_f: [0, 0, 3],
+      y_c: [3, 0, 0], y_m: [0, 3, 0], y_f: [0, 0, 3],
+    };
+    const nodes = Object.keys(KINDS).map((id) => ({
+      id, repo: "mono", kind: KINDS[id], qualified_name: `mono.${id}`,
+    }));
+    await Bun.write(exportDir + "/nodes.jsonl", nodes.map((n) => JSON.stringify(n)).join("\n") + "\n");
+    const edges = [
+      { src_id: "x_c", dst_id: "x_m", kind: "CONTAINS" },
+      { src_id: "x_m", dst_id: "x_f", kind: "READS_FIELD" },
+      { src_id: "y_c", dst_id: "y_m", kind: "CONTAINS" },
+      { src_id: "y_m", dst_id: "y_f", kind: "READS_FIELD" },
+    ];
+    await Bun.write(exportDir + "/edges.jsonl", edges.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    await writeParquet(
+      join(ctkr, "hom_profiles.parquet"),
+      [
+        ["symbol_id", "VARCHAR"], ["repo", "VARCHAR"], ["qualified_name", "VARCHAR"],
+        ["profile_vec", "DOUBLE[]"], ["schema_version", "INTEGER"],
+      ],
+      Object.keys(VECS).map((id) => ({
+        symbol_id: id, repo: "mono", qualified_name: `mono.${id}`,
+        profile_vec: VECS[id], schema_version: 1,
+      })),
+    );
+    await Bun.write(
+      join(ctkr, "manifest.json"),
+      JSON.stringify({
+        schema_version: 1, generated_at: "2026-07-14T00:00:00Z",
+        metacoding_data_dir: dir, hom_profiles: true, profile_depth: 2, n_hom_profiles: 6,
+      }, null, 2) + "\n",
+    );
+
+    // Self-pair → endofunctor mode auto-enabled (excludeIdentity defaults true).
+    const res = await runFunctorDiscovery({
+      dataDir: dir, pairs: [["mono", "mono"]], direction: "a_to_b",
+    });
+    expect(res.summaries[0]!.nMapped).toBe(6);
+
+    const h = await openCtkrArtifacts(dir);
+    try {
+      const f = (await h.functors())[0]!;
+      expect(JSON.parse(f.config).exclude_identity).toBe(true);
+      const es = await h.functorEdges(f.functor_id);
+      const m = new Map(es.map((e) => [e.src_symbol_id, e.dst_symbol_id]));
+      // NOT the identity: every symbol maps to its cross-module twin
+      for (const e of es) expect(e.src_symbol_id).not.toBe(e.dst_symbol_id);
+      expect(m.get("x_c")).toBe("y_c");
+      expect(m.get("x_m")).toBe("y_m");
+      expect(m.get("y_f")).toBe("x_f");
+    } finally {
+      await h.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("computeFunctorId is stable and mapping-sensitive", () => {
   const cfg = { alpha: 0.3 };
   const m1 = [{ srcId: "a", dstId: "x" }, { srcId: "b", dstId: "y" }];

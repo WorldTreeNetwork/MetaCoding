@@ -95,6 +95,15 @@ const FUNCTORS: Record<string, unknown>[] = [
     n_edges_internal: 5, n_edges_preserved: 5, path_fidelity_2: -1,
     cycle_consistency: 0.9, config: cfg(OLD_GEN), generated_at: OLD_GEN, schema_version: 1,
   },
+  // F6 delta→delta — single-repo ENDOFUNCTOR (MetaCoding-4ty). Its mapping
+  // carries two cross-member rows plus a trivial identity row for the read-side
+  // exclude_identity filter to drop.
+  {
+    functor_id: "f:endo_delta", repo_src: "delta", repo_dst: "delta",
+    n_objects_src: 3, n_mapped: 3, coverage: 1.0, fidelity: 1.0,
+    n_edges_internal: 2, n_edges_preserved: 2, path_fidelity_2: -1,
+    cycle_consistency: 1.0, config: cfg(MANIFEST_GEN), generated_at: MANIFEST_GEN, schema_version: 1,
+  },
 ];
 
 // F1 mapping — 4 rows with a spread of pair_fidelity incl. a −1 no-evidence row.
@@ -118,6 +127,22 @@ const EDGES: Record<string, unknown>[] = [
     functor_id: "f:strict_ab", src_symbol_id: "a4", src_repo: "alpha", src_qualified_name: "alpha.A4",
     dst_symbol_id: "b4", dst_repo: "beta", dst_qualified_name: "beta.B4",
     similarity: 0.70, margin: 1.0, pair_fidelity: -1, n_edges_incident: 0, n_edges_preserved: 0, schema_version: 1,
+  },
+  // F6 delta→delta endofunctor mapping: two cross-member rows + one identity row.
+  {
+    functor_id: "f:endo_delta", src_symbol_id: "d1", src_repo: "delta", src_qualified_name: "delta.D1",
+    dst_symbol_id: "d2", dst_repo: "delta", dst_qualified_name: "delta.D2",
+    similarity: 0.99, margin: 0.4, pair_fidelity: 1.0, n_edges_incident: 2, n_edges_preserved: 2, schema_version: 1,
+  },
+  {
+    functor_id: "f:endo_delta", src_symbol_id: "d2", src_repo: "delta", src_qualified_name: "delta.D2",
+    dst_symbol_id: "d1", dst_repo: "delta", dst_qualified_name: "delta.D1",
+    similarity: 0.98, margin: 0.3, pair_fidelity: 1.0, n_edges_incident: 2, n_edges_preserved: 2, schema_version: 1,
+  },
+  {
+    functor_id: "f:endo_delta", src_symbol_id: "d3", src_repo: "delta", src_qualified_name: "delta.D3",
+    dst_symbol_id: "d3", dst_repo: "delta", dst_qualified_name: "delta.D3",
+    similarity: 1.0, margin: 0.0, pair_fidelity: 1.0, n_edges_incident: 1, n_edges_preserved: 1, schema_version: 1,
   },
 ];
 
@@ -312,6 +337,67 @@ describe("functorBetween", () => {
   test("non-stale functor carries no staleness note", async () => {
     const res = await functorBetween({ repo_a: "alpha", repo_b: "beta" });
     expect(res._note ?? "").not.toContain("older hom-profile generation");
+  });
+
+  // --- MetaCoding-4ty: member-set restriction + endofunctor read-side ---
+
+  test("members_a restricts the mapping to in-set domain symbols", async () => {
+    const res = await functorBetween({
+      repo_a: "alpha", repo_b: "beta", members_a: ["a1", "a2"],
+    });
+    expect(res.mapping.length).toBe(2);
+    for (const m of res.mapping) expect(["a1", "a2"]).toContain(m.src_symbol_id);
+  });
+
+  test("members_b restricts the mapping to in-set codomain symbols", async () => {
+    const res = await functorBetween({
+      repo_a: "alpha", repo_b: "beta", members_b: ["b1"],
+    });
+    expect(res.mapping.length).toBe(1);
+    expect(res.mapping[0]!.src_symbol_id).toBe("a1");
+    expect(res.mapping[0]!.dst_symbol_id).toBe("b1");
+  });
+
+  test("members_a + members_b intersect (both sides must be in-set)", async () => {
+    const res = await functorBetween({
+      repo_a: "alpha", repo_b: "beta", members_a: ["a1", "a2"], members_b: ["b2"],
+    });
+    expect(res.mapping.length).toBe(1);
+    expect(res.mapping[0]!.src_symbol_id).toBe("a2");
+    expect(res.mapping[0]!.dst_symbol_id).toBe("b2");
+  });
+
+  test("member filtering keeps truncation accurate", async () => {
+    const res = await functorBetween({
+      repo_a: "alpha", repo_b: "beta", members_a: ["a1", "a2", "a3"], limit: 2,
+    });
+    expect(res.mapping.length).toBe(2);
+    expect(res.truncated).toBe(true);
+  });
+
+  test("endofunctor: repo_a===repo_b drops the identity row by default", async () => {
+    const res = await functorBetween({ repo_a: "delta", repo_b: "delta" });
+    expect(res.functor!.functor_id).toBe("f:endo_delta");
+    expect(res.mapping.length).toBe(2); // d3→d3 identity dropped
+    for (const m of res.mapping) expect(m.src_symbol_id).not.toBe(m.dst_symbol_id);
+    const srcs = res.mapping.map((m) => m.src_symbol_id).sort();
+    expect(srcs).toEqual(["d1", "d2"]);
+  });
+
+  test("endofunctor: exclude_identity=false keeps the identity row", async () => {
+    const res = await functorBetween({
+      repo_a: "delta", repo_b: "delta", exclude_identity: false,
+    });
+    expect(res.mapping.length).toBe(3);
+    expect(res.mapping.some((m) => m.src_symbol_id === "d3" && m.dst_symbol_id === "d3")).toBe(true);
+  });
+
+  test("exclude_identity can be forced on for a cross-repo pair (no-op here)", async () => {
+    // alpha→beta has no self-maps, so forcing the filter changes nothing.
+    const res = await functorBetween({
+      repo_a: "alpha", repo_b: "beta", exclude_identity: true,
+    });
+    expect(res.mapping.length).toBe(4);
   });
 });
 

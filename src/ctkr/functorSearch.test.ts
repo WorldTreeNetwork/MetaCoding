@@ -339,3 +339,132 @@ describe("propagation uses structure", () => {
     expect(r.fidelity).toBeCloseTo(1.0, 10);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MEMBER-SET RESTRICTION (MetaCoding-4ty §5.6) — scope dom/codomain to a subset
+// ---------------------------------------------------------------------------
+
+describe("member-set restriction", () => {
+  // Full isomorphic pair {a1,a2,a3} ≅ {b1,b2,b3}; restrict to {a1,a2}/{b1,b2}.
+  const srcObjects = [
+    obj("a1", "class", [5, 0, 0]),
+    obj("a2", "method", [0, 5, 0]),
+    obj("a3", "field", [0, 0, 5]),
+  ];
+  const dstObjects = [
+    obj("b1", "class", [5, 0, 0]),
+    obj("b2", "method", [0, 5, 0]),
+    obj("b3", "field", [0, 0, 5]),
+  ];
+  const srcEdges = [edge("a1", "a2", "CONTAINS"), edge("a2", "a3", "READS_FIELD")];
+  const dstEdges = [edge("b1", "b2", "CONTAINS"), edge("b2", "b3", "READS_FIELD")];
+
+  test("only in-set sources map, and only to in-set targets", () => {
+    const r = functorSearch(
+      {
+        srcObjects, dstObjects, srcEdges, dstEdges,
+        srcMembers: new Set(["a1", "a2"]),
+        dstMembers: new Set(["b1", "b2"]),
+      },
+      { normalize: "none" },
+    );
+    const m = mapOf(r);
+    // a3 excluded from domain entirely
+    expect(m.has("a3")).toBe(false);
+    expect(r.nObjectsSrc).toBe(2);
+    // every mapping stays inside the member sets
+    for (const row of r.mapping) {
+      expect(["a1", "a2"]).toContain(row.srcId);
+      expect(["b1", "b2"]).toContain(row.dstId);
+    }
+    expect(m.get("a1")).toBe("b1");
+    expect(m.get("a2")).toBe("b2");
+  });
+
+  test("codomain restriction blocks an out-of-set target even if it is the best twin", () => {
+    // Restrict codomain to {b2} only; a1 (a class) has no in-set class twin → drops.
+    const r = functorSearch(
+      {
+        srcObjects, dstObjects, srcEdges, dstEdges,
+        srcMembers: new Set(["a1", "a2"]),
+        dstMembers: new Set(["b2"]),
+      },
+      { normalize: "none" },
+    );
+    const m = mapOf(r);
+    expect(m.get("a2")).toBe("b2");
+    // a1 is a class; only b2 (a method) is in-set → kind-blocked → unmapped
+    expect(m.has("a1")).toBe(false);
+    for (const row of r.mapping) expect(row.dstId).toBe("b2");
+  });
+
+  test("restriction auto-scopes edges: cross-boundary edges drop from fidelity", () => {
+    // a2→a3 is an incident edge, but a3 is out of the domain → not counted.
+    const r = functorSearch(
+      {
+        srcObjects, dstObjects, srcEdges, dstEdges,
+        srcMembers: new Set(["a1", "a2"]),
+        dstMembers: new Set(["b1", "b2"]),
+      },
+      { normalize: "none" },
+    );
+    // only the a1→a2 / b1→b2 CONTAINS edge is internal to the restricted set
+    expect(r.nEdgesInternal).toBe(1);
+    expect(r.fidelity).toBeCloseTo(1.0, 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ENDOFUNCTOR MODE (MetaCoding-4ty) — single repo, diagonal excluded
+// ---------------------------------------------------------------------------
+
+describe("endofunctor (single repo, exclude identity)", () => {
+  // One repo R with two isomorphic modules M1 and M2 (cross-module twins share
+  // a profile; roles within a module are distinct kinds/profiles).
+  const objects = [
+    obj("m1c", "class", [7, 0, 0]),
+    obj("m1m", "method", [0, 7, 0]),
+    obj("m1f", "field", [0, 0, 7]),
+    obj("m2c", "class", [7, 0, 0]),
+    obj("m2m", "method", [0, 7, 0]),
+    obj("m2f", "field", [0, 0, 7]),
+  ];
+  const edges = [
+    edge("m1c", "m1m", "CONTAINS"),
+    edge("m1m", "m1f", "READS_FIELD"),
+    edge("m2c", "m2m", "CONTAINS"),
+    edge("m2m", "m2f", "READS_FIELD"),
+  ];
+  // Endofunctor: F : R → R (src and dst are the same category).
+  const input: FunctorSearchInput = {
+    srcObjects: objects, dstObjects: objects, srcEdges: edges, dstEdges: edges,
+  };
+
+  test("finds the cross-module correspondence, NOT the identity", () => {
+    const r = functorSearch(input, { normalize: "none", excludeIdentity: true });
+    const m = mapOf(r);
+    // every source maps to its OTHER-module twin, never to itself
+    for (const row of r.mapping) expect(row.srcId).not.toBe(row.dstId);
+    expect(m.get("m1c")).toBe("m2c");
+    expect(m.get("m1m")).toBe("m2m");
+    expect(m.get("m1f")).toBe("m2f");
+    expect(m.get("m2c")).toBe("m1c");
+    // full off-diagonal bijection with perfect internal fidelity
+    expect(r.nMapped).toBe(6);
+    expect(r.fidelity).toBeCloseTo(1.0, 10);
+  });
+
+  test("WITHOUT the flag the search collapses onto the trivial identity", () => {
+    const r = functorSearch(input, { normalize: "none" });
+    const m = mapOf(r);
+    // self-map wins the tie (s===t sorts first) → identity, the noise 4ty avoids
+    expect(m.get("m1c")).toBe("m1c");
+    expect(m.get("m2m")).toBe("m2m");
+  });
+
+  test("endofunctor output is deterministic (byte-identical)", () => {
+    const r1 = functorSearch(input, { normalize: "none", excludeIdentity: true });
+    const r2 = functorSearch(input, { normalize: "none", excludeIdentity: true });
+    expect(JSON.stringify(r1.mapping)).toBe(JSON.stringify(r2.mapping));
+  });
+});

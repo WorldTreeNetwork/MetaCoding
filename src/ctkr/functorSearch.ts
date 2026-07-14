@@ -58,6 +58,17 @@ export interface FunctorSearchInput {
   dstObjects: FunctorObject[];
   srcEdges: FunctorEdge[];
   dstEdges: FunctorEdge[];
+  /**
+   * MEMBER-SET RESTRICTION (MetaCoding-4ty, §5.6). Optional domain restriction:
+   * when present, only src objects whose id is in this set participate as
+   * dom(F). Edges are auto-scoped by `buildGraph` (it already drops any edge an
+   * endpoint of which is not an object), so restricting the object set is
+   * enough — blocking and propagation are unchanged, they just run over the
+   * scoped inputs. `null`/absent = whole repo.
+   */
+  srcMembers?: ReadonlySet<string> | null;
+  /** Codomain restriction, symmetric to `srcMembers` (only these dst objects). */
+  dstMembers?: ReadonlySet<string> | null;
 }
 
 export type NormalizeMode = "none" | "sinkhorn" | "adaptive";
@@ -95,6 +106,16 @@ export interface FunctorSearchConfig {
   repairSweeps: number;
   /** Wall-clock budget (ms). Anytime: exits with current state past this. */
   budgetMs: number;
+  /**
+   * ENDOFUNCTOR MODE (MetaCoding-4ty). When true, the trivial `s ↦ s` diagonal
+   * candidate is dropped at blocking time, so a single-repo search `F : R → R`
+   * surfaces non-trivial INTERNAL correspondences (isomorphic subsystems /
+   * twice-instantiated patterns) instead of collapsing onto the identity. No
+   * other stage changes: diagonal pairs simply never enter the candidate space,
+   * so propagation, pruning and extraction run unmodified over the off-diagonal
+   * candidates. Default `false` (cross-repo functors are never self-maps).
+   */
+  excludeIdentity: boolean;
 }
 
 /**
@@ -118,6 +139,7 @@ export const DEFAULT_FUNCTOR_CONFIG: FunctorSearchConfig = {
   normalize: "adaptive", // off for high-signal, on for BORDERLINE (§2.2 h.1)
   repairSweeps: 2,
   budgetMs: 120_000,
+  excludeIdentity: false,
 };
 
 /** One object↦object correspondence — a `functor_edges.parquet` row shape. */
@@ -320,6 +342,9 @@ function blockCandidates(
     const scored: Candidate[] = [];
     if (sNorm > 0) {
       for (const t of pool) {
+        // Endofunctor mode: drop the trivial s↦s diagonal so a single-repo
+        // search surfaces non-trivial internal correspondences, not the identity.
+        if (cfg.excludeIdentity && t.id === sid) continue;
         if (dst.norms.get(t.id)! === 0) continue; // zero-profile target: no signal
         // reuse homProfile.ts cosine (dims equal within a corpus)
         const c = cosineSimilarity(s.profileVec, t.profileVec);
@@ -696,8 +721,19 @@ export function functorSearch(
   const startMs = Date.now();
   const cfg: FunctorSearchConfig = { ...DEFAULT_FUNCTOR_CONFIG, ...config };
 
-  const src = buildGraph(input.srcObjects, input.srcEdges);
-  const dst = buildGraph(input.dstObjects, input.dstEdges);
+  // MEMBER-SET RESTRICTION (§5.6): scope the domain / codomain to the given
+  // symbol-id sets. Objects are filtered here; `buildGraph` then keeps only the
+  // edges internal to the retained object set — so the whole downstream pipeline
+  // (blocking → propagation → extraction) runs unmodified over the sub-category.
+  const srcObjects = input.srcMembers
+    ? input.srcObjects.filter((o) => input.srcMembers!.has(o.id))
+    : input.srcObjects;
+  const dstObjects = input.dstMembers
+    ? input.dstObjects.filter((o) => input.dstMembers!.has(o.id))
+    : input.dstObjects;
+
+  const src = buildGraph(srcObjects, input.srcEdges);
+  const dst = buildGraph(dstObjects, input.dstEdges);
 
   const block = blockCandidates(src, dst, cfg);
   const kindW = computeKindWeights(src.kindFreq);
