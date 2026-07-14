@@ -26,8 +26,17 @@ Trust policy (§5.3), enforced mechanically:
 
 Determinism: ``card_id`` is structural-only (:func:`ctkr.cards.card_id`), so a
 re-run over the same inputs + ``prompt_version`` + ``llm_model`` yields identical
-ids. The LLM text is also stable (cache + ``temperature=0``), but the id contract
-does not depend on it.
+ids regardless of the label text.
+
+Label reproducibility (MetaCoding-hqk): every prompt this module builds is a pure
+function of the structural evidence — no set-iteration order, no timestamps — so
+the LLM-cache key is stable and a re-run against a warm cache reproduces the exact
+labels byte-for-byte. On a *cold* cache the labels are regenerated; at
+``temperature=0`` the stronger subsystem model is materially more stable than a
+cheap model but is not a hard guarantee, so the deck's labels are documented as a
+**regenerable view over the structural ground truth**, not an immutable artifact.
+The structural Parquet + ``card_id`` are the stable spine; the labels are cached
+alongside them and re-derivable.
 """
 
 from __future__ import annotations
@@ -70,8 +79,13 @@ from ctkr.schema_l3 import EvidenceRow, LineRange, PatternRow
 
 logger = logging.getLogger("ctkr.spec_cards")
 
-DEFAULT_PROMPT_VERSION = "spec-labeler:v1"
+DEFAULT_PROMPT_VERSION = "spec-labeler:v2"
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+# The subsystem name+intent is the highest-stakes label on the deck: a single
+# wrong name mislabels thousands of members (MetaCoding-hqk). It is worth a
+# stronger model than the cheap per-element labels. Configurable; falls back to
+# the base model when None so tests and offline runs stay on the mock/haiku path.
+DEFAULT_SUBSYSTEM_MODEL = "claude-sonnet-4-6"
 DEFAULT_TEMPERATURE = 0.0
 
 # Per-subsystem caps on how many elements get an LLM label (readability + cost).
@@ -292,6 +306,11 @@ class LabelResult:
 class SpecLabeler:
     client: LLMClient
     model: str = DEFAULT_MODEL
+    # Optional stronger model for the highest-stakes subsystem name+intent pass
+    # (MetaCoding-hqk). None → use ``model`` (keeps the mock/offline path single-
+    # model). Cheap per-element labels (roles/ops/exports/shapes/nl) stay on
+    # ``model``; only the subsystem call is routed here.
+    subsystem_model: str | None = None
     temperature: float = DEFAULT_TEMPERATURE
     prompt_version: str = DEFAULT_PROMPT_VERSION
     max_tokens: int = 1024
@@ -306,17 +325,19 @@ class SpecLabeler:
         schema: type[BaseModel],
         instances: Sequence[str],
         evidence_rows: list[EvidenceRow],
+        model: str | None = None,
     ) -> LabelResult:
+        use_model = model or self.model
         result = self.client.complete_structured(
             prompt,
             schema=schema,
-            model=self.model,
+            model=use_model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             system=system,
         )
         pid = spec_pattern_id(
-            source_kind, source_ref, prompt_version=self.prompt_version, llm_model=self.model
+            source_kind, source_ref, prompt_version=self.prompt_version, llm_model=use_model
         )
         parsed = result.parsed
         # A short human label + description drawn from whatever field the schema
@@ -338,7 +359,7 @@ class SpecLabeler:
             description=str(desc),
             instances=list(instances),
             confidence=max(0.0, min(1.0, conf)),
-            llm_model=self.model,
+            llm_model=use_model,
             llm_temperature=self.temperature,
             prompt_version=self.prompt_version,
             generated_at=datetime.now(tz=UTC),
@@ -357,12 +378,24 @@ class SpecLabeler:
 _SYS_SUBSYSTEM = (
     "You are a software-architecture analyst producing a stack-agnostic "
     "specification of ONE subsystem, extracted structurally (name-blind) from a "
-    "codebase so it can be re-implemented in a different language. You are given "
-    "the subsystem's structural facts (its role classes, interface, sizes) plus "
-    "code slices and comments. Name the subsystem and describe its intent. Ground "
-    "everything in the evidence. If the members' NAMES collectively imply a "
-    "different purpose than the STRUCTURE, flag the disagreement — do not smooth "
-    "it over."
+    "codebase so it can be re-implemented in a different language. Name the "
+    "subsystem and describe its intent.\n\n"
+    "The single strongest evidence for what a subsystem IS is (1) what it EXPORTS "
+    "across its boundary — the symbols external code depends on — and (2) what its "
+    "role classes DO. These are given to you already labeled from structure. "
+    "Ground the name and intent in THOSE, not in the raw volume of internal "
+    "members. A subsystem whose exports are types and query functions is an API/"
+    "data layer; one whose exports are handlers/tools is a server; one whose "
+    "exports are training routines is a pipeline — read the exports, do not guess.\n\n"
+    "CRITICAL de-bias rule: you are labeling a codebase that is ITSELF about code "
+    "analysis, so its identifiers are saturated with words like graph, embedding, "
+    "node, walk, vector, motif, pipeline. Do NOT put any such domain buzzword in "
+    "the subsystem name or intent unless the EXPORTS and ROLE descriptions below "
+    "actually support it (e.g. only call it an 'embedding' subsystem if it exports "
+    "embedding-producing symbols). Prefer a name that states the subsystem's "
+    "responsibility in plain architectural terms.\n\n"
+    "If the members' NAMES collectively imply a different purpose than the "
+    "STRUCTURE, flag the disagreement — do not smooth it over."
 )
 _SYS_ROLE = (
     "You label the ROLE that a cluster of structurally-equivalent symbols plays, "
@@ -909,14 +942,55 @@ def _build_card(
         interface_degree={"in": n_prov, "out": n_cons},
     )
 
-    # ---- subsystem name + intent ----
-    role_summary = "; ".join(
-        f"{rc.label} (x{rc.cardinality})" for rc in role_cards[:8]
-    ) or "(no role classes — structurally sparse subsystem)"
+    # ---- subsystem name + intent (HIERARCHICAL, MetaCoding-hqk) ----
+    # The name+intent is summarized FROM the already-extracted structure — the
+    # labeled role classes, the interface (what the subsystem provides/consumes),
+    # and the top composition ops — NOT from a raw dump of thousands of diluted
+    # members. For a 2000-member subsystem the 8 top exports + role labels are far
+    # more discriminative than any member sample, and grounding the summary in
+    # them is what stops the labeler falling back on generic domain boilerplate
+    # (§5.1, §4.1). Exports lead: they are the strongest single signal for "what
+    # this subsystem IS" (a data/API layer vs. a server vs. a pipeline).
+    role_lines = [
+        "- "
+        + f"{rc.label} (x{rc.cardinality}"
+        + (f", {'/'.join(rc.interface_participation)}" if rc.interface_participation else "")
+        + f"): {rc.description[:200]}"
+        for rc in role_cards[:8]
+    ] or ["(no role classes — structurally sparse subsystem)"]
+    provides_lines = [
+        f"- `{ec.symbol}` [{'/'.join(ec.usage_modes)}], {ec.n_external_callers} external refs: "
+        f"{ec.contract[:200]}"
+        for ec in export_cards[:12]
+    ] or ["(no exported symbols cross this subsystem's boundary)"]
+    consumes_lines = [
+        f"- {cc.target_subsystem or cc.target} via {', '.join(cc.edge_kinds)}"
+        for cc in consume_cards[:8]
+    ] or ["(no outgoing dependencies)"]
+    op_lines = [
+        "- "
+        + f"{rc_.label}: "
+        + " ∘ ".join(role_display.get(rid, rid[:8]) for rid in rc_.input_roles)
+        + f" -> {role_display.get(rc_.output_role, rc_.output_role[:8])} (support {rc_.support})"
+        for rc_ in rule_cards[:6]
+    ] or ["(no recurring composition operations recovered)"]
+    shape_lines = [
+        f"- `{sc.type}`{' [boundary]' if sc.boundary else ''}: {sc.meaning[:160]}"
+        for sc in shape_cards[:6]
+    ] or ["(no data shapes recovered)"]
+    # FTS context stays a *secondary* signal (comments/strings the graph is blind
+    # to). Reproducibility (MetaCoding-hqk): `structural_ids` is a set — sort it
+    # before slicing so the prompt text, and thus the LLM-cache key and the label,
+    # are byte-stable across re-runs.
+    # ``name_tokens`` returns a *set*; iterate it sorted so the Counter's
+    # insertion order — and therefore ``most_common`` tie-breaking — is stable
+    # across processes (PYTHONHASHSEED-independent). Without this the top FTS
+    # terms, the FTS query, and thus one subsystem's label wobble run-to-run
+    # (MetaCoding-hqk).
     fts_terms: list[str] = [
         w for w, _ in Counter(
-            t for s in nl_only_ids[:30] + list(structural_ids)[:30]
-            for t in name_tokens(member_qn.get(s, s))
+            t for s in nl_only_ids[:30] + sorted(structural_ids)[:30]
+            for t in sorted(name_tokens(member_qn.get(s, s)))
         ).most_common(5)
     ]
     fts_hits = harvest_fts(fts_path, repo, fts_terms) if fts_path else []
@@ -924,18 +998,30 @@ def _build_card(
     sub_prompt = "\n".join(
         [
             f"# Subsystem `{subsystem_id[:12]}` of repo {repo}",
-            f"- members: {n_total}  (structural {n_struct}, nl-only {n_total - n_struct})",
-            f"- role classes: {role_summary}",
-            f"- provides {n_prov} boundary morphisms, consumes {n_cons}",
-            f"- top data types: {', '.join(_short(e['qn']) for _, e in ordered_types[:6])}",
+            f"{n_total} members ({n_struct} structural, {n_total - n_struct} nl-only). "
+            "Name and describe it from the structure below — lead with the interface.",
             "",
-            "## Naming/FTS context (identifiers, comments, strings)",
+            "## Interface — what this subsystem PROVIDES (its API surface; primary signal)",
+            *provides_lines,
+            "",
+            "## Role classes — what its members DO (labeled from structure)",
+            *role_lines,
+            "",
+            "## Composition — how the roles combine",
+            *op_lines,
+            "",
+            "## Data shapes crossing the boundary",
+            *shape_lines,
+            "",
+            "## Depends on (outgoing boundary)",
+            *consumes_lines,
+            "",
+            "## Secondary: naming/comment/string context (do not over-weight)",
             fts_txt or "(none)",
             "",
-            "## Exemplar role slices",
-            *(s for sl in exemplar_slices[:3] for s in (f"### {sl.purpose}", "```", sl.code, "```")),
-            "",
-            "Emit a SubsystemLabelOut. Flag any name-vs-structure dissonance.",
+            "Emit a SubsystemLabelOut. Name the subsystem for the responsibility its "
+            "interface and roles reveal — not for domain buzzwords in the identifiers. "
+            "Flag any name-vs-structure dissonance.",
         ]
     )
     sub_res = labeler._label(
@@ -946,6 +1032,7 @@ def _build_card(
         schema=SubsystemLabelOut,
         instances=sorted(member_ids)[:20],
         evidence_rows=[],
+        model=labeler.subsystem_model or labeler.model,
     )
     _record(sub_res)
     sout2: SubsystemLabelOut = sub_res.parsed  # type: ignore[assignment]
@@ -1053,6 +1140,7 @@ def build_deck(
     repo_root: str | Path,
     client: LLMClient,
     model: str = DEFAULT_MODEL,
+    subsystem_model: str | None = DEFAULT_SUBSYSTEM_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
     view: str = "similarity",
@@ -1112,7 +1200,11 @@ def build_deck(
     fts_path = _find_fts(ddir)
 
     labeler = SpecLabeler(
-        client=client, model=model, temperature=temperature, prompt_version=prompt_version
+        client=client,
+        model=model,
+        subsystem_model=subsystem_model,
+        temperature=temperature,
+        prompt_version=prompt_version,
     )
     caps = {"roles": roles_per, "ops": ops_per, "exports": exports_per,
             "shapes": shapes_per, "nl_desc": nl_desc_per}

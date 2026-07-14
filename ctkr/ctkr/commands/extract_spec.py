@@ -65,7 +65,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "parent of the current working directory.",
     )
     p.add_argument("--repo", default=None, help="Restrict the deck to one repo.")
-    p.add_argument("--model", default=None, help="LLM model (default: spec-labeler default).")
+    p.add_argument(
+        "--model",
+        default=None,
+        help="LLM model for cheap per-element labels (default: spec-labeler default).",
+    )
+    p.add_argument(
+        "--subsystem-model",
+        default=None,
+        help="Stronger LLM model for the highest-stakes subsystem name+intent pass "
+        "(default: spec-labeler default, a sonnet-class model). Pass the same value "
+        "as --model to force a single model.",
+    )
     p.add_argument("--prompt-version", default=None, help="Override prompt_version.")
     p.add_argument(
         "--view",
@@ -161,6 +172,8 @@ def run(args: argparse.Namespace) -> int:
     }
     if args.model:
         kwargs["model"] = args.model
+    if args.subsystem_model:
+        kwargs["subsystem_model"] = args.subsystem_model
     if args.prompt_version:
         kwargs["prompt_version"] = args.prompt_version
     for cap_arg, cap_kw in (

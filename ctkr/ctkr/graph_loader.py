@@ -195,16 +195,23 @@ def search_tokens(
 
     conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
     try:
+        # ORDER BY rank makes the LIMIT deterministic (FTS5 relevance order)
+        # rather than leaving the truncated row set to unspecified match order —
+        # required so downstream prompt-building (spec_cards.harvest_fts) is
+        # byte-stable across runs and its LLM-cache key is reproducible
+        # (MetaCoding-hqk). rank ascending = best match first; symbol_id is the
+        # unique tiebreaker so bm25 rank ties (common with the trigram tokenizer)
+        # do not leave the truncated set / its order to chance.
         if repo is not None:
             cur = conn.execute(
                 "SELECT text, kind, repo, file, line, col, symbol_id "
-                "FROM tokens WHERE tokens MATCH ? AND repo = ? LIMIT ?",
+                "FROM tokens WHERE tokens MATCH ? AND repo = ? ORDER BY rank, symbol_id LIMIT ?",
                 (query, repo, limit),
             )
         else:
             cur = conn.execute(
                 "SELECT text, kind, repo, file, line, col, symbol_id "
-                "FROM tokens WHERE tokens MATCH ? LIMIT ?",
+                "FROM tokens WHERE tokens MATCH ? ORDER BY rank, symbol_id LIMIT ?",
                 (query, limit),
             )
         cols = [d[0] for d in cur.description]
