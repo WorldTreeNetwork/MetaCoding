@@ -35,6 +35,7 @@ import type {
   OperadRow,
   PatternRow,
   SpectralClusterRow,
+  SubsystemCard,
   SubsystemMemberRow,
   WassersteinH1Row,
 } from "../ctkr/types.ts";
@@ -301,6 +302,24 @@ const COMPOSITION_RULES_SCHEMA = {
   min_support: z.number().int().min(1).optional(),
   boundary_only: z.boolean().optional(),
   limit: z.number().int().min(1).max(5000).optional(),
+};
+
+const CARD_SECTIONS = [
+  "intent",
+  "roles",
+  "composition_rules",
+  "interface",
+  "data_shapes",
+  "topology",
+  "exemplar_slices",
+  "nl_only_symbols",
+  "dissonance",
+] as const;
+
+const SUBSYSTEM_CARD_SCHEMA = {
+  subsystem: z.string().min(1),
+  repo: z.string().optional(),
+  sections: z.array(z.enum(CARD_SECTIONS)).optional(),
 };
 
 const FUNCTOR_BETWEEN_SCHEMA = {
@@ -1245,6 +1264,101 @@ export async function functorBetween(input: {
 }
 
 // ---------------------------------------------------------------------------
+// ctkr.subsystem_card (subsystem-extraction §8.1 / §8.2, T5)
+// ---------------------------------------------------------------------------
+
+/** Result shape for ctkr.subsystem_card (§8.2). The fused card, optionally
+ *  pruned to the requested sections (cards are large; agents usually want one). */
+export interface SubsystemCardResult {
+  card: Partial<SubsystemCard> | null;
+  /** Explanatory note — deck missing, unknown subsystem, section pruning. */
+  _note?: string;
+}
+
+/**
+ * Return one subsystem's fused specification card (§8.1) from the deck
+ * (subsystem_cards.jsonl). Optionally section-filtered — the card is the
+ * re-implementation reference and can be large, so agents usually want a
+ * single section. Read-side only: the deck is written by the `ctkr
+ * extract-spec` batch runner.
+ */
+export async function subsystemCard(input: {
+  subsystem: string;
+  repo?: string;
+  sections?: Array<(typeof CARD_SECTIONS)[number]>;
+}): Promise<SubsystemCardResult> {
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    const manifest = await handle.manifest();
+    if (!manifest.subsystem_cards) {
+      throw new Error(
+        `spec deck not found in ${dataDir} — run \`ctkr extract-spec\` first`,
+      );
+    }
+
+    const cards = await handle.subsystemCards({
+      repo: input.repo,
+      subsystemId: input.subsystem,
+    });
+    if (cards.length === 0) {
+      // Distinguish an unknown subsystem from an empty deck.
+      const all = await handle.subsystemCards({ repo: input.repo });
+      const sample = all
+        .slice(0, 5)
+        .map((c) => c.subsystem_id)
+        .join(", ");
+      return {
+        card: null,
+        _note:
+          `no card for subsystem "${input.subsystem}"` +
+          (all.length > 0
+            ? `; known subsystem_ids include: ${sample}`
+            : "; the deck is empty"),
+      };
+    }
+
+    const full = cards[0]!;
+    const notes: string[] = [];
+
+    if (input.sections === undefined || input.sections.length === 0) {
+      return { card: full };
+    }
+
+    // Section-prune: always keep the identity/provenance envelope, then add the
+    // requested sections. "dissonance" and "intent" map onto specific fields.
+    const want = new Set(input.sections);
+    const pruned: Partial<SubsystemCard> = {
+      card_id: full.card_id,
+      subsystem_id: full.subsystem_id,
+      repo: full.repo,
+      name: full.name,
+      n_members: full.n_members,
+      spec_basis_summary: full.spec_basis_summary,
+      provenance: full.provenance,
+      schema_version: full.schema_version,
+    };
+    if (want.has("intent")) {
+      pruned.intent = full.intent;
+      pruned.responsibilities = full.responsibilities;
+      pruned.non_goals = full.non_goals;
+    }
+    if (want.has("dissonance")) pruned.intent_dissonance = full.intent_dissonance;
+    if (want.has("roles")) pruned.roles = full.roles;
+    if (want.has("composition_rules")) pruned.composition_rules = full.composition_rules;
+    if (want.has("interface")) pruned.interface = full.interface;
+    if (want.has("data_shapes")) pruned.data_shapes = full.data_shapes;
+    if (want.has("topology")) pruned.topology = full.topology;
+    if (want.has("exemplar_slices")) pruned.exemplar_slices = full.exemplar_slices;
+    if (want.has("nl_only_symbols")) pruned.nl_only_symbols = full.nl_only_symbols;
+    notes.push(`section-filtered to: ${[...want].sort().join(", ")}`);
+    return { card: pruned, _note: notes.join("; ") };
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -1477,6 +1591,42 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
           description: "Only boundary (protocol) operations — the external contract.",
         },
         limit: { type: "integer", minimum: 1, maximum: 5000, default: 500 },
+      },
+    },
+  },
+  {
+    name: "ctkr.subsystem_card",
+    summary:
+      "Return one subsystem's fused specification card (subsystem-extraction " +
+      "§8.1) from the deck — the stack-agnostic re-implementation reference that " +
+      "fuses the structural lane (partition, role classes, composition operad, " +
+      "interface, data shapes, topology) with the natural-language lane (name, " +
+      "intent, per-element descriptions, intent-dissonance findings). Every card " +
+      "carries spec_basis_summary (the honest structural-vs-nl-only floor) and " +
+      "complete provenance. Reads subsystem_cards.jsonl only — the deck is " +
+      "written by the `ctkr extract-spec` batch runner. subsystem (a " +
+      "subsystem_id from ctkr.subsystems) selects the card; repo scopes it; " +
+      "sections prunes the (large) card to the parts you want (intent, roles, " +
+      "composition_rules, interface, data_shapes, topology, exemplar_slices, " +
+      "nl_only_symbols, dissonance) — the identity + provenance envelope is " +
+      "always kept. Unknown subsystem or an ungenerated deck return card:null " +
+      "with a _note.",
+    input_schema: {
+      type: "object",
+      required: ["subsystem"],
+      properties: {
+        subsystem: {
+          type: "string",
+          description: "subsystem_id (from ctkr.subsystems) to fetch the card for.",
+        },
+        repo: { type: "string", description: "Optional repo scope." },
+        sections: {
+          type: "array",
+          items: { type: "string", enum: [...CARD_SECTIONS] },
+          description:
+            "Prune the card to these sections (identity + provenance always " +
+            "kept). Omit for the whole card.",
+        },
       },
     },
   },
@@ -1797,6 +1947,34 @@ export function registerCtkrTools(server: McpServer): void {
         min_support: args.min_support,
         boundary_only: args.boundary_only,
         limit: args.limit,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.subsystem_card",
+    {
+      description:
+        "Return one subsystem's fused specification card (subsystem-extraction " +
+        "§8.1): the stack-agnostic re-implementation reference fusing the " +
+        "structural lane (role classes, composition operad, interface, data " +
+        "shapes, topology) with the NL lane (name, intent, descriptions, " +
+        "intent-dissonance findings). Carries spec_basis_summary (structural vs " +
+        "nl-only floor) + full provenance. Reads subsystem_cards.jsonl only — " +
+        "the deck is the `ctkr extract-spec` runner's job. subsystem selects " +
+        "the card (a subsystem_id from ctkr.subsystems); repo scopes it; " +
+        "sections prunes the large card (intent, roles, composition_rules, " +
+        "interface, data_shapes, topology, exemplar_slices, nl_only_symbols, " +
+        "dissonance) while always keeping the identity + provenance envelope. " +
+        "Unknown subsystem or ungenerated deck return card:null + a _note.",
+      inputSchema: SUBSYSTEM_CARD_SCHEMA,
+    },
+    async (args) => {
+      const result = await subsystemCard({
+        subsystem: args.subsystem,
+        repo: args.repo,
+        sections: args.sections,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

@@ -31,7 +31,27 @@ from pydantic import BaseModel, Field, NonNegativeFloat, NonNegativeInt, Positiv
 
 SCHEMA_VERSION: int = 1
 
-SourceKind = Literal["motif", "role-cluster", "analogy"]
+# Original L1-labeler source kinds plus the Stage-D (subsystem-extraction §5.2,
+# T5) element kinds. Each new kind labels one structural artifact the spec deck
+# fuses into a card, and its ``source_ref`` is that element's content-addressed id:
+#
+#   - ``"subsystem"``         → ``source_ref`` is a ``subsystem_id`` (subsystems.parquet)
+#   - ``"role-class"``        → ``source_ref`` is a ``role_id``      (presentations.parquet)
+#   - ``"operad-op"``         → ``source_ref`` is an ``operation_id`` (operads.parquet)
+#   - ``"interface-export"``  → ``source_ref`` is ``"<subsystem_id>:<export_symbol_id>"``
+#   - ``"data-shape"``        → ``source_ref`` is ``"<subsystem_id>:<type_symbol_id>"``
+#   - ``"nl-only"``           → ``source_ref`` is ``"<subsystem_id>:<symbol_id>"`` (§5.4 floor)
+SourceKind = Literal[
+    "motif",
+    "role-cluster",
+    "analogy",
+    "subsystem",
+    "role-class",
+    "operad-op",
+    "interface-export",
+    "data-shape",
+    "nl-only",
+]
 
 
 class LineRange(BaseModel):

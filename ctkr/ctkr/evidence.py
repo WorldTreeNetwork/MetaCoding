@@ -49,7 +49,17 @@ MAX_NEIGHBOR_SIG_CHARS = 200
 MAX_SNIPPET_LINES = 80
 
 
-SourceKind = Literal["motif", "role-cluster", "analogy"]
+SourceKind = Literal[
+    "motif",
+    "role-cluster",
+    "analogy",
+    "subsystem",
+    "role-class",
+    "operad-op",
+    "interface-export",
+    "data-shape",
+    "nl-only",
+]
 NeighborDir = Literal["incoming", "outgoing"]
 
 

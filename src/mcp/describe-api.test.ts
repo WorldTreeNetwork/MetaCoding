@@ -56,6 +56,7 @@ test("describe_api exposes all ten ctkr.* tools", () => {
     "ctkr.subsystems",
     "ctkr.interface_of",
     "ctkr.composition_rules",
+    "ctkr.subsystem_card",
   ]) {
     expect(described.has(name)).toBe(true);
   }

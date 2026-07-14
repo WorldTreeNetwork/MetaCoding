@@ -451,7 +451,16 @@ export interface EvidenceRow {
  */
 export interface PatternRow {
   pattern_id: string;
-  source_kind: "motif" | "role-cluster" | "analogy";
+  source_kind:
+    | "motif"
+    | "role-cluster"
+    | "analogy"
+    | "subsystem"
+    | "role-class"
+    | "operad-op"
+    | "interface-export"
+    | "data-shape"
+    | "nl-only";
   source_ref: string;
   label: string;
   description: string;
@@ -463,4 +472,157 @@ export interface PatternRow {
   prompt_version: string;
   schema_version: number;
   generated_at: string; // ISO-8601
+}
+
+// ---------------------------------------------------------------------------
+// Subsystem specification cards (subsystem-extraction §8.1, Stage E / T5).
+// The fused per-subsystem spec deck, written as subsystem_cards.jsonl (one card
+// per line). Cards are derived from the structural Parquet artifacts + an L3
+// labeler run. Mirrors the pydantic models in ctkr/ctkr/cards.py (JSONL, not
+// Parquet, so not part of the Parquet codegen).
+// ---------------------------------------------------------------------------
+
+export type InvarianceTier = "I" | "N" | "A";
+
+export interface SpecBasisSummary {
+  structural: number;
+  nl_only: number;
+}
+
+export interface IntentDissonance {
+  kind: string;
+  evidence: string;
+  source: "structural" | "llm";
+}
+
+export interface RoleCard {
+  role_id: string;
+  view: "orbit" | "similarity";
+  label: string;
+  description: string;
+  cardinality: number;
+  members: string[];
+  exemplar_symbol: string | null;
+  exemplar_qualified_name: string | null;
+  profile_depth: number;
+  granularity: string;
+  interface_participation: string[];
+  invariance_tier: InvarianceTier;
+  intent_dissonance: IntentDissonance | null;
+}
+
+export interface CompositionRuleCard {
+  operation_id: string;
+  label: string;
+  description: string;
+  op_kind: string;
+  arity: number;
+  input_roles: string[];
+  output_role: string;
+  edge_kinds: string[];
+  support: number;
+  is_boundary_op: boolean;
+  law_notes: {
+    associative_observed?: boolean;
+    violations?: number;
+    violation_kind?: string;
+  };
+  exemplar_paths: string[];
+  invariance_tier: InvarianceTier;
+}
+
+export interface InterfaceExportCard {
+  symbol: string;
+  symbol_id: string;
+  role_id: string | null;
+  usage_modes: string[];
+  contract: string;
+  n_external_callers: number;
+}
+
+export interface InterfaceConsumeCard {
+  target: string;
+  target_subsystem: string | null;
+  edge_kinds: string[];
+  purpose: string;
+}
+
+export interface InterfaceCard {
+  provides: InterfaceExportCard[];
+  consumes: InterfaceConsumeCard[];
+}
+
+export interface DataFieldCard {
+  name: string | null;
+  type: string | null;
+  flow: "in" | "out" | "internal" | "unknown";
+}
+
+export interface DataShapeCard {
+  type: string;
+  type_symbol_id: string;
+  boundary: boolean;
+  meaning: string;
+  fields: DataFieldCard[];
+  invariance_tier: InvarianceTier;
+  alphabet_coverage_note: string;
+}
+
+export interface TopologyCard {
+  n_members: number;
+  internal_edge_histogram: Record<string, number>;
+  h1_summary: null;
+  cycles: number | null;
+  interface_degree: Record<string, number>;
+}
+
+export interface ExemplarSlice {
+  purpose: string;
+  symbol_id: string;
+  file: string;
+  line_start: number;
+  line_end: number;
+  code: string;
+}
+
+export interface NlOnlySymbol {
+  symbol_id: string;
+  qualified_name: string;
+  file: string | null;
+  placement: string;
+  spec_basis: "structural" | "nl-only";
+  description: string;
+}
+
+export interface CardProvenance {
+  generated_at: string;
+  schema_version: number;
+  partition_config: Record<string, unknown>;
+  llm_model: string;
+  llm_temperature: number;
+  prompt_version: string;
+  hom_profiles_generated_at: string | null;
+  indexed_with_scip: boolean;
+}
+
+export interface SubsystemCard {
+  card_id: string;
+  subsystem_id: string;
+  repo: string;
+  name: string;
+  intent: string;
+  responsibilities: string[];
+  non_goals: string[];
+  spec_basis_summary: SpecBasisSummary;
+  intent_dissonance: IntentDissonance[];
+  roles: RoleCard[];
+  composition_rules: CompositionRuleCard[];
+  interface: InterfaceCard;
+  data_shapes: DataShapeCard[];
+  topology: TopologyCard;
+  exemplar_slices: ExemplarSlice[];
+  nl_only_symbols: NlOnlySymbol[];
+  n_members: number;
+  provenance: CardProvenance;
+  schema_version: number;
 }

@@ -31,6 +31,7 @@ import type {
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,
+  SubsystemCard,
   SubsystemMemberRow,
   SubsystemRow,
   WassersteinH1Row,
@@ -242,6 +243,16 @@ export interface CtkrHandle {
 
   /** L3 — reads from evidence.jsonl (not Parquet). */
   evidence(patternId: string): Promise<EvidenceRow[]>;
+
+  /**
+   * Stage E — reads the fused spec deck from subsystem_cards.jsonl (not
+   * Parquet). Filter by repo and/or a specific subsystem_id. Ordered by
+   * n_members descending (the largest subsystem's card first).
+   */
+  subsystemCards(opts?: {
+    repo?: string;
+    subsystemId?: string;
+  }): Promise<SubsystemCard[]>;
 
   /**
    * Returns the distinct set of pattern_ids that have at least one evidence
@@ -1045,6 +1056,35 @@ class CtkrHandleImpl implements CtkrHandle {
     return toObjects(result) as unknown as EvidenceRow[];
   }
 
+  async subsystemCards(opts?: {
+    repo?: string;
+    subsystemId?: string;
+  }): Promise<SubsystemCard[]> {
+    // The card is deeply nested JSON; parse the JSONL line-by-line to preserve
+    // structure faithfully rather than flattening through DuckDB. The deck is
+    // one card per subsystem — small enough to read whole and filter in JS.
+    const deckPath = this.path("subsystem_cards.jsonl");
+    const f = Bun.file(deckPath);
+    if (!(await f.exists())) {
+      throw new Error(
+        `Spec deck not found: ${deckPath}. Run \`ctkr extract-spec\` to generate it.`,
+      );
+    }
+    const text = await f.text();
+    const cards: SubsystemCard[] = [];
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const card = JSON.parse(trimmed) as SubsystemCard;
+      if (opts?.repo !== undefined && card.repo !== opts.repo) continue;
+      if (opts?.subsystemId !== undefined && card.subsystem_id !== opts.subsystemId)
+        continue;
+      cards.push(card);
+    }
+    cards.sort((a, b) => b.n_members - a.n_members || a.card_id.localeCompare(b.card_id));
+    return cards;
+  }
+
   async patternIdsWithEvidenceInRepo(repo: string): Promise<Set<string>> {
     const evidencePath = this.path("evidence.jsonl");
     const f = Bun.file(evidencePath);
@@ -1085,6 +1125,7 @@ export type {
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,
+  SubsystemCard,
   SubsystemMemberRow,
   SubsystemRow,
   WassersteinH1Row,

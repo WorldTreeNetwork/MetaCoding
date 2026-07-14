@@ -42,6 +42,7 @@ export interface ArtifactManifest {
     n_motifs?:           number;
     n_operads?:          number;
     n_presentations?:    number;
+    n_subsystem_cards?:  number;
     n_subsystems?:       number;
     n_symbols?:          number;
     nn_index?:           boolean;
@@ -53,6 +54,7 @@ export interface ArtifactManifest {
     schema_version?:     number;
     shape_pds?:          boolean;
     spectral_clusters?:  boolean;
+    subsystem_cards?:    boolean;
     subsystem_members?:  boolean;
     subsystems?:         boolean;
     wasserstein_h1?:     boolean;
@@ -515,7 +517,7 @@ export interface PatternRow {
     [property: string]: any;
 }
 
-export type SourceKind = "motif" | "role-cluster" | "analogy";
+export type SourceKind = "motif" | "role-cluster" | "analogy" | "subsystem" | "role-class" | "operad-op" | "interface-export" | "data-shape" | "nl-only";
 
 /**
  * One role class of a subsystem's presentation — a generator (§4.1, T3).

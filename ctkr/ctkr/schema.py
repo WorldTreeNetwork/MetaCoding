@@ -599,6 +599,11 @@ class ArtifactManifest(BaseModel):
     presentations: bool = False
     # Subsystem-extraction Stage C composition laws / operad recovery (§4.3, T4).
     operads: bool = False
+    # Subsystem-extraction Stage D+E — the fused per-subsystem spec deck
+    # (subsystem_cards.jsonl, §8.1, T5). The JSONL cards are derived (regenerable
+    # from the Parquet artifacts above + an L3 labeler run); this flag records
+    # that a deck was generated for this data dir.
+    subsystem_cards: bool = False
     # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
     functors: bool = False
     functor_edges: bool = False
@@ -629,6 +634,8 @@ class ArtifactManifest(BaseModel):
     # Operad row count (all op_kinds + views summed; §4.3 T4). Per-kind split +
     # boundary/violation counts live in the run's stderr/JSON summary.
     n_operads: NonNegativeInt = 0
+    # Subsystem-card (spec deck) count — one card per subsystem (§8.1, T5).
+    n_subsystem_cards: NonNegativeInt = 0
     # Per-repo-lane data-alphabet coverage note (subsystem-extraction §3): which
     # data-edge kinds are present + the scip/tree-sitter source mix, so a thin
     # data_shapes section reads as an extractor gap, not an absent data model.
