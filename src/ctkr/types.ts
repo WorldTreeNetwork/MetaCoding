@@ -95,6 +95,12 @@ export interface CentralityRow {
   pagerank: number;
   betweenness: number;
   eigenvector: number;
+  /**
+   * Cut-vertex flag (subsystem-extraction §2.1). True when removing this symbol
+   * disconnects the undirected collapse of its component — the "real seam"
+   * signal. Optional: parquets written before this column round-trip without it.
+   */
+  articulation?: boolean;
   schema_version: number;
 }
 
@@ -106,6 +112,41 @@ export interface SpectralClusterRow {
   /** Scoped to repo — not meaningful cross-repo. */
   cluster_id: number;
   cluster_size: number;
+  schema_version: number;
+}
+
+/**
+ * One extracted subsystem (subsystem-extraction §2.4, Stage A / DECOMPOSE).
+ * Mirrors SubsystemRow in schema.py. One row per (run_config, subsystem_id).
+ */
+export interface SubsystemRow {
+  /** Content-addressed: blake3(repo + config + sorted-member digest). */
+  subsystem_id: string;
+  repo: string;
+  n_members: number;
+  /** The default resolution the emitted partition was cut at. */
+  resolution: number;
+  /** Mean pairwise co-association of members across the resolution sweep. */
+  persistence_score: number;
+  /** JSON blob of the partition config + runtime metadata. */
+  config: string;
+  generated_at: string; // ISO-8601
+  schema_version: number;
+}
+
+/**
+ * One symbol's membership in a subsystem (subsystem-extraction §2.4).
+ * Mirrors SubsystemMemberRow in schema.py.
+ */
+export interface SubsystemMemberRow {
+  subsystem_id: string;
+  symbol_id: string;
+  repo: string;
+  qualified_name: string;
+  /** How strongly the symbol belongs (co-association across the sweep). */
+  boundary_confidence: number;
+  /** "structural" (typed-edge signal) | "locality" (zero-profile, placed by dir). */
+  placement: "structural" | "locality";
   schema_version: number;
 }
 
@@ -227,6 +268,9 @@ export interface ArtifactManifest {
   hom_profiles: boolean;
   functors: boolean;
   functor_edges: boolean;
+  /** Subsystem-extraction Stage A presence flags (§2.4, T1). */
+  subsystems?: boolean;
+  subsystem_members?: boolean;
   embedding_dim: number | null;
   profile_vec_dim: number | null;
   /** Hom-profile neighbourhood depth the seeds were built at (1 or 2). */
@@ -237,6 +281,7 @@ export interface ArtifactManifest {
   n_hom_profiles: number;
   n_functors: number;
   n_functor_edges: number;
+  n_subsystems?: number;
   notes: string | null;
   /** Forward-compat: extra keys from future schema versions round-trip. */
   [extra: string]: unknown;

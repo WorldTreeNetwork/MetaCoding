@@ -80,7 +80,8 @@ def run(args: argparse.Namespace) -> int:
             f"  centrality.parquet: {cdf.height} rows "
             f"(pr={cstats.pagerank_seconds}s, "
             f"bc≈k={cstats.betweenness_k} {cstats.betweenness_seconds}s, "
-            f"ec={cstats.eigenvector_seconds}s converged={cstats.eigenvector_converged})\n"
+            f"ec={cstats.eigenvector_seconds}s converged={cstats.eigenvector_converged}, "
+            f"articulation={cstats.n_articulation} {cstats.articulation_seconds}s)\n"
         )
 
     if not args.skip_clusters:

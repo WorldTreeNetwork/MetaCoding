@@ -35,6 +35,7 @@ export interface ArtifactManifest {
     n_hom_profiles?:     number;
     n_motif_instances?:  number;
     n_motifs?:           number;
+    n_subsystems?:       number;
     n_symbols?:          number;
     nn_index?:           boolean;
     notes?:              null | string;
@@ -43,6 +44,8 @@ export interface ArtifactManifest {
     schema_version?:     number;
     shape_pds?:          boolean;
     spectral_clusters?:  boolean;
+    subsystem_members?:  boolean;
+    subsystems?:         boolean;
     wasserstein_h1?:     boolean;
     [property: string]: any;
 }
@@ -56,6 +59,7 @@ export interface ArtifactManifest {
  * the sampling factor noted in :attr:`ArtifactManifest.notes`.
  */
 export interface CentralityRow {
+    articulation?:   boolean;
     betweenness:     number;
     eigenvector:     number;
     pagerank:        number;
@@ -367,6 +371,55 @@ export interface SpectralClusterRow {
     repo:            string;
     schema_version?: number;
     symbol_id:       string;
+    [property: string]: any;
+}
+
+/**
+ * One symbol's membership in a subsystem (subsystem-extraction §2.4).
+ *
+ * One row per ``(subsystem_id, symbol_id)``. ``boundary_confidence`` ∈ [0,1]
+ * is how strongly the symbol belongs to its subsystem: the mean co-association
+ * (across the resolution sweep) with the other members of its assigned
+ * subsystem. 1.0 = interior; low = a boundary/judgment-call assignment a
+ * re-implementer must scrutinise. ``placement`` records whether the assignment
+ * came from structure (``"structural"`` — the symbol carries typed-edge
+ * signal) or from file locality (``"locality"`` — a zero-profile symbol placed
+ * by its CONTAINS/directory home, per §2.3, because structure could not place
+ * it).
+ */
+export interface SubsystemMemberRow {
+    boundary_confidence: number;
+    placement:           Placement;
+    qualified_name:      string;
+    repo:                string;
+    schema_version?:     number;
+    subsystem_id:        string;
+    symbol_id:           string;
+    [property: string]: any;
+}
+
+export type Placement = "structural" | "locality";
+
+/**
+ * One extracted subsystem — a full subcategory on a disjoint object set.
+ *
+ * Produced by ``ctkr subsystems`` (subsystem-extraction §2, Stage A —
+ * DECOMPOSE). One row per ``(run_config, subsystem_id)``. The partition is a
+ * consensus over a Louvain resolution sweep: ``persistence_score`` is the mean
+ * pairwise co-association of the subsystem's members across the sweep (1.0 =
+ * the members always co-cluster; low = a fragile grouping). ``config`` is the
+ * JSON blob of the partition parameters + runtime metadata so a re-cut is
+ * reproducible and the subsystem_id is verifiable.
+ */
+export interface SubsystemRow {
+    config:            string;
+    generated_at:      string;
+    n_members:         number;
+    persistence_score: number;
+    repo:              string;
+    resolution:        number;
+    schema_version?:   number;
+    subsystem_id:      string;
     [property: string]: any;
 }
 

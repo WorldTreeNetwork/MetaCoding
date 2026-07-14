@@ -32,6 +32,7 @@ import type {
   MotifRow,
   PatternRow,
   SpectralClusterRow,
+  SubsystemMemberRow,
   WassersteinH1Row,
 } from "../ctkr/types.ts";
 
@@ -143,6 +144,40 @@ export interface FunctorBetweenResult {
   _note?: string;
 }
 
+/** One subsystem summary with boundary-confidence metadata (ctkr.subsystems). */
+export interface SubsystemResult {
+  subsystem_id: string;
+  repo: string;
+  n_members: number;
+  resolution: number;
+  /** Mean pairwise co-association of members across the resolution sweep. */
+  persistence_score: number;
+  /** Count of members placed by directory locality (zero-profile symbols). */
+  n_locality: number;
+  /** Count of members placed structurally (carry typed-edge signal). */
+  n_structural: number;
+  /** Mean member boundary_confidence. */
+  mean_boundary_confidence: number;
+  /**
+   * The lowest-boundary-confidence members — the judgment-call assignments a
+   * re-implementer must scrutinise (a subset; up to `boundary_sample`).
+   */
+  boundary_symbols: Array<{
+    symbol_id: string;
+    qualified_name: string;
+    boundary_confidence: number;
+    placement: "structural" | "locality";
+  }>;
+}
+
+/** Result shape for ctkr.subsystems. */
+export interface SubsystemsResult {
+  subsystems: SubsystemResult[];
+  /** Partition config JSON (resolution sweep, weights, seed) — same for all rows. */
+  config: string | null;
+  _note?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -192,6 +227,13 @@ const ROLE_EQUIVALENT_SCHEMA = {
   k: z.number().int().min(1).max(500).optional(),
   scope: z.string().optional(),
   cross_repo_only: z.boolean().optional(),
+};
+
+const SUBSYSTEMS_SCHEMA = {
+  repo: z.string().optional(),
+  resolution: z.number().optional(),
+  min_persistence: z.number().min(0).max(1).optional(),
+  boundary_sample: z.number().int().min(0).max(200).optional(),
 };
 
 const FUNCTOR_BETWEEN_SCHEMA = {
@@ -542,6 +584,104 @@ export async function roleEquivalent(input: {
       repo: r.repo,
       hom_profile_distance: r.distance,
     }));
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ctkr.subsystems (subsystem-extraction §2.4 / §8.2, T1)
+// ---------------------------------------------------------------------------
+
+export async function subsystemsQuery(input: {
+  repo?: string;
+  resolution?: number;
+  min_persistence?: number;
+  boundary_sample?: number;
+}): Promise<SubsystemsResult> {
+  const boundarySample = input.boundary_sample ?? 5;
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    const notes: string[] = [];
+
+    let subs = await handle.subsystems({
+      repo: input.repo,
+      minPersistence: input.min_persistence,
+    });
+
+    // resolution is a filter over the emitted partition's default resolution.
+    // The batch runner writes one resolution per artifact; a mismatched value
+    // simply yields nothing (surfaced, not silently empty).
+    if (input.resolution !== undefined) {
+      const before = subs.length;
+      subs = subs.filter((s) => Math.abs(s.resolution - input.resolution!) < 1e-9);
+      if (before > 0 && subs.length === 0) {
+        notes.push(
+          `no subsystems at resolution=${input.resolution} ` +
+            `(the artifact was cut at a different default resolution — omit the ` +
+            `resolution filter to see it, or re-run \`ctkr subsystems --resolution\`)`,
+        );
+      }
+    }
+
+    if (subs.length === 0) {
+      if (notes.length === 0) {
+        notes.push(
+          input.repo !== undefined
+            ? `no subsystems found for repo "${input.repo}"`
+            : "no subsystems found",
+        );
+      }
+      return { subsystems: [], config: null, _note: notes.join("; ") };
+    }
+
+    // Pull all members for the matched repo(s) once, group by subsystem.
+    const membersBySub = new Map<string, SubsystemMemberRow[]>();
+    const members = await handle.subsystemMembers({ repo: input.repo });
+    for (const m of members) {
+      const arr = membersBySub.get(m.subsystem_id);
+      if (arr) arr.push(m);
+      else membersBySub.set(m.subsystem_id, [m]);
+    }
+
+    const results: SubsystemResult[] = subs.map((s) => {
+      const mem = membersBySub.get(s.subsystem_id) ?? [];
+      let nLoc = 0;
+      let confSum = 0;
+      for (const m of mem) {
+        if (m.placement === "locality") nLoc++;
+        confSum += m.boundary_confidence;
+      }
+      // Ascending by confidence → the boundary (judgment-call) members first.
+      const boundary = [...mem]
+        .sort((a, b) => a.boundary_confidence - b.boundary_confidence)
+        .slice(0, boundarySample)
+        .map((m) => ({
+          symbol_id: m.symbol_id,
+          qualified_name: m.qualified_name,
+          boundary_confidence: m.boundary_confidence,
+          placement: m.placement,
+        }));
+      return {
+        subsystem_id: s.subsystem_id,
+        repo: s.repo,
+        n_members: s.n_members,
+        resolution: s.resolution,
+        persistence_score: s.persistence_score,
+        n_locality: nLoc,
+        n_structural: mem.length - nLoc,
+        mean_boundary_confidence: mem.length > 0 ? confSum / mem.length : 0,
+        boundary_symbols: boundary,
+      };
+    });
+
+    const result: SubsystemsResult = {
+      subsystems: results,
+      config: subs[0]?.config ?? null,
+    };
+    if (notes.length > 0) result._note = notes.join("; ");
+    return result;
   } finally {
     await handle.close();
   }
@@ -905,6 +1045,42 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     },
   },
   {
+    name: "ctkr.subsystems",
+    summary:
+      "Return the subsystem partition of a repo (subsystem-extraction Stage A): " +
+      "modules-as-emergent at a team-would-own-this granularity, from a consensus " +
+      "Louvain partition over a resolution sweep with a low-weight directory prior. " +
+      "Each subsystem carries persistence_score (sweep stability) plus " +
+      "boundary-confidence metadata: counts of structural vs locality-placed " +
+      "(zero-profile) members and the lowest-confidence boundary symbols (the " +
+      "judgment-call assignments). Reads subsystems.parquet / " +
+      "subsystem_members.parquet (partition is the `ctkr subsystems` batch runner). " +
+      "Filter by repo, min_persistence, or resolution.",
+    input_schema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Restrict to one repo." },
+        resolution: {
+          type: "number",
+          description: "Filter to subsystems cut at this default resolution.",
+        },
+        min_persistence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description: "Only subsystems with persistence_score at or above this.",
+        },
+        boundary_sample: {
+          type: "integer",
+          minimum: 0,
+          maximum: 200,
+          default: 5,
+          description: "How many lowest-confidence boundary members to return per subsystem.",
+        },
+      },
+    },
+  },
+  {
     name: "ctkr.functor_between",
     summary:
       "Discover how two repos' designs correspond: the maximal partial " +
@@ -968,7 +1144,7 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
 ];
 
 /**
- * Register all seven CTKR tools on the given McpServer.
+ * Register all eight CTKR tools on the given McpServer.
  * Call this from server.ts after the existing graph tool registrations.
  * Keep the registrations here in sync with CTKR_TOOL_DESCRIPTIONS above.
  */
@@ -1112,6 +1288,35 @@ export function registerCtkrTools(server: McpServer): void {
         metric: args.metric,
       });
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.subsystems",
+    {
+      description:
+        "Return the subsystem partition of a repo (subsystem-extraction Stage A / " +
+        "DECOMPOSE): modules-as-emergent at a team-would-own-this granularity, from " +
+        "a consensus Louvain partition over a resolution sweep with a low-weight " +
+        "directory prior. Reads subsystems.parquet / subsystem_members.parquet — the " +
+        "partition is produced by the `ctkr subsystems` batch runner. Each subsystem " +
+        "carries persistence_score (how stably its members co-cluster across the " +
+        "sweep) plus boundary-confidence metadata: counts of structural vs " +
+        "locality-placed (zero-profile) members and the lowest-confidence boundary " +
+        "symbols — the judgment-call assignments a re-implementer must scrutinise. " +
+        "Filter by repo, min_persistence (persistence_score floor), or resolution " +
+        "(the default resolution the partition was cut at). boundary_sample caps how " +
+        "many boundary symbols are returned per subsystem.",
+      inputSchema: SUBSYSTEMS_SCHEMA,
+    },
+    async (args) => {
+      const result = await subsystemsQuery({
+        repo: args.repo,
+        resolution: args.resolution,
+        min_persistence: args.min_persistence,
+        boundary_sample: args.boundary_sample,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
 

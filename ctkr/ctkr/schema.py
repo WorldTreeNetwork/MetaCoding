@@ -185,6 +185,57 @@ class CentralityRow(BaseModel):
     pagerank: float = Field(ge=0.0)
     betweenness: float = Field(ge=0.0)
     eigenvector: float = Field(ge=0.0)
+    # Cut-vertex flag (MetaCoding subsystem-extraction §2.1). True when removing
+    # this symbol disconnects the undirected collapse of its connected
+    # component — the "real seam" signal the design's boundary detection uses.
+    # Additive column (default False) so parquets written before it round-trip;
+    # readers that predate it simply ignore the field.
+    articulation: bool = False
+    schema_version: int = SCHEMA_VERSION
+
+
+class SubsystemRow(BaseModel):
+    """One extracted subsystem — a full subcategory on a disjoint object set.
+
+    Produced by ``ctkr subsystems`` (subsystem-extraction §2, Stage A —
+    DECOMPOSE). One row per ``(run_config, subsystem_id)``. The partition is a
+    consensus over a Louvain resolution sweep: ``persistence_score`` is the mean
+    pairwise co-association of the subsystem's members across the sweep (1.0 =
+    the members always co-cluster; low = a fragile grouping). ``config`` is the
+    JSON blob of the partition parameters + runtime metadata so a re-cut is
+    reproducible and the subsystem_id is verifiable.
+    """
+
+    subsystem_id: str  # blake3(repo + config + sorted-member digest)
+    repo: str
+    n_members: PositiveInt
+    resolution: float  # the default resolution the emitted partition was cut at
+    persistence_score: float = Field(ge=0.0, le=1.0)
+    config: str  # JSON blob of the partition config + runtime metadata
+    generated_at: str  # ISO 8601
+    schema_version: int = SCHEMA_VERSION
+
+
+class SubsystemMemberRow(BaseModel):
+    """One symbol's membership in a subsystem (subsystem-extraction §2.4).
+
+    One row per ``(subsystem_id, symbol_id)``. ``boundary_confidence`` ∈ [0,1]
+    is how strongly the symbol belongs to its subsystem: the mean co-association
+    (across the resolution sweep) with the other members of its assigned
+    subsystem. 1.0 = interior; low = a boundary/judgment-call assignment a
+    re-implementer must scrutinise. ``placement`` records whether the assignment
+    came from structure (``"structural"`` — the symbol carries typed-edge
+    signal) or from file locality (``"locality"`` — a zero-profile symbol placed
+    by its CONTAINS/directory home, per §2.3, because structure could not place
+    it).
+    """
+
+    subsystem_id: str  # FK → subsystems.parquet
+    symbol_id: str
+    repo: str
+    qualified_name: str
+    boundary_confidence: float = Field(ge=0.0, le=1.0)
+    placement: Literal["structural", "locality"]
     schema_version: int = SCHEMA_VERSION
 
 
@@ -320,6 +371,9 @@ class ArtifactManifest(BaseModel):
     spectral_clusters: bool = False
     nn_index: bool = False
     hom_profiles: bool = False
+    # Subsystem-extraction Stage A artifacts (subsystem-extraction §2.4, T1).
+    subsystems: bool = False
+    subsystem_members: bool = False
     # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
     functors: bool = False
     functor_edges: bool = False
@@ -341,6 +395,7 @@ class ArtifactManifest(BaseModel):
     n_hom_profiles: NonNegativeInt = 0
     n_functors: NonNegativeInt = 0
     n_functor_edges: NonNegativeInt = 0
+    n_subsystems: NonNegativeInt = 0
     notes: str | None = None
 
 
@@ -392,6 +447,28 @@ CENTRALITY_COLUMNS: tuple[str, ...] = (
     "pagerank",
     "betweenness",
     "eigenvector",
+    "articulation",
+    "schema_version",
+)
+
+SUBSYSTEMS_COLUMNS: tuple[str, ...] = (
+    "subsystem_id",
+    "repo",
+    "n_members",
+    "resolution",
+    "persistence_score",
+    "config",
+    "generated_at",
+    "schema_version",
+)
+
+SUBSYSTEM_MEMBERS_COLUMNS: tuple[str, ...] = (
+    "subsystem_id",
+    "symbol_id",
+    "repo",
+    "qualified_name",
+    "boundary_confidence",
+    "placement",
     "schema_version",
 )
 
@@ -463,6 +540,8 @@ __all__ = [
     "WassersteinH1Row",
     "CentralityRow",
     "SpectralClusterRow",
+    "SubsystemRow",
+    "SubsystemMemberRow",
     "HomProfileRow",
     "FunctorRow",
     "FunctorEdgeRow",
@@ -475,6 +554,8 @@ __all__ = [
     "WASSERSTEIN_H1_COLUMNS",
     "CENTRALITY_COLUMNS",
     "SPECTRAL_CLUSTERS_COLUMNS",
+    "SUBSYSTEMS_COLUMNS",
+    "SUBSYSTEM_MEMBERS_COLUMNS",
     "HOM_PROFILES_COLUMNS",
     "FUNCTORS_COLUMNS",
     "FUNCTOR_EDGES_COLUMNS",

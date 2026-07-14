@@ -70,6 +70,27 @@ def test_centrality_bridge_is_high_betweenness() -> None:
     assert bridge_avg > other_avg, f"bridge={bridge_avg} other={other_avg}"
 
 
+def test_centrality_articulation_flags_bridge() -> None:
+    """The two bridge endpoints a0/b0 are cut vertices: removing either splits
+    its cluster from the other. Every other node is non-articulation."""
+    g = _two_clusters()
+    df, stats = compute_centrality(g, betweenness_k=16)
+    art = {r["symbol_id"]: r["articulation"] for r in df.to_dicts()}
+    assert art["a0"] is True, "a0 is a cut vertex (only link to cluster A from b0)"
+    assert art["b0"] is True, "b0 is a cut vertex (only link to cluster B from a0)"
+    # Interior nodes with no unique cut role are not articulation points.
+    assert art["a1"] is False
+    assert art["b1"] is False
+    assert stats.n_articulation == 2
+
+
+def test_centrality_articulation_column_in_schema() -> None:
+    g = _two_clusters()
+    df, _ = compute_centrality(g, betweenness_k=8)
+    assert "articulation" in df.columns
+    assert df.schema["articulation"] == pl.Boolean
+
+
 def test_centrality_eigenvector_converges_on_connected() -> None:
     g = _two_clusters()
     _, stats = compute_centrality(g, betweenness_k=8)

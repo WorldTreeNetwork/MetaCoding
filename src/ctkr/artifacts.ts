@@ -28,6 +28,8 @@ import type {
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,
+  SubsystemMemberRow,
+  SubsystemRow,
   WassersteinH1Row,
 } from "./types.ts";
 
@@ -119,6 +121,28 @@ export interface CtkrHandle {
   }): Promise<CentralityRow[]>;
 
   spectralClusters(opts?: { repo?: string }): Promise<SpectralClusterRow[]>;
+
+  /**
+   * Reads subsystem rows (subsystems.parquet, Stage A). Filter by repo and/or
+   * a persistence floor (min co-association across the sweep). Ordered by
+   * n_members descending (largest subsystem first).
+   */
+  subsystems(opts?: {
+    repo?: string;
+    minPersistence?: number;
+  }): Promise<SubsystemRow[]>;
+
+  /**
+   * Reads subsystem member rows (subsystem_members.parquet). Filter by repo,
+   * a specific subsystem_id, and/or a boundary_confidence floor. Ordered by
+   * boundary_confidence descending (interior members first).
+   */
+  subsystemMembers(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    minBoundaryConfidence?: number;
+    limit?: number;
+  }): Promise<SubsystemMemberRow[]>;
 
   /**
    * Reads rows from hom_profiles.parquet. Filters by symbol IDs and/or
@@ -630,6 +654,63 @@ class CtkrHandleImpl implements CtkrHandle {
     return toObjects(result) as unknown as SpectralClusterRow[];
   }
 
+  async subsystems(opts?: {
+    repo?: string;
+    minPersistence?: number;
+  }): Promise<SubsystemRow[]> {
+    await this.requireArtifact("subsystems");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.minPersistence !== undefined) {
+      clauses.push(`persistence_score >= ${opts.minPersistence}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const sql = `SELECT * FROM read_parquet('${this.path("subsystems.parquet")}') ${where} ORDER BY n_members DESC, subsystem_id`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as SubsystemRow[];
+  }
+
+  async subsystemMembers(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    minBoundaryConfidence?: number;
+    limit?: number;
+  }): Promise<SubsystemMemberRow[]> {
+    await this.requireArtifact("subsystem_members");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.subsystemId !== undefined) {
+      clauses.push(`subsystem_id = $subsystem_id`);
+      params["subsystem_id"] = opts.subsystemId;
+    }
+    if (opts?.minBoundaryConfidence !== undefined) {
+      clauses.push(`boundary_confidence >= ${opts.minBoundaryConfidence}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("subsystem_members.parquet")}') ${where} ` +
+      `ORDER BY boundary_confidence DESC, symbol_id ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as SubsystemMemberRow[];
+  }
+
   async homProfiles(opts?: {
     symbolIds?: string[];
     repo?: string;
@@ -840,5 +921,7 @@ export type {
   PatternRow,
   ShapePDRow,
   SpectralClusterRow,
+  SubsystemMemberRow,
+  SubsystemRow,
   WassersteinH1Row,
 } from "./types.ts";

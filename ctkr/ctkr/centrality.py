@@ -61,6 +61,8 @@ class CentralityStats:
     betweenness_k: int
     eigenvector_seconds: float
     eigenvector_converged: bool
+    n_articulation: int = 0
+    articulation_seconds: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -123,6 +125,15 @@ def compute_centrality(
         converged = False
     t3 = time.perf_counter()
 
+    # Articulation points (cut vertices) — the "real seam" signal from ctkr.md
+    # L1 §4, closing the subsystem-extraction §2.1 gap. Defined on the
+    # UNDIRECTED collapse: a node whose removal increases the component count of
+    # its connected component. NetworkX computes this per component in one pass.
+    # Deterministic (no sampling), so it never perturbs byte-identical re-runs.
+    u = h.to_undirected(as_view=False)
+    articulation: set[str] = set(nx.articulation_points(u)) if u.number_of_edges() else set()
+    t4 = time.perf_counter()
+
     rows: list[dict[str, object]] = []
     for n in sorted(h.nodes()):
         d = g.nodes[n]
@@ -134,6 +145,7 @@ def compute_centrality(
                 "pagerank": float(pr.get(n, 0.0)),
                 "betweenness": float(bc.get(n, 0.0)),
                 "eigenvector": float(ec.get(n, 0.0)),
+                "articulation": n in articulation,
                 "schema_version": SCHEMA_VERSION,
             }
         )
@@ -146,6 +158,8 @@ def compute_centrality(
         betweenness_k=k,
         eigenvector_seconds=round(t3 - t2, 3),
         eigenvector_converged=converged,
+        n_articulation=len(articulation),
+        articulation_seconds=round(t4 - t3, 3),
     )
     return df, stats
 
