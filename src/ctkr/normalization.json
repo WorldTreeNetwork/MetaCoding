@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "description": "Cross-language seed-time normalization for port verification (ct-subsystem-extraction.md §6.2). Applied at seed time to BOTH the extracted-spec side (S) and the re-implementation side (S') before functor discovery, so a TS spec and a Python port are compared through a language-fair, coarser profile dial. All transforms are compare-time: the persisted hom-profile / edge artifacts stay maximal-precision (the established contract); only the in-memory search inputs are reshaped. Held lightly (MetaCoding-63v) — the marginals are DATA-DERIVED per side at run time, not frozen here; this file carries only the STRUCTURAL choices (which kinds fold, which idioms fold).",
+  "kind_collapse": {
+    "IMPLEMENTS": "SUBTYPES",
+    "EXTENDS": "SUBTYPES",
+    "OVERRIDES": "SUBTYPES",
+    "TYPE_OF": "TYPED_AS",
+    "RETURNS_TYPE": "TYPED_AS",
+    "ANNOTATES": "DECORATES"
+  },
+  "reweight": {
+    "scheme": "inverse_marginal",
+    "floor": 0.02,
+    "note": "§6.2.1 — each profile dimension is divided by its per-SIDE edge-kind marginal frequency before cross-language cosine, so language-dense kinds (TS TYPE_OF/RETURNS_TYPE density; Python IMPLEMENTS scarcity) stop dominating the seed. Marginals are computed from each side's own collapsed edge distribution at run time; `floor` bounds the divisor for absent kinds. This is the §7.2 candidate fix, adopted as the default for any cross-language comparison."
+  },
+  "idiom_shims": {
+    "note": "§6.2.3 — per-language symbol-level folds applied before role quotienting. A folded member is merged into its CONTAINS parent (its edges reroute to the parent; the member leaves the object set). Matched against the member's qualified_name. Kept short and explicit; adding a target language is a table edit, not code.",
+    "ts": [
+      {"id": "ts-accessor", "pattern": "\\.(get|set)[A-Z0-9_]", "reason": "property getter/setter pairs fold into their field/owner (TS accessor idiom)"},
+      {"id": "ts-dts", "pattern": "\\.d\\.ts::", "reason": "interface-only declaration files fold into their implementations"}
+    ],
+    "py": [
+      {"id": "py-dunder", "pattern": "::__[a-z0-9_]+__$", "reason": "dunder protocol methods fold into their class role (Python data-model idiom)"},
+      {"id": "py-property", "pattern": "::_[a-z]", "reason": "leading-underscore private helpers fold into their owner (Python privacy idiom)"}
+    ]
+  }
+}

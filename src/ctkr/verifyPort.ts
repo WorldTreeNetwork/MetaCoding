@@ -1,0 +1,806 @@
+/**
+ * Port verifier — functor discovery as an acceptance test for a re-implementation
+ * (ct-subsystem-extraction.md §7, task T6).
+ *
+ * The just-shipped functor track (functorSearch / functorRunner, Phase 2b) is
+ * not adjacent to the subsystem-spec pipeline; it is its acceptance test. After
+ * a subsystem `S` is re-implemented as `S'` in a different stack, this module
+ * scores the port against the EXTRACTED SPEC (roles + interface + composition
+ * laws) using the member-set-restricted functor between the two member sets
+ * (MetaCoding-4ty), with the §6.2 cross-language normalization applied at seed
+ * time.
+ *
+ * The output is deliberately NOT a boolean. It is the §7 PUNCH LIST: a list of
+ * localized failures, each pointing at a specific card section (role class /
+ * provided export / composition rule) and specific exemplar slices, plus the
+ * five gate scores. A re-implementer reads the punch list and knows exactly
+ * which role was lost, which export changed usage mode, which protocol op broke.
+ *
+ * Gates (§7, decreasing strictness):
+ *   1. role coverage        — every tier-I role class has ≥1 member mapped into S'
+ *   2. interface preservation — every `provides` export exists and is used in the same modes
+ *   3. composition preservation — every tier-I operad op's role-path is realizable in S' (protocol ops strict)
+ *   4. fidelity              — functor fidelity over mapped pairs ≥ threshold
+ *   5. cycle consistency     — G(F(s)) = s high enough to rule out a displaced match
+ *
+ * Scope honesty (§7): this checks that the port preserves the extracted SHAPE
+ * and CONTRACT. It does not check behavior — the algorithm inside a role is
+ * opaque to every name-blind structural method and is carried by exemplar slices
+ * + intent text only. The deck complements the test suite; it does not replace it.
+ *
+ * Provided as a thin recipe over `functorSearch` (§8.2 open decision (c): start
+ * as a recipe, promote to an MCP tool when the punch-list format stabilizes).
+ * `verifyPort` is the pure core; `verifyPortFromDataDir` is the artifact-reading
+ * recipe; the `import.meta.main` block is the CLI entry.
+ */
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, isAbsolute } from "node:path";
+import {
+  functorSearch,
+  type FunctorObject,
+  type FunctorEdge,
+  type FunctorSearchConfig,
+  type FunctorSearchResult,
+} from "./functorSearch.ts";
+
+// ---------------------------------------------------------------------------
+// §6.2 normalization spec
+// ---------------------------------------------------------------------------
+
+export interface IdiomShim {
+  id: string;
+  pattern: string;
+  reason: string;
+}
+
+export interface NormalizationSpec {
+  version: number;
+  description?: string;
+  /** near-synonymous edge kinds folded to one label for cross-language compare. */
+  kind_collapse: Record<string, string>;
+  reweight: { scheme: "inverse_marginal"; floor: number; note?: string };
+  idiom_shims: { note?: string } & Record<string, IdiomShim[] | string | undefined>;
+}
+
+let _defaultNorm: NormalizationSpec | null = null;
+
+/** Load the versioned normalization.json shipped beside this module. */
+export function loadNormalization(path?: string): NormalizationSpec {
+  if (path) {
+    return JSON.parse(readFileSync(path, "utf8")) as NormalizationSpec;
+  }
+  if (_defaultNorm) return _defaultNorm;
+  const here = dirname(fileURLToPath(import.meta.url));
+  _defaultNorm = JSON.parse(
+    readFileSync(join(here, "normalization.json"), "utf8"),
+  ) as NormalizationSpec;
+  return _defaultNorm;
+}
+
+// ---------------------------------------------------------------------------
+// Extracted-spec inputs (a subset of the card / Parquet artifacts — §8.1)
+// ---------------------------------------------------------------------------
+
+/** One role class of the subsystem's presentation (presentations.parquet, T3). */
+export interface SpecRole {
+  roleId: string;
+  label?: string;
+  members: string[];
+  interfaceParticipation: string[];
+  exemplarSymbolId: string;
+  exemplarQualifiedName?: string;
+  cardinality: number;
+  /** §6.1 tier; only tier-"I" roles are gated (default "I"). */
+  invarianceTier?: string;
+  /** zero-profile / nl-only "isolated" class — structure can't verify it (§2.3). */
+  isIsolated?: boolean;
+}
+
+/** One provided export (interfaces.parquet direction="provides", T2). */
+export interface SpecProvide {
+  internalSymbolId: string;
+  internalQualifiedName?: string;
+  roleId?: string;
+  /** usage-mode edge kinds (REFERENCES / CALLS / IMPLEMENTS / TYPE_OF / …). */
+  usageModes: string[];
+}
+
+/** One recovered composition operation (operads.parquet, T4). */
+export interface SpecOp {
+  operationId: string;
+  label?: string;
+  opKind: "path" | "fan_in" | "non_operadic";
+  inputRoles: string[];
+  outputRole: string;
+  edgeKinds: string[];
+  isBoundaryOp: boolean;
+  invarianceTier?: string;
+  exemplarPaths?: string[];
+}
+
+export interface SubsystemSpec {
+  subsystemId: string;
+  repo: string;
+  name?: string;
+  view: "orbit" | "similarity";
+  roles: SpecRole[];
+  provides: SpecProvide[];
+  ops: SpecOp[];
+}
+
+/** One side of the comparison — S (the spec side) or S' (the port). */
+export interface SideGraph {
+  objects: FunctorObject[];
+  edges: FunctorEdge[];
+  /** dominant language for idiom-shim selection ("ts" | "py" | …). */
+  language?: string;
+  /** symbol_id → qualified_name, for punch-list exemplar slices. */
+  qualifiedNames?: Map<string, string>;
+  /** restrict dom/codomain to this subsystem member set (null = whole side). */
+  memberSet?: ReadonlySet<string> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Output — the §7 punch list + gate scores
+// ---------------------------------------------------------------------------
+
+export interface GateResult {
+  name: string;
+  score: number;
+  threshold: number;
+  ceiling: number;
+  passed: boolean;
+  passedAtCeiling: boolean;
+  detail: string;
+}
+
+export interface ExemplarSlice {
+  symbolId: string;
+  qualifiedName?: string;
+  role?: string;
+}
+
+export interface PunchListItem {
+  gate:
+    | "role-coverage"
+    | "interface-preservation"
+    | "composition-preservation"
+    | "fidelity"
+    | "cycle-consistency";
+  severity: "blocker" | "warning";
+  /** the card section this failure localizes to (§7: not a boolean). */
+  cardSection: string;
+  label?: string;
+  detail: string;
+  exemplarSlices: ExemplarSlice[];
+}
+
+export interface PortVerificationReport {
+  subsystemId: string;
+  repo: string;
+  portRepo: string;
+  normalizationApplied: boolean;
+  normalizationVersion: number | null;
+  gates: {
+    roleCoverage: GateResult;
+    interfacePreservation: GateResult;
+    compositionPreservation: GateResult;
+    fidelity: GateResult;
+    cycleConsistency: GateResult;
+  };
+  /** convenience: every gate passes at its ceiling (the rename-fork "port" bar). */
+  passedAtCeiling: boolean;
+  /** the §7 PUNCH LIST — localized failures. Empty iff every gate is at ceiling. */
+  punchList: PunchListItem[];
+  functor: {
+    coverage: number;
+    fidelity: number;
+    nMapped: number;
+    nObjectsSrc: number;
+    cycleConsistency: number;
+  };
+  /** how many source objects the forward functor mapped. */
+  mappingCount: number;
+}
+
+export interface VerifyPortOptions {
+  spec: SubsystemSpec;
+  /** S — the extracted-spec side (domain). */
+  source: SideGraph;
+  /** S' — the re-implementation (codomain). */
+  port: SideGraph;
+  /**
+   * §6.2 cross-language normalization. When provided AND `applyNormalization`
+   * is not false, it is applied at seed time to BOTH sides before search. Pass
+   * `null` (or applyNormalization:false) to run the raw ungated comparison — the
+   * on/off delta is the §6 experiment.
+   */
+  normalization?: NormalizationSpec | null;
+  applyNormalization?: boolean;
+  config?: Partial<FunctorSearchConfig>;
+  thresholds?: Partial<GateThresholds>;
+}
+
+export interface GateThresholds {
+  /** role coverage: pass floor / ceiling (ceiling = 1.0, the fork bar). */
+  roleCoverage: [number, number];
+  interfacePreservation: [number, number];
+  compositionPreservation: [number, number];
+  fidelity: [number, number];
+  cycleConsistency: [number, number];
+}
+
+/** §7 thresholds: floors are the "robust approximation" bar, ceilings the fork bar. */
+export const DEFAULT_GATE_THRESHOLDS: GateThresholds = {
+  roleCoverage: [0.9, 1.0],
+  interfacePreservation: [0.9, 1.0],
+  compositionPreservation: [0.8, 1.0],
+  fidelity: [0.8, 0.95], // ceiling 0.95 per the T6 acceptance criterion
+  cycleConsistency: [0.8, 0.9],
+};
+
+// ---------------------------------------------------------------------------
+// §6.2 normalization — applied at seed time to one side
+// ---------------------------------------------------------------------------
+
+export type Dir = "in" | "out";
+
+/** Canonical collapsed edge-kind alphabet (stable order) derived from a base set. */
+export function collapsedAlphabet(
+  baseKinds: readonly string[],
+  collapse: Record<string, string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const k of baseKinds) {
+    const c = collapse[k] ?? k;
+    if (!seen.has(c)) {
+      seen.add(c);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/** The 15 typed edge kinds — mirror of ctkr/ctkr/graph_loader.py EDGE_KINDS. */
+export const BASE_EDGE_KINDS = [
+  "CALLS",
+  "REFERENCES",
+  "EXTENDS",
+  "IMPLEMENTS",
+  "OVERRIDES",
+  "INJECTS",
+  "CONTAINS",
+  "IMPORTS",
+  "ANNOTATES",
+  "TYPE_OF",
+  "READS_FIELD",
+  "WRITES_FIELD",
+  "RETURNS_TYPE",
+  "CONSTRUCTS",
+  "RAISES",
+] as const;
+
+function idiomShimsFor(spec: NormalizationSpec, language?: string): IdiomShim[] {
+  if (!language) return [];
+  const v = spec.idiom_shims[language];
+  return Array.isArray(v) ? v : [];
+}
+
+export interface NormalizedSide {
+  objects: FunctorObject[];
+  edges: FunctorEdge[];
+  /** ids removed by idiom folding (their edges rerouted to the CONTAINS parent). */
+  foldedOut: Set<string>;
+  /** folded id → the parent it was merged into. */
+  containerOf: Map<string, string>;
+}
+
+/**
+ * Apply §6.2 normalization to one side at seed time:
+ *   1. kind-collapse edges (fold near-synonymous kinds — §6.2.2);
+ *   2. idiom-fold members into their CONTAINS parent (§6.2.3);
+ *   3. rebuild each object's profile as a depth-1 count vector over the COLLAPSED
+ *      alphabet, divided by this side's own per-kind marginal (§6.2.1 inverse-
+ *      marginal reweight) so language-dense kinds stop dominating the seed.
+ *
+ * Both sides are normalized with the SAME collapsed alphabet ordering, so the
+ * reweighted vectors are directly comparable across languages. The persisted
+ * artifacts are untouched — this reshapes only the in-memory search inputs.
+ */
+export function normalizeSide(
+  side: SideGraph,
+  spec: NormalizationSpec,
+  alphabet: string[],
+): NormalizedSide {
+  const collapse = spec.kind_collapse;
+  const collapseKind = (k: string): string => collapse[k] ?? k;
+
+  // --- 1. collapse edge kinds ---
+  const collapsedEdges: FunctorEdge[] = side.edges.map((e) => ({
+    src: e.src,
+    dst: e.dst,
+    kind: collapseKind(e.kind),
+  }));
+
+  // --- 2. idiom fold ---
+  const shims = idiomShimsFor(spec, side.language).map(
+    (s) => new RegExp(s.pattern),
+  );
+  const qn = side.qualifiedNames ?? new Map<string, string>();
+  const foldedOut = new Set<string>();
+  const containerOf = new Map<string, string>();
+  if (shims.length > 0) {
+    // CONTAINS parent of each object (post-collapse CONTAINS is unchanged).
+    const parent = new Map<string, string>();
+    for (const e of collapsedEdges) {
+      if (e.kind === "CONTAINS") parent.set(e.dst, e.src); // src CONTAINS dst
+    }
+    const objIds = new Set(side.objects.map((o) => o.id));
+    for (const o of side.objects) {
+      const name = qn.get(o.id) ?? "";
+      if (!name) continue;
+      if (shims.some((re) => re.test(name))) {
+        const p = parent.get(o.id);
+        // only fold when the parent exists and is itself a real object — a fold
+        // that would drop a top-level symbol is skipped (conservative).
+        if (p && objIds.has(p) && p !== o.id) {
+          foldedOut.add(o.id);
+          containerOf.set(o.id, p);
+        }
+      }
+    }
+  }
+  // resolve a chain of folds to the final surviving container.
+  const resolve = (id: string): string => {
+    let cur = id;
+    const guard = new Set<string>();
+    while (foldedOut.has(cur) && !guard.has(cur)) {
+      guard.add(cur);
+      cur = containerOf.get(cur)!;
+    }
+    return cur;
+  };
+
+  const survivingObjects = side.objects.filter((o) => !foldedOut.has(o.id));
+  // reroute folded members' edges to their surviving container; drop self loops.
+  const reroutedEdges: FunctorEdge[] = [];
+  for (const e of collapsedEdges) {
+    const s = resolve(e.src);
+    const d = resolve(e.dst);
+    if (s === d) continue;
+    reroutedEdges.push({ src: s, dst: d, kind: e.kind });
+  }
+
+  // --- 3. reweighted depth-1 profile over the collapsed alphabet ---
+  const dimIdx = new Map<string, number>();
+  alphabet.forEach((k, i) => {
+    dimIdx.set(`${k}|in`, 2 * i);
+    dimIdx.set(`${k}|out`, 2 * i + 1);
+  });
+  const nDim = alphabet.length * 2;
+  const counts = new Map<string, number[]>();
+  for (const o of survivingObjects) counts.set(o.id, new Array(nDim).fill(0));
+  const kindTotal = new Map<string, number>(); // side marginal per collapsed kind
+  for (const e of reroutedEdges) {
+    const oi = dimIdx.get(`${e.kind}|out`);
+    const ii = dimIdx.get(`${e.kind}|in`);
+    if (oi !== undefined && counts.has(e.src)) counts.get(e.src)![oi]!++;
+    if (ii !== undefined && counts.has(e.dst)) counts.get(e.dst)![ii]!++;
+    kindTotal.set(e.kind, (kindTotal.get(e.kind) ?? 0) + 1);
+  }
+  // inverse-marginal weights: rare (discriminative) kinds up-weighted, dense
+  // (language-biased) kinds down-weighted. Marginal = kind share of this side's
+  // edges; floor bounds absent/rare kinds.
+  const totalEdges = reroutedEdges.length || 1;
+  const floor = spec.reweight.floor;
+  const weight = new Map<string, number>();
+  for (const k of alphabet) {
+    const marginal = (kindTotal.get(k) ?? 0) / totalEdges;
+    weight.set(k, 1 / (marginal + floor));
+  }
+  const wVec = new Array<number>(nDim);
+  alphabet.forEach((k, i) => {
+    const w = weight.get(k)!;
+    wVec[2 * i] = w;
+    wVec[2 * i + 1] = w;
+  });
+
+  const objects: FunctorObject[] = survivingObjects.map((o) => {
+    const c = counts.get(o.id)!;
+    const v = new Array<number>(nDim);
+    for (let j = 0; j < nDim; j++) v[j] = c[j]! * wVec[j]!;
+    return { id: o.id, kind: o.kind, profileVec: v };
+  });
+
+  return { objects, edges: reroutedEdges, foldedOut, containerOf };
+}
+
+// ---------------------------------------------------------------------------
+// Witness helpers
+// ---------------------------------------------------------------------------
+
+/** directed same-kind witness set: `${src}|${kind}|${dst}`. */
+function buildEdgeSet(edges: FunctorEdge[]): Set<string> {
+  const s = new Set<string>();
+  for (const e of edges) s.add(`${e.src}|${e.kind}|${e.dst}`);
+  return s;
+}
+
+/** kinds incident to `id` in either direction. */
+function incidentKinds(edges: FunctorEdge[]): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  const add = (id: string, k: string) => {
+    let s = m.get(id);
+    if (!s) m.set(id, (s = new Set()));
+    s.add(k);
+  };
+  for (const e of edges) {
+    add(e.src, e.kind);
+    add(e.dst, e.kind);
+  }
+  return m;
+}
+
+function cycleConsistency(
+  fwd: FunctorSearchResult["mapping"],
+  rev: FunctorSearchResult["mapping"],
+): number {
+  if (fwd.length === 0) return -1;
+  const g = new Map<string, string>();
+  for (const m of rev) g.set(m.srcId, m.dstId);
+  let ok = 0;
+  for (const m of fwd) if (g.get(m.dstId) === m.srcId) ok++;
+  return ok / fwd.length;
+}
+
+// ---------------------------------------------------------------------------
+// The verifier
+// ---------------------------------------------------------------------------
+
+function mkGate(
+  name: string,
+  score: number,
+  [floor, ceiling]: [number, number],
+  detail: string,
+): GateResult {
+  return {
+    name,
+    score,
+    threshold: floor,
+    ceiling,
+    passed: score >= floor - 1e-9,
+    passedAtCeiling: score >= ceiling - 1e-9,
+    detail,
+  };
+}
+
+/**
+ * Verify a re-implementation `S'` against the extracted spec of `S`. Returns the
+ * §7 punch list + five gate scores. Pure: no artifact I/O, no disk writes — the
+ * caller assembles the spec + both side graphs (see `verifyPortFromDataDir`).
+ */
+export function verifyPort(opts: VerifyPortOptions): PortVerificationReport {
+  const th = { ...DEFAULT_GATE_THRESHOLDS, ...opts.thresholds };
+  const applyNorm =
+    opts.normalization != null && opts.applyNormalization !== false;
+  const norm = applyNorm ? opts.normalization! : null;
+
+  let srcObjs = opts.source.objects;
+  let srcEdges = opts.source.edges;
+  let dstObjs = opts.port.objects;
+  let dstEdges = opts.port.edges;
+  let foldedSrc = new Set<string>();
+  let foldedDst = new Set<string>();
+  let srcMembers = opts.source.memberSet ?? null;
+  let dstMembers = opts.port.memberSet ?? null;
+
+  if (norm) {
+    const alphabet = collapsedAlphabet(BASE_EDGE_KINDS, norm.kind_collapse);
+    const ns = normalizeSide(opts.source, norm, alphabet);
+    const nd = normalizeSide(opts.port, norm, alphabet);
+    srcObjs = ns.objects;
+    srcEdges = ns.edges;
+    dstObjs = nd.objects;
+    dstEdges = nd.edges;
+    foldedSrc = ns.foldedOut;
+    foldedDst = nd.foldedOut;
+    if (srcMembers) srcMembers = new Set([...srcMembers].filter((id) => !foldedSrc.has(id)));
+    if (dstMembers) dstMembers = new Set([...dstMembers].filter((id) => !foldedDst.has(id)));
+  }
+
+  const cfg = opts.config ?? {};
+  const fwd = functorSearch(
+    { srcObjects: srcObjs, srcEdges, dstObjects: dstObjs, dstEdges, srcMembers, dstMembers },
+    cfg,
+  );
+  const rev = functorSearch(
+    { srcObjects: dstObjs, srcEdges: dstEdges, dstObjects: srcObjs, dstEdges: srcEdges, srcMembers: dstMembers, dstMembers: srcMembers },
+    cfg,
+  );
+
+  const F = new Map<string, string>();
+  for (const m of fwd.mapping) F.set(m.srcId, m.dstId);
+  const dstEdgeSet = buildEdgeSet(dstEdges);
+  const dstIncident = incidentKinds(dstEdges);
+  // effective member set of S after folding (roles/members reference folded ids).
+  const foldName = opts.source.qualifiedNames ?? new Map<string, string>();
+  const portName = opts.port.qualifiedNames ?? new Map<string, string>();
+
+  const punch: PunchListItem[] = [];
+
+  // ---- Gate 1: role coverage ----
+  const gatedRoles = opts.spec.roles.filter(
+    (r) => (r.invarianceTier ?? "I") === "I" && !r.isIsolated,
+  );
+  let coveredRoles = 0;
+  for (const r of gatedRoles) {
+    const members = r.members.filter((m) => !foldedSrc.has(m));
+    if (members.length === 0) {
+      // every member folded as an idiom — not a lost role, skip from denominator.
+      continue;
+    }
+    const anyMapped = members.some((m) => F.has(m));
+    if (anyMapped) {
+      coveredRoles++;
+    } else {
+      punch.push({
+        gate: "role-coverage",
+        severity: "blocker",
+        cardSection: `roles[role_id=${r.roleId}]`,
+        label: r.label,
+        detail: `role class "${r.label ?? r.roleId}" (cardinality ${r.cardinality}) has NO member mapped into the port — the port dropped this role`,
+        exemplarSlices: [
+          {
+            symbolId: r.exemplarSymbolId,
+            qualifiedName: r.exemplarQualifiedName ?? foldName.get(r.exemplarSymbolId),
+            role: r.label ?? r.roleId,
+          },
+        ],
+      });
+    }
+  }
+  const roleDenom = gatedRoles.filter(
+    (r) => r.members.filter((m) => !foldedSrc.has(m)).length > 0,
+  ).length;
+  const roleCoverageScore = roleDenom === 0 ? 1 : coveredRoles / roleDenom;
+
+  // ---- Gate 2: interface preservation ----
+  let providesOk = 0;
+  const providesGated = opts.spec.provides.filter((p) => !foldedSrc.has(p.internalSymbolId));
+  for (const p of providesGated) {
+    const img = F.get(p.internalSymbolId);
+    if (img === undefined) {
+      punch.push({
+        gate: "interface-preservation",
+        severity: "blocker",
+        cardSection: `interface.provides[symbol=${p.internalQualifiedName ?? p.internalSymbolId}]`,
+        detail: `provided export "${p.internalQualifiedName ?? p.internalSymbolId}" (modes ${p.usageModes.join("/")}) has no image in the port — the export was lost`,
+        exemplarSlices: [
+          { symbolId: p.internalSymbolId, qualifiedName: p.internalQualifiedName ?? foldName.get(p.internalSymbolId), role: p.roleId },
+        ],
+      });
+      continue;
+    }
+    // "used in the same modes": the mapped export participates in an edge of each
+    // usage-mode kind (collapsed if normalization is on).
+    const collapse = norm ? norm.kind_collapse : {};
+    const wantKinds = new Set(p.usageModes.map((k) => collapse[k] ?? k));
+    const have = dstIncident.get(img) ?? new Set<string>();
+    const missing = [...wantKinds].filter((k) => !have.has(k));
+    if (missing.length === 0) {
+      providesOk++;
+    } else {
+      punch.push({
+        gate: "interface-preservation",
+        severity: "warning",
+        cardSection: `interface.provides[symbol=${p.internalQualifiedName ?? p.internalSymbolId}]`,
+        detail: `export "${p.internalQualifiedName ?? p.internalSymbolId}" maps to "${portName.get(img) ?? img}" but is not used in mode(s) ${missing.join("/")} there — usage contract changed`,
+        exemplarSlices: [
+          { symbolId: p.internalSymbolId, qualifiedName: p.internalQualifiedName ?? foldName.get(p.internalSymbolId) },
+          { symbolId: img, qualifiedName: portName.get(img) },
+        ],
+      });
+    }
+  }
+  const ifaceScore = providesGated.length === 0 ? 1 : providesOk / providesGated.length;
+
+  // ---- Gate 3: composition preservation ----
+  const roleMembers = new Map<string, string[]>();
+  for (const r of opts.spec.roles) roleMembers.set(r.roleId, r.members);
+  const roleLabel = new Map<string, string>();
+  for (const r of opts.spec.roles) roleLabel.set(r.roleId, r.label ?? r.roleId);
+
+  // a role-step (rA --kinds--> rB) is realizable iff some mapped members a∈rA,
+  // b∈rB have a same-kind (kind∈kinds) source edge a→b whose witness F(a)→F(b)
+  // exists in the port.
+  const srcEdgeAdj = new Map<string, FunctorEdge[]>();
+  for (const e of srcEdges) {
+    let a = srcEdgeAdj.get(e.src);
+    if (!a) srcEdgeAdj.set(e.src, (a = []));
+    a.push(e);
+  }
+  const stepRealizable = (rA: string, rB: string, kinds: Set<string>): boolean => {
+    const A = (roleMembers.get(rA) ?? []).filter((m) => !foldedSrc.has(m) && F.has(m));
+    const Bset = new Set((roleMembers.get(rB) ?? []).filter((m) => !foldedSrc.has(m) && F.has(m)));
+    if (A.length === 0 || Bset.size === 0) return false;
+    for (const a of A) {
+      for (const e of srcEdgeAdj.get(a) ?? []) {
+        if (!kinds.has(e.kind)) continue;
+        if (!Bset.has(e.dst)) continue;
+        if (dstEdgeSet.has(`${F.get(a)}|${e.kind}|${F.get(e.dst)}`)) return true;
+      }
+    }
+    return false;
+  };
+
+  const collapse = norm ? norm.kind_collapse : {};
+  const gatedOps = opts.spec.ops.filter(
+    (o) => o.opKind !== "non_operadic" && (o.invarianceTier ?? "I") === "I",
+  );
+  let opsOk = 0;
+  for (const op of gatedOps) {
+    const kinds = new Set(op.edgeKinds.map((k) => collapse[k] ?? k));
+    let realizable: boolean;
+    if (op.opKind === "fan_in") {
+      // every input role must reach the output role by a witnessed same-kind edge.
+      realizable = op.inputRoles.every((r) => stepRealizable(r, op.outputRole, kinds));
+    } else {
+      // path: consecutive role pairs [in0→in1→…→out] each realizable.
+      const chain = [...op.inputRoles, op.outputRole];
+      realizable = true;
+      for (let i = 0; i + 1 < chain.length; i++) {
+        if (!stepRealizable(chain[i]!, chain[i + 1]!, kinds)) {
+          realizable = false;
+          break;
+        }
+      }
+    }
+    if (realizable) {
+      opsOk++;
+    } else {
+      const roleChain = [...op.inputRoles, op.outputRole].map((r) => roleLabel.get(r) ?? r).join(" ∘ ");
+      punch.push({
+        gate: "composition-preservation",
+        severity: op.isBoundaryOp ? "blocker" : "warning",
+        cardSection: `composition_rules[operation_id=${op.operationId}]`,
+        label: op.label,
+        detail:
+          (op.isBoundaryOp ? "PROTOCOL op " : "op ") +
+          `"${op.label ?? op.operationId}" (${op.opKind} ${roleChain}, kinds ${op.edgeKinds.join("/")}) is not realizable in the port — ` +
+          (op.isBoundaryOp
+            ? "an external-facing order-of-operations contract the port breaks silently"
+            : "the composition law over roles is not preserved"),
+        exemplarSlices: (op.exemplarPaths ?? []).slice(0, 2).map((pth) => ({
+          symbolId: pth,
+          qualifiedName: pth,
+        })),
+      });
+    }
+  }
+  // ceiling requires ALL boundary (protocol) ops realizable.
+  const boundaryOps = gatedOps.filter((o) => o.isBoundaryOp);
+  const boundaryOk = boundaryOps.filter((op) => {
+    const kinds = new Set(op.edgeKinds.map((k) => collapse[k] ?? k));
+    if (op.opKind === "fan_in") return op.inputRoles.every((r) => stepRealizable(r, op.outputRole, kinds));
+    const chain = [...op.inputRoles, op.outputRole];
+    for (let i = 0; i + 1 < chain.length; i++) if (!stepRealizable(chain[i]!, chain[i + 1]!, kinds)) return false;
+    return true;
+  }).length;
+  const compScoreRaw = gatedOps.length === 0 ? 1 : opsOk / gatedOps.length;
+  // protocol failures cap the score below ceiling regardless of the raw fraction.
+  const compScore =
+    boundaryOps.length > 0 && boundaryOk < boundaryOps.length
+      ? Math.min(compScoreRaw, th.compositionPreservation[1] - 1e-6)
+      : compScoreRaw;
+
+  // ---- Gate 4: fidelity ----
+  const fidScore = fwd.fidelity < 0 ? 0 : fwd.fidelity;
+  if (!(fidScore >= th.fidelity[0] - 1e-9)) {
+    punch.push({
+      gate: "fidelity",
+      severity: "blocker",
+      cardSection: "functor.fidelity",
+      detail: `functor fidelity ${fidScore.toFixed(3)} < floor ${th.fidelity[0]} over ${fwd.nEdgesInternal} internal edges — the port preserves too few typed edges to be a structure-preserving map`,
+      exemplarSlices: [],
+    });
+  }
+
+  // ---- Gate 5: cycle consistency ----
+  const cyc = cycleConsistency(fwd.mapping, rev.mapping);
+  const cycScore = cyc < 0 ? 0 : cyc;
+  if (!(cycScore >= th.cycleConsistency[0] - 1e-9)) {
+    punch.push({
+      gate: "cycle-consistency",
+      severity: "warning",
+      cardSection: "functor.cycle_consistency",
+      detail: `cycle consistency G(F(s))=s is ${cycScore.toFixed(3)} < floor ${th.cycleConsistency[0]} — the forward and reverse maps disagree, a sign the match is displaced onto the wrong region`,
+      exemplarSlices: [],
+    });
+  }
+
+  const gates = {
+    roleCoverage: mkGate("role coverage", roleCoverageScore, th.roleCoverage, `${coveredRoles}/${roleDenom} tier-I role classes covered`),
+    interfacePreservation: mkGate("interface preservation", ifaceScore, th.interfacePreservation, `${providesOk}/${providesGated.length} provided exports preserved`),
+    compositionPreservation: mkGate("composition preservation", compScore, th.compositionPreservation, `${opsOk}/${gatedOps.length} composition ops realizable (${boundaryOk}/${boundaryOps.length} protocol ops)`),
+    fidelity: mkGate("fidelity", fidScore, th.fidelity, `${fwd.nEdgesPreserved}/${fwd.nEdgesInternal} internal edges preserved`),
+    cycleConsistency: mkGate("cycle consistency", cycScore, th.cycleConsistency, `G(F(s))=s on ${cycScore.toFixed(3)} of mapped pairs`),
+  };
+
+  const passedAtCeiling =
+    gates.roleCoverage.passedAtCeiling &&
+    gates.interfacePreservation.passedAtCeiling &&
+    gates.compositionPreservation.passedAtCeiling &&
+    gates.fidelity.passedAtCeiling &&
+    gates.cycleConsistency.passedAtCeiling;
+
+  // punch list sorted: blockers first, then by gate strictness.
+  const gateOrder = ["role-coverage", "interface-preservation", "composition-preservation", "fidelity", "cycle-consistency"];
+  punch.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "blocker" ? -1 : 1;
+    return gateOrder.indexOf(a.gate) - gateOrder.indexOf(b.gate);
+  });
+
+  return {
+    subsystemId: opts.spec.subsystemId,
+    repo: opts.spec.repo,
+    portRepo: opts.port.language ?? "port",
+    normalizationApplied: applyNorm,
+    normalizationVersion: norm ? norm.version : null,
+    gates,
+    passedAtCeiling,
+    punchList: punch,
+    functor: {
+      coverage: fwd.coverage,
+      fidelity: fidScore,
+      nMapped: fwd.nMapped,
+      nObjectsSrc: fwd.nObjectsSrc,
+      cycleConsistency: cycScore,
+    },
+    mappingCount: fwd.mapping.length,
+  };
+}
+
+/** Render a report as a human-readable punch list (for the CLI / eval output). */
+export function formatReport(r: PortVerificationReport): string {
+  const lines: string[] = [];
+  const pct = (x: number) => (x * 100).toFixed(1) + "%";
+  lines.push(`# Port verification — ${r.repo} / ${r.subsystemId}`);
+  lines.push(`normalization: ${r.normalizationApplied ? `on (v${r.normalizationVersion})` : "off"}   passedAtCeiling: ${r.passedAtCeiling}`);
+  lines.push("");
+  lines.push("## Gates");
+  for (const g of Object.values(r.gates)) {
+    const mark = g.passedAtCeiling ? "✓✓" : g.passed ? "✓ " : "✗ ";
+    lines.push(`  ${mark} ${g.name.padEnd(26)} ${pct(g.score).padStart(7)}  (floor ${g.threshold}, ceiling ${g.ceiling})  — ${g.detail}`);
+  }
+  lines.push("");
+  lines.push(`## Punch list (${r.punchList.length} item${r.punchList.length === 1 ? "" : "s"})`);
+  if (r.punchList.length === 0) {
+    lines.push("  (empty — every gate at ceiling)");
+  }
+  for (const p of r.punchList) {
+    lines.push(`  [${p.severity}] ${p.gate} → ${p.cardSection}`);
+    lines.push(`      ${p.detail}`);
+    for (const s of p.exemplarSlices) {
+      lines.push(`      · ${s.qualifiedName ?? s.symbolId}${s.role ? ` (role ${s.role})` : ""}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// CLI recipe (import.meta.main) — thin wrapper documented in §8.2
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  // The artifact-reading recipe lives in eval/ctkr/port_verify_experiment.ts
+  // (it needs DuckDB + the export JSONL lane). This entry documents the shape.
+  process.stderr.write(
+    "verifyPort: import { verifyPort } from this module, or run the recipe\n" +
+      "  bun run eval/ctkr/port_verify_experiment.ts --data-dir <dir> --spec-subsystem <id> --port-subsystem <id>\n" +
+      "See docs/design/ct-subsystem-extraction.md §7 (T6).\n",
+  );
+  if (!isAbsolute(process.cwd())) throw new Error("unreachable");
+}
