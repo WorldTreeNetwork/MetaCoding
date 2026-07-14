@@ -26,9 +26,11 @@ import type { ToolDescription } from "./tools.ts";
 import type {
   ArtifactManifest,
   CentralityRow,
+  DataShapeRow,
   EdgeKind,
   EvidenceRow,
   FunctorRow,
+  InterfaceRow,
   MotifRow,
   PatternRow,
   SpectralClusterRow,
@@ -178,6 +180,30 @@ export interface SubsystemsResult {
   _note?: string;
 }
 
+/** Result shape for ctkr.interface_of (§3 / §8.2, T2). The subsystem's raw
+ *  contract rows, for programmatic consumers, plus rolled-up summaries. */
+export interface InterfaceOfResult {
+  subsystem_id: string;
+  repo: string | null;
+  /** provides rows (external → internal), unless direction="consumes". */
+  provides: InterfaceRow[];
+  /** consumes rows (internal → external), unless direction="provides". */
+  consumes: InterfaceRow[];
+  /** Distinct top-level exports referenced across the boundary (the API surface). */
+  provides_exports: string[];
+  /** Distinct target subsystems this one depends on (the dependency topology);
+   *  "(external)" = an unpartitioned/external-package target. */
+  consumes_subsystems: string[];
+  /** Data shapes crossing (boundary) or private to (internal) the subsystem. */
+  data_shapes: DataShapeRow[];
+  n_boundary_shapes: number;
+  n_internal_shapes: number;
+  /** Per-lane data-alphabet coverage note (§3) for this subsystem's repo. */
+  alphabet_coverage: Record<string, unknown> | null;
+  truncated: boolean;
+  _note?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -234,6 +260,14 @@ const SUBSYSTEMS_SCHEMA = {
   resolution: z.number().optional(),
   min_persistence: z.number().min(0).max(1).optional(),
   boundary_sample: z.number().int().min(0).max(200).optional(),
+};
+
+const INTERFACE_OF_SCHEMA = {
+  subsystem: z.string().min(1),
+  repo: z.string().optional(),
+  direction: z.enum(["provides", "consumes"]).optional(),
+  boundary_shapes_only: z.boolean().optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
 };
 
 const FUNCTOR_BETWEEN_SCHEMA = {
@@ -688,6 +722,132 @@ export async function subsystemsQuery(input: {
 }
 
 // ---------------------------------------------------------------------------
+// ctkr.interface_of (subsystem-extraction §3 / §8.2, T2)
+// ---------------------------------------------------------------------------
+
+export async function interfaceOf(input: {
+  subsystem: string;
+  repo?: string;
+  direction?: "provides" | "consumes";
+  boundary_shapes_only?: boolean;
+  limit?: number;
+}): Promise<InterfaceOfResult> {
+  const limit = input.limit ?? 1000;
+  const dataDir = resolveCtkrDataDir();
+  const handle = await openCtkrArtifacts(dataDir);
+  try {
+    const notes: string[] = [];
+
+    const manifest = await handle.manifest();
+    if (!manifest.interfaces) {
+      throw new Error(
+        `interface artifacts not found in ${dataDir} — run \`ctkr interfaces\` ` +
+          `(Stage B) after \`ctkr subsystems\` (Stage A) to generate them`,
+      );
+    }
+
+    // Fetch provides/consumes per the direction filter. Over-fetch by one to
+    // detect truncation on the primary rows.
+    const wantProvides = input.direction !== "consumes";
+    const wantConsumes = input.direction !== "provides";
+    const provides = wantProvides
+      ? await handle.interfaces({
+          repo: input.repo,
+          subsystemId: input.subsystem,
+          direction: "provides",
+          limit: limit + 1,
+        })
+      : [];
+    const consumes = wantConsumes
+      ? await handle.interfaces({
+          repo: input.repo,
+          subsystemId: input.subsystem,
+          direction: "consumes",
+          limit: limit + 1,
+        })
+      : [];
+
+    if (provides.length === 0 && consumes.length === 0) {
+      // Distinguish "unknown subsystem" from "no crossing morphisms".
+      const all = await handle.interfaces({ repo: input.repo, limit: 100000 });
+      const known = new Set(all.map((r) => r.subsystem_id));
+      if (!known.has(input.subsystem)) {
+        const sample = [...known].sort().slice(0, 12);
+        notes.push(
+          `unknown subsystem "${input.subsystem}"` +
+            (input.repo ? ` in repo "${input.repo}"` : "") +
+            `; known subsystem_ids include: ${sample.join(", ") || "(none)"}` +
+            (known.size > sample.length ? ` (+${known.size - sample.length} more)` : ""),
+        );
+      } else {
+        notes.push(
+          `subsystem "${input.subsystem}" has no crossing morphisms in the ` +
+            `requested direction (an isolated or leaf subsystem)`,
+        );
+      }
+    }
+
+    const truncated = provides.length > limit || consumes.length > limit;
+    const provOut = provides.slice(0, limit);
+    const consOut = consumes.slice(0, limit);
+
+    // Rolled-up API surface + dependency topology.
+    const provExports = [
+      ...new Set(
+        provOut
+          .map((r) => r.internal_export_qualified_name)
+          .filter((q) => q && q.includes("::")),
+      ),
+    ].sort();
+    const consSubs = [
+      ...new Set(consOut.map((r) => r.external_subsystem_id ?? "(external)")),
+    ].sort();
+
+    // Data shapes for this subsystem.
+    let shapes = await handle.dataShapes({
+      repo: input.repo,
+      subsystemId: input.subsystem,
+      boundaryOnly: input.boundary_shapes_only,
+      limit,
+    });
+    const boundaryTypes = new Set(
+      shapes.filter((s) => s.boundary).map((s) => s.type_symbol_id),
+    );
+    const internalTypes = new Set(
+      shapes.filter((s) => !s.boundary).map((s) => s.type_symbol_id),
+    );
+
+    // Resolve the subsystem's repo (rows carry it) for the alphabet note.
+    const repo =
+      provOut[0]?.repo ?? consOut[0]?.repo ?? shapes[0]?.repo ?? input.repo ?? null;
+    const cov =
+      (manifest.alphabet_coverage as
+        | Record<string, Record<string, unknown>>
+        | null
+        | undefined) ?? null;
+    const alphabet = repo && cov ? (cov[repo] ?? null) : null;
+
+    const result: InterfaceOfResult = {
+      subsystem_id: input.subsystem,
+      repo,
+      provides: provOut,
+      consumes: consOut,
+      provides_exports: provExports,
+      consumes_subsystems: consSubs,
+      data_shapes: shapes,
+      n_boundary_shapes: boundaryTypes.size,
+      n_internal_shapes: internalTypes.size,
+      alphabet_coverage: alphabet,
+      truncated,
+    };
+    if (notes.length > 0) result._note = notes.join("; ");
+    return result;
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ctkr.functor_between (§4)
 // ---------------------------------------------------------------------------
 
@@ -1081,6 +1241,39 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     },
   },
   {
+    name: "ctkr.interface_of",
+    summary:
+      "Return a subsystem's interface contract (subsystem-extraction Stage B): " +
+      "its boundary morphisms. provides = external->internal crossing edges (the " +
+      "API surface; each internal symbol is an export, edge_kind its usage mode); " +
+      "consumes = internal->external crossings (the dependency surface, with the " +
+      "target subsystem giving the deck's topology). Also returns the rolled-up " +
+      "export surface, the data shapes crossing (boundary) or private to " +
+      "(internal) the subsystem with per-field read/write flow, and the per-lane " +
+      "alphabet_coverage note (whether a thin shapes section is an extractor gap). " +
+      "Reads interfaces.parquet / data_shapes.parquet (extraction is the `ctkr " +
+      "interfaces` batch runner). Filter by subsystem (subsystem_id, required), " +
+      "repo, direction, boundary_shapes_only.",
+    input_schema: {
+      type: "object",
+      required: ["subsystem"],
+      properties: {
+        subsystem: { type: "string", description: "subsystem_id (from ctkr.subsystems)." },
+        repo: { type: "string", description: "Restrict to one repo." },
+        direction: {
+          type: "string",
+          enum: ["provides", "consumes"],
+          description: "Return only this side of the contract; omit for both.",
+        },
+        boundary_shapes_only: {
+          type: "boolean",
+          description: "Only data shapes that cross the interface (boundary types).",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 5000, default: 1000 },
+      },
+    },
+  },
+  {
     name: "ctkr.functor_between",
     summary:
       "Discover how two repos' designs correspond: the maximal partial " +
@@ -1144,7 +1337,7 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
 ];
 
 /**
- * Register all eight CTKR tools on the given McpServer.
+ * Register all nine CTKR tools on the given McpServer.
  * Call this from server.ts after the existing graph tool registrations.
  * Keep the registrations here in sync with CTKR_TOOL_DESCRIPTIONS above.
  */
@@ -1315,6 +1508,43 @@ export function registerCtkrTools(server: McpServer): void {
         resolution: args.resolution,
         min_persistence: args.min_persistence,
         boundary_sample: args.boundary_sample,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    "ctkr.interface_of",
+    {
+      description:
+        "Return a subsystem's interface contract (subsystem-extraction Stage B / " +
+        "§3): the set of morphisms crossing its boundary — which is where a " +
+        "subsystem's contract actually lives, since it is written down nowhere. " +
+        "provides = external->internal crossing edges (the API surface; each " +
+        "internal symbol is an export and edge_kind is its usage mode: " +
+        "REFERENCES/CALLS in = invoked, IMPLEMENTS in = extension point, " +
+        "TYPE_OF/RETURNS_TYPE in = used as a type, CONSTRUCTS in = instantiated). " +
+        "consumes = internal->external crossings (the dependency surface; " +
+        "external_subsystem_id gives the deck's subsystem-level topology, null = " +
+        "external package). CONTAINS scaffolding is excluded. Also returns " +
+        "provides_exports (the rolled-up top-level API surface), " +
+        "consumes_subsystems (dependency topology), data_shapes (types crossing " +
+        "the interface = boundary, or private = internal, with per-field " +
+        "read/write flow so an output contract is distinguishable from an input), " +
+        "and the per-lane alphabet_coverage note (so a thin shapes section reads " +
+        "as an extractor gap, not an absent data model). Reads interfaces.parquet " +
+        "/ data_shapes.parquet only — extraction is the `ctkr interfaces` batch " +
+        "runner. Requires subsystem (subsystem_id from ctkr.subsystems); filter " +
+        "by repo, direction ('provides'|'consumes'), boundary_shapes_only.",
+      inputSchema: INTERFACE_OF_SCHEMA,
+    },
+    async (args) => {
+      const result = await interfaceOf({
+        subsystem: args.subsystem,
+        repo: args.repo,
+        direction: args.direction,
+        boundary_shapes_only: args.boundary_shapes_only,
+        limit: args.limit,
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

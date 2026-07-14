@@ -19,20 +19,25 @@
  * consult it before assuming an artifact exists.
  */
 export interface ArtifactManifest {
+    alphabet_coverage?:  { [key: string]: { [key: string]: any } } | null;
     centrality?:         boolean;
+    data_shapes?:        boolean;
     embedding_dim?:      number | null;
     embeddings?:         boolean;
     functor_edges?:      boolean;
     functors?:           boolean;
     generated_at:        string;
     hom_profiles?:       boolean;
+    interfaces?:         boolean;
     kind_weights?:       { [key: string]: number } | null;
     metacoding_data_dir: string;
     motif_instances?:    boolean;
     motifs?:             boolean;
+    n_data_shapes?:      number;
     n_functor_edges?:    number;
     n_functors?:         number;
     n_hom_profiles?:     number;
+    n_interfaces?:       number;
     n_motif_instances?:  number;
     n_motifs?:           number;
     n_subsystems?:       number;
@@ -67,6 +72,42 @@ export interface CentralityRow {
     repo:            string;
     schema_version?: number;
     symbol_id:       string;
+    [property: string]: any;
+}
+
+/**
+ * One field of a type in the boundary/internal data vocabulary (§3).
+ *
+ * One row per ``(subsystem_id, type_symbol_id, field)``. A type is a
+ * **boundary** shape (``boundary=True``) when it crosses the interface (a
+ * port must reproduce it semantically) or **internal** otherwise (a port may
+ * restructure it — accidental-unless-persistent, §6.1). ``read_by_*`` /
+ * ``written_by_*`` record per-field flow direction: a field written only by
+ * the subsystem and read externally is an *output* contract; written
+ * externally and read internally is an *input*. Fieldless boundary types get a
+ * single row with null ``field_*`` so the type is still recorded.
+ *
+ * Recovered from ``READS_FIELD`` / ``WRITES_FIELD`` (flow), ``TYPE_OF`` (a
+ * field's declared type), ``CONSTRUCTS`` (``constructed_by``) — the
+ * MetaCoding-e54/3s5/9le data alphabet. Coverage is per-lane uneven; the run's
+ * ``ArtifactManifest.alphabet_coverage`` note says whether a thin shapes
+ * section is an extractor gap rather than an absent data model.
+ */
+export interface DataShapeRow {
+    boundary:            boolean;
+    constructed_by:      string[];
+    field_name:          null | string;
+    field_symbol_id:     null | string;
+    field_type:          null | string;
+    read_by_external:    boolean;
+    read_by_internal:    boolean;
+    repo:                string;
+    schema_version?:     number;
+    subsystem_id:        string;
+    type_qualified_name: string;
+    type_symbol_id:      string;
+    written_by_external: boolean;
+    written_by_internal: boolean;
     [property: string]: any;
 }
 
@@ -211,6 +252,47 @@ export interface HomProfileRow {
     symbol_id:       string;
     [property: string]: any;
 }
+
+/**
+ * One cross-boundary contract morphism (subsystem-extraction §3, Stage B).
+ *
+ * A subsystem's interface contract is not written down anywhere — it *is* the
+ * set of morphisms crossing its boundary. One row per aggregated
+ * ``(subsystem_id, direction, internal_symbol_id, external_symbol_id,
+ * edge_kind)``:
+ *
+ * - ``direction="provides"`` — an external symbol references an internal one
+ * (the API surface); ``internal_symbol_id`` is the export, ``edge_kind`` its
+ * usage mode (``REFERENCES``/``CALLS`` in = invoked, ``IMPLEMENTS`` in =
+ * extension point, ``TYPE_OF``/``RETURNS_TYPE`` in = used as a type,
+ * ``CONSTRUCTS`` in = instantiated).
+ * - ``direction="consumes"`` — an internal symbol references an external one
+ * (the dependency surface); ``external_subsystem_id`` gives the
+ * subsystem-level topology (null = external package / unpartitioned).
+ *
+ * ``CONTAINS`` scaffolding is excluded (§6.1 tier-A). ``internal_export_*``
+ * rolls the (possibly nested) internal symbol up to its top-level declaration
+ * — the re-implementer's actual export surface — computed name-blind from the
+ * qualified-name path. The raw ``internal_symbol_id`` stays maximal-precision.
+ */
+export interface InterfaceRow {
+    direction:                      Direction;
+    edge_count:                     number;
+    edge_kind:                      string;
+    external_qualified_name:        string;
+    external_subsystem_id:          null | string;
+    external_symbol_id:             string;
+    internal_export_qualified_name: string;
+    internal_export_symbol_id:      null | string;
+    internal_qualified_name:        string;
+    internal_symbol_id:             string;
+    repo:                           string;
+    schema_version?:                number;
+    subsystem_id:                   string;
+    [property: string]: any;
+}
+
+export type Direction = "provides" | "consumes";
 
 /**
  * Inclusive line span in a source file.

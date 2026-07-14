@@ -151,6 +151,71 @@ export interface SubsystemMemberRow {
 }
 
 /**
+ * One cross-boundary contract morphism (subsystem-extraction §3, Stage B / T2).
+ * Mirrors InterfaceRow in schema.py.
+ *
+ * direction="provides": an external symbol references an internal one (the API
+ * surface); internal_symbol_id is the export, edge_kind its usage mode.
+ * direction="consumes": an internal symbol references an external one (the
+ * dependency surface); external_subsystem_id gives the subsystem-level topology
+ * (null = external package / unpartitioned). CONTAINS scaffolding is excluded.
+ * internal_export_* rolls the (possibly nested) internal symbol up to its
+ * top-level declaration — the re-implementer's actual export surface.
+ */
+export interface InterfaceRow {
+  /** FK → subsystems.parquet (the subsystem this row is for). */
+  subsystem_id: string;
+  repo: string;
+  direction: "provides" | "consumes";
+  /** The crossing morphism's kind (usage mode). */
+  edge_kind: string;
+  /** Summed multiplicity of this crossing. */
+  edge_count: number;
+  internal_symbol_id: string;
+  internal_qualified_name: string;
+  /** Top-level owner of the internal symbol (roll-up); null if unresolved. */
+  internal_export_symbol_id: string | null;
+  internal_export_qualified_name: string;
+  external_symbol_id: string;
+  external_qualified_name: string;
+  /** The external symbol's subsystem; null = external/unpartitioned. */
+  external_subsystem_id: string | null;
+  schema_version: number;
+}
+
+/**
+ * One field of a type in the boundary/internal data vocabulary (§3, T2).
+ * Mirrors DataShapeRow in schema.py.
+ *
+ * boundary=true when the type crosses the interface (a port must reproduce it
+ * semantically) vs internal (a port may restructure it). read_by_* / written_by_*
+ * record per-field flow: written-only-internally + read-externally = an output
+ * contract; written-externally + read-internally = an input. Fieldless boundary
+ * types get a single row with null field_*.
+ */
+export interface DataShapeRow {
+  /** FK → subsystems.parquet. */
+  subsystem_id: string;
+  repo: string;
+  type_symbol_id: string;
+  type_qualified_name: string;
+  /** Crosses the interface (true) vs private/internal (false). */
+  boundary: boolean;
+  /** null for a fieldless-type summary row. */
+  field_symbol_id: string | null;
+  field_name: string | null;
+  /** Qualified name of the field's declared type, if known. */
+  field_type: string | null;
+  read_by_internal: boolean;
+  read_by_external: boolean;
+  written_by_internal: boolean;
+  written_by_external: boolean;
+  /** Qualified names of symbols that CONSTRUCT the type. */
+  constructed_by: string[];
+  schema_version: number;
+}
+
+/**
  * Metadata sidecar for the nn_index/ directory.
  * Mirrors NNIndexMeta in schema.py.
  */
@@ -271,6 +336,9 @@ export interface ArtifactManifest {
   /** Subsystem-extraction Stage A presence flags (§2.4, T1). */
   subsystems?: boolean;
   subsystem_members?: boolean;
+  /** Subsystem-extraction Stage B presence flags (§3, T2). */
+  interfaces?: boolean;
+  data_shapes?: boolean;
   embedding_dim: number | null;
   profile_vec_dim: number | null;
   /** Hom-profile neighbourhood depth the seeds were built at (1 or 2). */
@@ -282,6 +350,14 @@ export interface ArtifactManifest {
   n_functors: number;
   n_functor_edges: number;
   n_subsystems?: number;
+  n_interfaces?: number;
+  n_data_shapes?: number;
+  /**
+   * Per-repo-lane data-alphabet coverage note (§3): which data-edge kinds are
+   * present + the scip/tree-sitter source mix, so a thin data_shapes section
+   * reads as an extractor gap, not an absent data model.
+   */
+  alphabet_coverage?: Record<string, Record<string, unknown>> | null;
   notes: string | null;
   /** Forward-compat: extra keys from future schema versions round-trip. */
   [extra: string]: unknown;

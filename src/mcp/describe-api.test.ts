@@ -43,7 +43,7 @@ test("describe_api lists every registered tool (no drift)", async () => {
   expect(missing).toEqual([]);
 });
 
-test("describe_api exposes all eight ctkr.* tools", () => {
+test("describe_api exposes all nine ctkr.* tools", () => {
   const described = new Set(describeApi().tools.map((t) => t.name));
   for (const name of [
     "ctkr.motif_search",
@@ -54,6 +54,7 @@ test("describe_api exposes all eight ctkr.* tools", () => {
     "ctkr.centrality_query",
     "ctkr.functor_between",
     "ctkr.subsystems",
+    "ctkr.interface_of",
   ]) {
     expect(described.has(name)).toBe(true);
   }

@@ -15,12 +15,14 @@ import { join, isAbsolute } from "node:path";
 import type {
   ArtifactManifest,
   CentralityRow,
+  DataShapeRow,
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
   FunctorEdgeRow,
   FunctorRow,
   HomProfileRow,
+  InterfaceRow,
   MotifInstanceRow,
   MotifRow,
   NNIndexMeta,
@@ -143,6 +145,31 @@ export interface CtkrHandle {
     minBoundaryConfidence?: number;
     limit?: number;
   }): Promise<SubsystemMemberRow[]>;
+
+  /**
+   * Reads interface (boundary-morphism) rows (interfaces.parquet, Stage B).
+   * Filter by repo, subsystem_id, and/or direction ("provides" | "consumes").
+   * Ordered by direction, then edge_count descending (the strongest crossings
+   * first).
+   */
+  interfaces(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    direction?: "provides" | "consumes";
+    limit?: number;
+  }): Promise<InterfaceRow[]>;
+
+  /**
+   * Reads data-shape rows (data_shapes.parquet, Stage B). Filter by repo,
+   * subsystem_id, and/or boundaryOnly (only types that cross the interface).
+   * Ordered by boundary (crossing types first), then type then field.
+   */
+  dataShapes(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    boundaryOnly?: boolean;
+    limit?: number;
+  }): Promise<DataShapeRow[]>;
 
   /**
    * Reads rows from hom_profiles.parquet. Filters by symbol IDs and/or
@@ -711,6 +738,74 @@ class CtkrHandleImpl implements CtkrHandle {
     return toObjects(result) as unknown as SubsystemMemberRow[];
   }
 
+  async interfaces(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    direction?: "provides" | "consumes";
+    limit?: number;
+  }): Promise<InterfaceRow[]> {
+    await this.requireArtifact("interfaces");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.subsystemId !== undefined) {
+      clauses.push(`subsystem_id = $subsystem_id`);
+      params["subsystem_id"] = opts.subsystemId;
+    }
+    if (opts?.direction !== undefined) {
+      // direction is a TS union — safe to compare via a bound param.
+      clauses.push(`direction = $direction`);
+      params["direction"] = opts.direction;
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("interfaces.parquet")}') ${where} ` +
+      `ORDER BY direction, edge_count DESC, internal_symbol_id, external_symbol_id ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as InterfaceRow[];
+  }
+
+  async dataShapes(opts?: {
+    repo?: string;
+    subsystemId?: string;
+    boundaryOnly?: boolean;
+    limit?: number;
+  }): Promise<DataShapeRow[]> {
+    await this.requireArtifact("data_shapes");
+
+    const clauses: string[] = [];
+    const params: Record<string, string> = {};
+    if (opts?.repo !== undefined) {
+      clauses.push(`repo = $repo`);
+      params["repo"] = opts.repo;
+    }
+    if (opts?.subsystemId !== undefined) {
+      clauses.push(`subsystem_id = $subsystem_id`);
+      params["subsystem_id"] = opts.subsystemId;
+    }
+    if (opts?.boundaryOnly) {
+      clauses.push(`boundary = true`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
+    const sql =
+      `SELECT * FROM read_parquet('${this.path("data_shapes.parquet")}') ${where} ` +
+      `ORDER BY boundary DESC, type_qualified_name, field_name NULLS FIRST ${limitClause}`;
+    const result = await this.conn.runAndReadAll(
+      sql,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
+    return toObjects(result) as unknown as DataShapeRow[];
+  }
+
   async homProfiles(opts?: {
     symbolIds?: string[];
     repo?: string;
@@ -908,12 +1003,14 @@ class CtkrHandleImpl implements CtkrHandle {
 export type {
   ArtifactManifest,
   CentralityRow,
+  DataShapeRow,
   EdgeKind,
   EmbeddingRow,
   EvidenceRow,
   FunctorEdgeRow,
   FunctorRow,
   HomProfileRow,
+  InterfaceRow,
   MotifInstanceRow,
   MotifRow,
   NNIndexMeta,

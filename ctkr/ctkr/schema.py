@@ -239,6 +239,79 @@ class SubsystemMemberRow(BaseModel):
     schema_version: int = SCHEMA_VERSION
 
 
+class InterfaceRow(BaseModel):
+    """One cross-boundary contract morphism (subsystem-extraction §3, Stage B).
+
+    A subsystem's interface contract is not written down anywhere — it *is* the
+    set of morphisms crossing its boundary. One row per aggregated
+    ``(subsystem_id, direction, internal_symbol_id, external_symbol_id,
+    edge_kind)``:
+
+    - ``direction="provides"`` — an external symbol references an internal one
+      (the API surface); ``internal_symbol_id`` is the export, ``edge_kind`` its
+      usage mode (``REFERENCES``/``CALLS`` in = invoked, ``IMPLEMENTS`` in =
+      extension point, ``TYPE_OF``/``RETURNS_TYPE`` in = used as a type,
+      ``CONSTRUCTS`` in = instantiated).
+    - ``direction="consumes"`` — an internal symbol references an external one
+      (the dependency surface); ``external_subsystem_id`` gives the
+      subsystem-level topology (null = external package / unpartitioned).
+
+    ``CONTAINS`` scaffolding is excluded (§6.1 tier-A). ``internal_export_*``
+    rolls the (possibly nested) internal symbol up to its top-level declaration
+    — the re-implementer's actual export surface — computed name-blind from the
+    qualified-name path. The raw ``internal_symbol_id`` stays maximal-precision.
+    """
+
+    subsystem_id: str  # FK → subsystems.parquet (the subsystem this row is for)
+    repo: str
+    direction: Literal["provides", "consumes"]
+    edge_kind: str  # the crossing morphism's kind (usage mode)
+    edge_count: NonNegativeInt  # summed multiplicity of this crossing
+    internal_symbol_id: str  # the member of this subsystem
+    internal_qualified_name: str
+    internal_export_symbol_id: str | None  # top-level owner (roll-up); None if unresolved
+    internal_export_qualified_name: str
+    external_symbol_id: str  # the symbol on the other side of the boundary
+    external_qualified_name: str
+    external_subsystem_id: str | None  # its subsystem; None = external/unpartitioned
+    schema_version: int = SCHEMA_VERSION
+
+
+class DataShapeRow(BaseModel):
+    """One field of a type in the boundary/internal data vocabulary (§3).
+
+    One row per ``(subsystem_id, type_symbol_id, field)``. A type is a
+    **boundary** shape (``boundary=True``) when it crosses the interface (a
+    port must reproduce it semantically) or **internal** otherwise (a port may
+    restructure it — accidental-unless-persistent, §6.1). ``read_by_*`` /
+    ``written_by_*`` record per-field flow direction: a field written only by
+    the subsystem and read externally is an *output* contract; written
+    externally and read internally is an *input*. Fieldless boundary types get a
+    single row with null ``field_*`` so the type is still recorded.
+
+    Recovered from ``READS_FIELD`` / ``WRITES_FIELD`` (flow), ``TYPE_OF`` (a
+    field's declared type), ``CONSTRUCTS`` (``constructed_by``) — the
+    MetaCoding-e54/3s5/9le data alphabet. Coverage is per-lane uneven; the run's
+    ``ArtifactManifest.alphabet_coverage`` note says whether a thin shapes
+    section is an extractor gap rather than an absent data model.
+    """
+
+    subsystem_id: str  # FK → subsystems.parquet
+    repo: str
+    type_symbol_id: str  # the type (class / interface / type_alias / struct / …)
+    type_qualified_name: str
+    boundary: bool  # crosses the interface (True) vs private/internal (False)
+    field_symbol_id: str | None  # null for a fieldless-type summary row
+    field_name: str | None
+    field_type: str | None  # qualified name of the field's declared type, if known
+    read_by_internal: bool
+    read_by_external: bool
+    written_by_internal: bool
+    written_by_external: bool
+    constructed_by: list[str]  # qualified names of symbols that CONSTRUCT the type
+    schema_version: int = SCHEMA_VERSION
+
+
 class SpectralClusterRow(BaseModel):
     """Per-symbol cluster assignment produced by L1/S2.
 
@@ -374,6 +447,9 @@ class ArtifactManifest(BaseModel):
     # Subsystem-extraction Stage A artifacts (subsystem-extraction §2.4, T1).
     subsystems: bool = False
     subsystem_members: bool = False
+    # Subsystem-extraction Stage B artifacts (subsystem-extraction §3, T2).
+    interfaces: bool = False
+    data_shapes: bool = False
     # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
     functors: bool = False
     functor_edges: bool = False
@@ -396,6 +472,12 @@ class ArtifactManifest(BaseModel):
     n_functors: NonNegativeInt = 0
     n_functor_edges: NonNegativeInt = 0
     n_subsystems: NonNegativeInt = 0
+    n_interfaces: NonNegativeInt = 0
+    n_data_shapes: NonNegativeInt = 0
+    # Per-repo-lane data-alphabet coverage note (subsystem-extraction §3): which
+    # data-edge kinds are present + the scip/tree-sitter source mix, so a thin
+    # data_shapes section reads as an extractor gap, not an absent data model.
+    alphabet_coverage: dict[str, dict] | None = None
     notes: str | None = None
 
 
@@ -472,6 +554,39 @@ SUBSYSTEM_MEMBERS_COLUMNS: tuple[str, ...] = (
     "schema_version",
 )
 
+INTERFACES_COLUMNS: tuple[str, ...] = (
+    "subsystem_id",
+    "repo",
+    "direction",
+    "edge_kind",
+    "edge_count",
+    "internal_symbol_id",
+    "internal_qualified_name",
+    "internal_export_symbol_id",
+    "internal_export_qualified_name",
+    "external_symbol_id",
+    "external_qualified_name",
+    "external_subsystem_id",
+    "schema_version",
+)
+
+DATA_SHAPES_COLUMNS: tuple[str, ...] = (
+    "subsystem_id",
+    "repo",
+    "type_symbol_id",
+    "type_qualified_name",
+    "boundary",
+    "field_symbol_id",
+    "field_name",
+    "field_type",
+    "read_by_internal",
+    "read_by_external",
+    "written_by_internal",
+    "written_by_external",
+    "constructed_by",
+    "schema_version",
+)
+
 SPECTRAL_CLUSTERS_COLUMNS: tuple[str, ...] = (
     "symbol_id",
     "repo",
@@ -542,6 +657,8 @@ __all__ = [
     "SpectralClusterRow",
     "SubsystemRow",
     "SubsystemMemberRow",
+    "InterfaceRow",
+    "DataShapeRow",
     "HomProfileRow",
     "FunctorRow",
     "FunctorEdgeRow",
@@ -556,6 +673,8 @@ __all__ = [
     "SPECTRAL_CLUSTERS_COLUMNS",
     "SUBSYSTEMS_COLUMNS",
     "SUBSYSTEM_MEMBERS_COLUMNS",
+    "INTERFACES_COLUMNS",
+    "DATA_SHAPES_COLUMNS",
     "HOM_PROFILES_COLUMNS",
     "FUNCTORS_COLUMNS",
     "FUNCTOR_EDGES_COLUMNS",
