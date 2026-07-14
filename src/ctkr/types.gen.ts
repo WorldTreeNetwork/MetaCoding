@@ -40,10 +40,12 @@ export interface ArtifactManifest {
     n_interfaces?:       number;
     n_motif_instances?:  number;
     n_motifs?:           number;
+    n_presentations?:    number;
     n_subsystems?:       number;
     n_symbols?:          number;
     nn_index?:           boolean;
     notes?:              null | string;
+    presentations?:      boolean;
     profile_depth?:      number | null;
     profile_vec_dim?:    number | null;
     schema_version?:     number;
@@ -421,6 +423,68 @@ export interface PatternRow {
 }
 
 export type SourceKind = "motif" | "role-cluster" | "analogy";
+
+/**
+ * One role class of a subsystem's presentation — a generator (§4.1, T3).
+ *
+ * The role inventory quotients a subsystem's members by hom-profile
+ * equivalence (**depth 1** — the role-*surfacing* dial per MetaCoding-4ty: at
+ * depth 1 you *want* the automorphism orbits, so 14 concrete validators
+ * collapse to one ``Validator`` generator). One row per
+ * ``(subsystem_id, view, role_id)``.
+ *
+ * Two views are always emitted (the design's "orbit-exact vs
+ * similarity-cluster both emitted"):
+ *
+ * - ``view="orbit"`` — the **conservative** quotient: members with a
+ * *byte-identical* depth-1 profile vector share a class (exact
+ * Weisfeiler-Leman orbits, the WL classes from the 2-hop work). No
+ * threshold; ``granularity="exact"``; ``persistence=1.0`` (exact classes
+ * are definitional, not swept).
+ * - ``view="similarity"`` — the **working** quotient: cosine-threshold
+ * connected-components over the max-precision profile vectors at a default
+ * threshold, with a threshold sweep supplying ``persistence`` (mean
+ * within-class co-association across the sweep, exactly the subsystems.py
+ * robustness story). ``granularity`` records the default threshold.
+ *
+ * ``role_id`` is content-addressed (blake3 of subsystem_id + view + config +
+ * sorted-member digest) so re-runs over the same partition are byte-identical
+ * and ``generated_at`` never enters the id. ``profile_centroid`` is the mean
+ * depth-1 profile of the members (the role's hom-profile centroid);
+ * ``exemplar_symbol_id`` is the member nearest that centroid (max cosine;
+ * ties by min symbol_id) — every role has an exemplar (a re-implementer needs
+ * the *Validator* role + one concrete instance, not all 14). Zero-profile
+ * (edgeless) members share a single "isolated" class per view — the honest
+ * structural floor (§2.3): structure cannot discriminate them, so they are
+ * not exploded into singletons.
+ *
+ * ``interface_participation`` is the subset of ``{"provides","consumes"}`` any
+ * member of the class occupies in the subsystem's interface (join against
+ * ``interfaces.parquet``, T2). The re-implementer's first question about any
+ * role is whether it is public; empty when interfaces were not extracted or
+ * the class is purely internal.
+ */
+export interface PresentationRow {
+    cardinality:             number;
+    config:                  string;
+    exemplar_qualified_name: string;
+    exemplar_symbol_id:      string;
+    generated_at:            string;
+    granularity:             string;
+    interface_participation: string[];
+    members:                 string[];
+    persistence:             number;
+    profile_centroid:        number[];
+    profile_depth:           number;
+    repo:                    string;
+    role_id:                 string;
+    schema_version?:         number;
+    subsystem_id:            string;
+    view:                    View;
+    [property: string]: any;
+}
+
+export type View = "orbit" | "similarity";
 
 /**
  * Persistent-homology shape signature for one (repo, homology-dim) pair.

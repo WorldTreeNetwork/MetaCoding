@@ -312,6 +312,65 @@ class DataShapeRow(BaseModel):
     schema_version: int = SCHEMA_VERSION
 
 
+class PresentationRow(BaseModel):
+    """One role class of a subsystem's presentation — a generator (§4.1, T3).
+
+    The role inventory quotients a subsystem's members by hom-profile
+    equivalence (**depth 1** — the role-*surfacing* dial per MetaCoding-4ty: at
+    depth 1 you *want* the automorphism orbits, so 14 concrete validators
+    collapse to one ``Validator`` generator). One row per
+    ``(subsystem_id, view, role_id)``.
+
+    Two views are always emitted (the design's "orbit-exact vs
+    similarity-cluster both emitted"):
+
+    - ``view="orbit"`` — the **conservative** quotient: members with a
+      *byte-identical* depth-1 profile vector share a class (exact
+      Weisfeiler-Leman orbits, the WL classes from the 2-hop work). No
+      threshold; ``granularity="exact"``; ``persistence=1.0`` (exact classes
+      are definitional, not swept).
+    - ``view="similarity"`` — the **working** quotient: cosine-threshold
+      connected-components over the max-precision profile vectors at a default
+      threshold, with a threshold sweep supplying ``persistence`` (mean
+      within-class co-association across the sweep, exactly the subsystems.py
+      robustness story). ``granularity`` records the default threshold.
+
+    ``role_id`` is content-addressed (blake3 of subsystem_id + view + config +
+    sorted-member digest) so re-runs over the same partition are byte-identical
+    and ``generated_at`` never enters the id. ``profile_centroid`` is the mean
+    depth-1 profile of the members (the role's hom-profile centroid);
+    ``exemplar_symbol_id`` is the member nearest that centroid (max cosine;
+    ties by min symbol_id) — every role has an exemplar (a re-implementer needs
+    the *Validator* role + one concrete instance, not all 14). Zero-profile
+    (edgeless) members share a single "isolated" class per view — the honest
+    structural floor (§2.3): structure cannot discriminate them, so they are
+    not exploded into singletons.
+
+    ``interface_participation`` is the subset of ``{"provides","consumes"}`` any
+    member of the class occupies in the subsystem's interface (join against
+    ``interfaces.parquet``, T2). The re-implementer's first question about any
+    role is whether it is public; empty when interfaces were not extracted or
+    the class is purely internal.
+    """
+
+    subsystem_id: str  # FK → subsystems.parquet
+    repo: str
+    role_id: str  # blake3(subsystem_id + view + config + sorted-member digest)
+    view: Literal["orbit", "similarity"]
+    granularity: str  # "exact" (orbit) or the default cosine threshold (similarity)
+    cardinality: PositiveInt  # number of members in the class
+    members: list[str]  # member symbol_ids, sorted
+    exemplar_symbol_id: str  # member nearest the centroid (max cosine; ties min id)
+    exemplar_qualified_name: str
+    profile_centroid: list[float]  # mean depth-1 profile vector of the members
+    profile_depth: int  # 1 (role-surfacing dial); recorded for provenance
+    interface_participation: list[str]  # subset of {"provides","consumes"}; may be empty
+    persistence: float = Field(ge=0.0, le=1.0)  # sweep co-association; 1.0 for orbit
+    config: str  # JSON blob of the run config + runtime metadata
+    generated_at: str  # ISO 8601
+    schema_version: int = SCHEMA_VERSION
+
+
 class SpectralClusterRow(BaseModel):
     """Per-symbol cluster assignment produced by L1/S2.
 
@@ -450,6 +509,8 @@ class ArtifactManifest(BaseModel):
     # Subsystem-extraction Stage B artifacts (subsystem-extraction §3, T2).
     interfaces: bool = False
     data_shapes: bool = False
+    # Subsystem-extraction Stage C role inventory (subsystem-extraction §4.1, T3).
+    presentations: bool = False
     # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
     functors: bool = False
     functor_edges: bool = False
@@ -474,6 +535,9 @@ class ArtifactManifest(BaseModel):
     n_subsystems: NonNegativeInt = 0
     n_interfaces: NonNegativeInt = 0
     n_data_shapes: NonNegativeInt = 0
+    # Role-inventory row count (both views summed; §4.1 T3). Per-view split +
+    # compression ratio live in the run's stderr/JSON summary, not the manifest.
+    n_presentations: NonNegativeInt = 0
     # Per-repo-lane data-alphabet coverage note (subsystem-extraction §3): which
     # data-edge kinds are present + the scip/tree-sitter source mix, so a thin
     # data_shapes section reads as an extractor gap, not an absent data model.
@@ -587,6 +651,25 @@ DATA_SHAPES_COLUMNS: tuple[str, ...] = (
     "schema_version",
 )
 
+PRESENTATIONS_COLUMNS: tuple[str, ...] = (
+    "subsystem_id",
+    "repo",
+    "role_id",
+    "view",
+    "granularity",
+    "cardinality",
+    "members",
+    "exemplar_symbol_id",
+    "exemplar_qualified_name",
+    "profile_centroid",
+    "profile_depth",
+    "interface_participation",
+    "persistence",
+    "config",
+    "generated_at",
+    "schema_version",
+)
+
 SPECTRAL_CLUSTERS_COLUMNS: tuple[str, ...] = (
     "symbol_id",
     "repo",
@@ -659,6 +742,7 @@ __all__ = [
     "SubsystemMemberRow",
     "InterfaceRow",
     "DataShapeRow",
+    "PresentationRow",
     "HomProfileRow",
     "FunctorRow",
     "FunctorEdgeRow",
@@ -675,6 +759,7 @@ __all__ = [
     "SUBSYSTEM_MEMBERS_COLUMNS",
     "INTERFACES_COLUMNS",
     "DATA_SHAPES_COLUMNS",
+    "PRESENTATIONS_COLUMNS",
     "HOM_PROFILES_COLUMNS",
     "FUNCTORS_COLUMNS",
     "FUNCTOR_EDGES_COLUMNS",
