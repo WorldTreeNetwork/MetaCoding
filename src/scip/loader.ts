@@ -129,7 +129,7 @@ export async function loadScip(
         repo_commit_sha: opts.repo_commit_sha ?? null,
         indexed_at: opts.indexed_at ?? null,
       };
-      await store.upsertSymbol(sym);
+      await store.upsertSymbol(sym, { preserveStructural: true });
       symbolsUpserted++;
 
       defByScip.set(occ.symbol, {
