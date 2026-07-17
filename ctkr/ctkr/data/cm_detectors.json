@@ -162,5 +162,154 @@
       "element_kind_hint": "function",
       "message": "pessimistic row lock — a single-writer assumption. Re-answer as a convergence rule or coordination step."
     }
-  ]
+  ],
+  "framework_implied": {
+    "version": 1,
+    "description": "Framework-level CM implications detected by filesystem presence (file globs, content patterns), not line-by-line regex. A detected framework implies the listed CM facts for the ENTIRE source tree — the implication IS the classification; no LM adjudication is performed. One row per (framework, category) is emitted with adjudication_source='framework-implied'. element_id pattern: 'framework-implied:{framework_id}:{category}'.",
+    "detection_note": "Predicates are evaluated filesystem-wide. A 'file_glob' predicate checks for any matching file via rglob. A 'file_exists' predicate checks a path relative to source root. A 'file_content' predicate reads a matching file and checks for a regex pattern. Logic 'any' = OR over predicates.",
+    "frameworks": [
+      {
+        "id": "drupal",
+        "name": "Drupal",
+        "detection": {
+          "logic": "any",
+          "predicates": [
+            {
+              "type": "file_glob",
+              "glob": "**/*.info.yml",
+              "description": "Drupal module descriptor (.info.yml present means at least one Drupal module)"
+            },
+            {
+              "type": "file_content",
+              "glob": "**/*.php",
+              "pattern": "namespace\\s+Drupal\\\\",
+              "description": "Drupal-namespaced PHP class (confirms Drupal 8+)"
+            }
+          ]
+        },
+        "implied_facts": [
+          {
+            "id": "drupal-transaction-assumed",
+            "category": "transaction",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "Drupal's database API (Database::getConnection()->startTransaction()) wraps all entity saves in PDO transactions; every hook_entity_presave/postsave pair runs inside an implicit transaction boundary — the framework assumes ACID atomicity from the central database."
+          },
+          {
+            "id": "drupal-serial-id-assumed",
+            "category": "autoincrement-id",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "Drupal entity types default to a SERIAL/autoincrement integer 'id' key assigned by the central database; any module that does not explicitly declare a UUID-only key inherits this server-assigned sequential id assumption."
+          },
+          {
+            "id": "drupal-server-access-assumed",
+            "category": "access-check",
+            "cm_seed": "CM-soft",
+            "severity_default": "soft",
+            "rationale": "Drupal's permission/role/grant system (node_access, hook_entity_access, route _permission) is evaluated synchronously at request time against a central grants table; all module access logic inherits this server-side authority assumption."
+          },
+          {
+            "id": "drupal-revision-lock-assumed",
+            "category": "revision-lock",
+            "cm_seed": "CM-soft",
+            "severity_default": "soft",
+            "rationale": "Drupal's revisionable content entity storage assigns monotonic revision_id values centrally via the database SERIAL; all revisionable entities assume a single serialized write history managed by the authoritative store."
+          }
+        ]
+      },
+      {
+        "id": "django",
+        "name": "Django",
+        "detection": {
+          "logic": "any",
+          "predicates": [
+            {
+              "type": "file_exists",
+              "path": "manage.py",
+              "description": "Django management script at project root"
+            },
+            {
+              "type": "file_content",
+              "glob": "**/requirements*.txt",
+              "pattern": "(?i)\\bdjango\\b",
+              "description": "Django listed in requirements.txt"
+            },
+            {
+              "type": "file_content",
+              "glob": "pyproject.toml",
+              "pattern": "(?i)\\bdjango\\b",
+              "description": "Django listed in pyproject.toml"
+            }
+          ]
+        },
+        "implied_facts": [
+          {
+            "id": "django-transaction-assumed",
+            "category": "transaction",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "Django's ORM wraps Model.save() and QuerySet bulk operations in database transactions by default; atomic() decorators and ATOMIC_REQUESTS=True reinforce that the framework assumes ACID atomicity from the central relational database."
+          },
+          {
+            "id": "django-serial-id-assumed",
+            "category": "autoincrement-id",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "Django models use AutoField (autoincrement integer) as the default primary key; any model without an explicit UUIDField primary_key=True inherits the serial-id assumption from the framework default."
+          },
+          {
+            "id": "django-server-access-assumed",
+            "category": "access-check",
+            "cm_seed": "CM-soft",
+            "severity_default": "soft",
+            "rationale": "Django's permission framework (has_perm, permission_required, DRF permission_classes) evaluates access synchronously against the central auth database; all view-level guards inherit the server-side authority assumption."
+          }
+        ]
+      },
+      {
+        "id": "rails",
+        "name": "Ruby on Rails (ActiveRecord)",
+        "detection": {
+          "logic": "any",
+          "predicates": [
+            {
+              "type": "file_content",
+              "glob": "Gemfile",
+              "pattern": "(?i)\\brails\\b|\\bactiverecord\\b",
+              "description": "Rails or ActiveRecord listed in Gemfile"
+            },
+            {
+              "type": "file_glob",
+              "glob": "**/application_record.rb",
+              "description": "ApplicationRecord base class present (Rails 5+)"
+            }
+          ]
+        },
+        "implied_facts": [
+          {
+            "id": "rails-transaction-assumed",
+            "category": "transaction",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "ActiveRecord wraps all Model.save / before_save / after_save callbacks in database transactions automatically; ActiveRecord::Base.transaction blocks make the assumption explicit — the framework requires ACID atomicity from the central relational database."
+          },
+          {
+            "id": "rails-serial-id-assumed",
+            "category": "autoincrement-id",
+            "cm_seed": "CM-hard",
+            "severity_default": "hard",
+            "rationale": "ActiveRecord generates autoincrement integer primary keys by default via t.primary_key in migrations; any model that does not override the primary key type inherits the server-assigned sequential id assumption."
+          },
+          {
+            "id": "rails-server-access-assumed",
+            "category": "access-check",
+            "cm_seed": "CM-soft",
+            "severity_default": "soft",
+            "rationale": "Rails authorization gems (Pundit, CanCanCan, Devise) evaluate permissions synchronously against central state at request time; the framework ecosystem assumes server-side authority for all access decisions."
+          }
+        ]
+      }
+    ]
+  }
 }

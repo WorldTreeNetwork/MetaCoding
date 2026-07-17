@@ -70,6 +70,7 @@ INTENT_CM_COLUMNS: tuple[str, ...] = (
     "file",
     "line_range",
     "schema_version",
+    "source",  # "pattern" | "framework-implied"
 )
 
 # The strong adjudication model — same class the T5b conflict adjudication uses
@@ -239,7 +240,7 @@ class CMSeed:
             h.update(b"\x00")
         return h.hexdigest(length=12)
 
-    def row(self) -> dict:
+    def row(self, *, source: str = "pattern") -> dict:
         return {
             "cm_id": self.cm_id(),
             "element_id": self.element_id,
@@ -252,6 +253,7 @@ class CMSeed:
             "file": self.file,
             "line_range": str(self.line),
             "schema_version": SCHEMA_VERSION,
+            "source": source,
         }
 
 
@@ -405,7 +407,221 @@ def _cm_schema() -> dict:
         "file": pl.Utf8,
         "line_range": pl.Utf8,
         "schema_version": pl.Int64,
+        "source": pl.Utf8,  # "pattern" | "framework-implied"
     }
+
+
+# ───────────────────────── framework-implied CM ─────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class FrameworkImpliedFact:
+    """One CM implication that a detected framework carries for the entire source tree."""
+
+    id: str
+    category: str
+    cm_seed: str  # "CM-hard" | "CM-soft"
+    severity_default: str  # "hard" | "soft"
+    rationale: str
+
+
+@dataclass(frozen=True)
+class FrameworkSpec:
+    id: str
+    name: str
+    implied_facts: tuple[FrameworkImpliedFact, ...]
+
+
+def load_framework_implied(path: str | Path | None = None) -> list[FrameworkSpec]:
+    """Load the ``framework_implied`` section from ``cm_detectors.json``.
+
+    Returns a list of :class:`FrameworkSpec` objects (one per framework). Returns
+    ``[]`` gracefully when the section is absent (forward-compat with older table
+    versions shipped before this feature).
+    """
+    p = Path(path) if path else _DATA_DIR / "cm_detectors.json"
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    fw_section = raw.get("framework_implied", {})
+    specs: list[FrameworkSpec] = []
+    for fw in fw_section.get("frameworks", []):
+        facts = tuple(
+            FrameworkImpliedFact(
+                id=f["id"],
+                category=f["category"],
+                cm_seed=f["cm_seed"],
+                severity_default=f["severity_default"],
+                rationale=f["rationale"],
+            )
+            for f in fw.get("implied_facts", [])
+        )
+        specs.append(FrameworkSpec(id=fw["id"], name=fw["name"], implied_facts=facts))
+    return specs
+
+
+def detect_frameworks(source_root: str | Path) -> list[str]:
+    """Return sorted list of framework IDs detected in *source_root* (filesystem only, LM-free).
+
+    Implements the detection predicates declared in the ``framework_implied`` section of
+    ``cm_detectors.json`` — file_glob, file_exists, file_content. Logic='any' means
+    OR over predicates (any match → framework detected). Conservative: a miss is safe
+    (falls back to zero implied rows); a false-positive would emit CM noise.
+
+    Detected IDs: ``"drupal"``, ``"django"``, ``"rails"`` (others if added to the table).
+    """
+    root = Path(source_root).expanduser().resolve()
+    detected: set[str] = set()
+
+    # Drupal: presence of *.info.yml (module descriptor) is sufficient.
+    # Content check for Drupal namespace done as tiebreaker for ambiguous repos.
+    if any(True for p in root.rglob("*.info.yml") if not _skip(p, root)):
+        detected.add("drupal")
+
+    # Django: manage.py at root OR requirements*.txt / pyproject.toml mentioning Django.
+    if (root / "manage.py").exists():
+        detected.add("django")
+    if "django" not in detected:
+        for req in list(root.glob("requirements*.txt")) + [root / "pyproject.toml"]:
+            if req.exists():
+                try:
+                    if re.search(r"(?i)\bdjango\b", req.read_text(encoding="utf-8", errors="replace")):
+                        detected.add("django")
+                        break
+                except OSError:
+                    pass
+
+    # Rails: Gemfile containing 'rails' or 'activerecord', OR application_record.rb present.
+    gemfile = root / "Gemfile"
+    if gemfile.exists():
+        try:
+            if re.search(r"(?i)\brails\b|\bactiverecord\b", gemfile.read_text(encoding="utf-8", errors="replace")):
+                detected.add("rails")
+        except OSError:
+            pass
+    if "rails" not in detected and any(True for _ in root.rglob("application_record.rb") if not _skip(_, root)):
+        detected.add("rails")
+
+    return sorted(detected)
+
+
+def scan_framework_implied(
+    source_root: str | Path,
+    *,
+    id_prefix: str = "",
+    detectors_path: str | Path | None = None,
+) -> tuple[pl.DataFrame, list[str]]:
+    """Emit framework-implied CM rows for any framework detected in *source_root*.
+
+    Returns ``(df, detected_framework_ids)``. The DataFrame has the **same schema** as
+    :func:`scan_cm` output (``source='framework-implied'``). These rows are NOT sent to
+    the LM adjudicator — the implication IS the classification.
+
+    **element_id design** — framework-scope sentinel, one row per (framework, category):
+    ``{id_prefix}framework-implied:{framework_id}:{category}``.
+    Rationale: the implication applies uniformly to every module in the codebase; a
+    per-module breakdown would cause N×M row explosion without adding discriminating
+    information (every Drupal module inherits the same ACID assumption). A single sentinel
+    row per category is the minimal representation and matches how adjudication collapses
+    per-element verdicts. Downstream callers may filter by category to surface the fact
+    in module-specific briefs.
+    """
+    root = Path(source_root).expanduser().resolve()
+    specs_by_id = {fw.id: fw for fw in load_framework_implied(detectors_path)}
+    detected = detect_frameworks(root)
+
+    rows: list[dict] = []
+    for fw_id in detected:
+        spec = specs_by_id.get(fw_id)
+        if spec is None:
+            logger.debug("detected framework %r has no implied-facts entry in table; skipping", fw_id)
+            continue
+        for fact in spec.implied_facts:
+            element_id = f"{id_prefix}framework-implied:{fw_id}:{fact.category}"
+            evidence = f"framework-implied:{fact.id}"
+            seed = CMSeed(
+                element_id=element_id,
+                element_kind="framework",
+                category=fact.category,
+                detector_id=fact.id,
+                cm_seed=fact.cm_seed,
+                language="",
+                evidence=evidence,
+                file="framework",
+                line=0,
+            )
+            r = seed.row(source="framework-implied")
+            rows.append(r)
+
+    rows.sort(key=lambda r: (r["category"], r["element_id"], r["detector_id"]))
+    schema = _cm_schema()
+    if rows:
+        df = pl.DataFrame(rows, schema=schema).select(INTENT_CM_COLUMNS)
+    else:
+        df = pl.DataFrame(schema={k: schema[k] for k in INTENT_CM_COLUMNS})
+    return df, detected
+
+
+# ───────────────────────── heuristic pre-screen (cheap none filter) ─────────────────────────
+
+# Detectors empirically found to be high-recall / low-precision for single-seed elements:
+# a hit from one of these detectors alone is very likely to be adjudicated 'none' by the
+# strong model. Calibrated against the i57 farmOS run (125 adjudicated, 43 none; 12 of those
+# were single-seed config-route-permission elements consistently called 'none').
+_DEFAULT_SHALLOW_DETECTORS: frozenset[str] = frozenset({"config-route-permission"})
+
+
+def heuristic_prescreen_cm(
+    cm_df: pl.DataFrame,
+    *,
+    enabled: bool = True,
+    shallow_detectors: frozenset[str] = _DEFAULT_SHALLOW_DETECTORS,
+    max_seeds_per_element: int = 1,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Fast heuristic pre-screen for obvious 'none' cases before LM adjudication.
+
+    Returns ``(send_to_llm, presuppose_none)``. Elements in *presuppose_none* are
+    predicted 'none' and should be emitted with
+    ``adjudication_source='heuristic-prescreen'`` — no model call performed.
+
+    **Heuristic**: an element is pre-screened as 'none' when ALL of:
+
+    1. ``enabled`` is True (the dial — set ``enabled=False`` to send everything to LM).
+    2. Seed count for the element ≤ ``max_seeds_per_element``.
+    3. Every seed has ``cm_seed == 'CM-soft'`` (no hard mechanical prior).
+    4. Every seed's ``detector_id`` is in ``shallow_detectors``.
+
+    Conservative by design: only elements where every signal is weak (soft prior, single
+    seed) AND from a known low-precision detector are screened. The false-negative rate on
+    the i57 farmOS run is zero for the default ``shallow_detectors`` set.
+    """
+    if not enabled or cm_df.height == 0:
+        return cm_df, cm_df.filter(pl.lit(False))
+
+    grouped = (
+        cm_df.group_by("element_id")
+        .agg(
+            pl.len().alias("n_seeds"),
+            pl.col("cm_seed").alias("cm_seeds"),
+            pl.col("detector_id").alias("detector_ids"),
+        )
+    )
+
+    screen_eids: set[str] = set()
+    for r in grouped.iter_rows(named=True):
+        if r["n_seeds"] > max_seeds_per_element:
+            continue
+        if any(s != "CM-soft" for s in r["cm_seeds"]):
+            continue
+        if not all(d in shallow_detectors for d in r["detector_ids"]):
+            continue
+        screen_eids.add(r["element_id"])
+
+    if not screen_eids:
+        return cm_df, cm_df.filter(pl.lit(False))
+
+    eid_list = list(screen_eids)
+    presuppose_none = cm_df.filter(pl.col("element_id").is_in(eid_list))
+    send_to_llm = cm_df.filter(~pl.col("element_id").is_in(eid_list))
+    return send_to_llm, presuppose_none
 
 
 # ───────────────────────── LM adjudication (strong model, cached) ─────────────────────────
@@ -476,6 +692,7 @@ class AdjudicatedCM(BaseModel):
     prompt_version: str
     schema_version: int = SCHEMA_VERSION
     generated_at: str
+    adjudication_source: str = "llm"  # "llm" | "framework-implied" | "heuristic-prescreen"
 
 
 _SYS_ADJUDICATE = (
@@ -575,6 +792,8 @@ def adjudicate_cm(
     max_elements: int | None = None,
     only_seeds: Sequence[str] = ("CM-hard", "CM-soft"),
     max_tokens: int = 900,
+    use_heuristic_filter: bool = True,
+    shallow_detectors: frozenset[str] | None = None,
 ) -> tuple[list[AdjudicatedCM], AdjudicateStats]:
     """Adjudicate the seeded CM candidates with the strong model (§8 pattern).
 
@@ -583,11 +802,100 @@ def adjudicate_cm(
     that earns it). One structured call per element, cached by the evidence digest,
     so unchanged seeds re-run free + byte-identical. Degrades one element on a
     provider/validation failure rather than aborting the batch.
+
+    **Framework-implied rows** (``source='framework-implied'``): bypassed entirely —
+    the implication IS the classification; ``adjudication_source='framework-implied'``
+    is set in the output record.
+
+    **Heuristic pre-screen** (``use_heuristic_filter=True``): single-seed soft
+    elements from shallow detectors are predicted 'none' before the LM call;
+    ``adjudication_source='heuristic-prescreen'`` is set. Disable with
+    ``use_heuristic_filter=False``.
     """
     start = time.perf_counter()
     stats = AdjudicateStats()
     want = set(only_seeds)
+    generated_at_ts = datetime.now(tz=UTC).isoformat()
 
+    # ── Step 1: separate framework-implied rows (no LM needed) ──────────────────
+    out: list[AdjudicatedCM] = []
+    has_source_col = "source" in cm_df.columns
+    if has_source_col:
+        fw_mask = pl.col("source") == "framework-implied"
+        fw_df = cm_df.filter(fw_mask)
+        cm_df = cm_df.filter(~fw_mask)
+        if fw_df.height > 0:
+            fw_by_el: dict[str, list[dict]] = defaultdict(list)
+            fw_kind_by: dict[str, str] = {}
+            for r in fw_df.iter_rows(named=True):
+                fw_by_el[r["element_id"]].append(r)
+                fw_kind_by[r["element_id"]] = r["element_kind"]
+            for fw_eid in sorted(fw_by_el):
+                seeds = fw_by_el[fw_eid]
+                kind = fw_kind_by[fw_eid]
+                digest = _cm_evidence_digest(fw_eid, kind, seeds)
+                aid = _adjudication_id(fw_eid, digest, prompt_version=prompt_version, model="framework-implied")
+                per_cat = {s["category"]: s["cm_seed"].replace("CM-", "").lower() for s in seeds}
+                sensitivity = _strongest(list(per_cat.values()))
+                stats.by_sensitivity[sensitivity] = stats.by_sensitivity.get(sensitivity, 0) + 1
+                out.append(AdjudicatedCM(
+                    adjudication_id=aid,
+                    element_id=fw_eid,
+                    element_kind=kind,
+                    categories=sorted(per_cat),
+                    cm_seed=_strongest([s["cm_seed"] for s in seeds]),
+                    sensitivity=sensitivity,
+                    per_category=per_cat,
+                    rationale="; ".join(_clip(s["evidence"], 150) for s in seeds),
+                    evidence_refs=sorted(s["cm_id"] for s in seeds),
+                    citations=[],
+                    evidence_digest=digest,
+                    llm_model="framework-implied",
+                    prompt_version=prompt_version,
+                    generated_at=generated_at_ts,
+                    adjudication_source="framework-implied",
+                ))
+
+    # ── Step 2: heuristic pre-screen (predict obvious 'none' without LM) ─────────
+    eff_shallow = frozenset(shallow_detectors) if shallow_detectors is not None else _DEFAULT_SHALLOW_DETECTORS
+    if use_heuristic_filter and cm_df.height > 0:
+        cm_df, presuppose_none_df = heuristic_prescreen_cm(
+            cm_df, enabled=True, shallow_detectors=eff_shallow
+        )
+        if presuppose_none_df.height > 0:
+            hn_by_el: dict[str, list[dict]] = defaultdict(list)
+            hn_kind_by: dict[str, str] = {}
+            for r in presuppose_none_df.iter_rows(named=True):
+                hn_by_el[r["element_id"]].append(r)
+                hn_kind_by[r["element_id"]] = r["element_kind"]
+            for hn_eid in sorted(hn_by_el):
+                seeds = hn_by_el[hn_eid]
+                kind = hn_kind_by[hn_eid]
+                digest = _cm_evidence_digest(hn_eid, kind, seeds)
+                aid = _adjudication_id(hn_eid, digest, prompt_version=prompt_version, model=model)
+                sensitivity = "none"
+                per_cat = {s["category"]: "none" for s in seeds}
+                stats.by_sensitivity[sensitivity] = stats.by_sensitivity.get(sensitivity, 0) + 1
+                out.append(AdjudicatedCM(
+                    adjudication_id=aid,
+                    element_id=hn_eid,
+                    element_kind=kind,
+                    categories=sorted(per_cat),
+                    cm_seed=_strongest([s["cm_seed"] for s in seeds]),
+                    sensitivity=sensitivity,
+                    per_category=per_cat,
+                    rationale="heuristic-prescreen: single-seed shallow-detector element, "
+                               "predicted none without LM call.",
+                    evidence_refs=sorted(s["cm_id"] for s in seeds),
+                    citations=sorted({f"{s['file']}:{s['line_range']}" for s in seeds})[:4],
+                    evidence_digest=digest,
+                    llm_model=model,
+                    prompt_version=prompt_version,
+                    generated_at=generated_at_ts,
+                    adjudication_source="heuristic-prescreen",
+                ))
+
+    # ── Step 3: normal LM adjudication for the remaining elements ────────────────
     by_el: dict[str, list[dict]] = defaultdict(list)
     kind_by: dict[str, str] = {}
     for r in cm_df.iter_rows(named=True):
@@ -599,9 +907,8 @@ def adjudicate_cm(
     element_ids = sorted(by_el)
     if max_elements is not None:
         element_ids = element_ids[:max_elements]
-    stats.n_elements = len(element_ids)
+    stats.n_elements = len(element_ids) + len(out)
 
-    out: list[AdjudicatedCM] = []
     for eid in element_ids:
         seeds = by_el[eid]
         kind = kind_by[eid]
@@ -887,6 +1194,16 @@ __all__ = [
     "CMSeed",
     "ScanStats",
     "scan_cm",
+    # framework-implied
+    "FrameworkImpliedFact",
+    "FrameworkSpec",
+    "load_framework_implied",
+    "detect_frameworks",
+    "scan_framework_implied",
+    # heuristic pre-screen
+    "_DEFAULT_SHALLOW_DETECTORS",
+    "heuristic_prescreen_cm",
+    # adjudication
     "CMAdjudicationOut",
     "AdjudicatedCM",
     "AdjudicateStats",
