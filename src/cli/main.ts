@@ -7,7 +7,7 @@
 //   metacoding serve [--data-dir <dir>]
 //   metacoding query <cypher> [--data-dir <dir>]
 
-import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -68,6 +68,7 @@ function usage(): never {
 
 Usage:
   metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]
+                               [--load-scip <index.scip> [--scip-language ts|py|php] [--scip-psr4 <sidecar.json>]]
   metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip] [--per-commit-identity]
   metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--per-commit-identity]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
@@ -120,15 +121,32 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   const dataDir = await resolveDataDir(targetAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
   const repo = args.flags["repo"] ?? basename(targetAbs);
-  const wantScip = resolveScipWanted(args.flags["scip"]);
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
   const repo_commit_sha = await getRepoCommitSha(targetAbs);
   const indexed_at = new Date().toISOString();
+
+  // Pre-built external index ingest (out-of-band Docker full-site build). When
+  // --load-scip is given we skip the in-process indexer, so we must NOT run
+  // resolveScipWanted (which exits when no scip binary is on PATH).
+  const loadScipPath = args.flags["load-scip"]
+    ? resolve(args.flags["load-scip"])
+    : undefined;
+  const scipLanguage = loadScipPath
+    ? (args.flags["scip-language"] ?? "php") as ScipLanguage
+    : undefined;
+  const phpPsr4Map =
+    loadScipPath && args.flags["scip-psr4"]
+      ? (JSON.parse(
+          readFileSync(resolve(args.flags["scip-psr4"]), "utf-8"),
+        ) as Record<string, string>)
+      : undefined;
+  const wantScip = loadScipPath ? false : resolveScipWanted(args.flags["scip"]);
 
   const store = await Store.open(dataDir);
   try {
     const r = await indexOneRepo(store, targetAbs, {
       repo, branch, wantScip, repo_commit_sha, indexed_at, perCommitIdentity,
+      loadScipPath, scipLanguage, phpPsr4Map,
     });
     console.log(JSON.stringify({ dataDir, repo, branch, ...r }, null, 2));
   } finally {
@@ -212,6 +230,74 @@ interface IndexOneOpts {
   /** When true, fold repo_commit_sha into Symbol.id so multiple commits
    *  coexist in one DB. bead MetaCoding-izn. */
   perCommitIdentity?: boolean;
+  /** Ingest a PRE-BUILT external `.scip` index instead of running an indexer.
+   *  This is the ingest path for out-of-band builds — notably the Docker
+   *  full-site scip-php index (farmOS + Drupal core) whose Pass-2b boundary
+   *  edges resolve farmOS→Drupal CALLS/REFERENCES (bead MetaCoding-i00). The
+   *  in-process `runScip` PHP lane can only index a bare repo and never emits
+   *  those cross-package edges, so this file is produced externally and fed in
+   *  here. When set, `runScip` is skipped for the scip stage. */
+  loadScipPath?: string;
+  /** Language of the pre-built index at `loadScipPath`. Accepts ts/typescript,
+   *  py/python, or php; normalized to the loader's language code. Defaults to
+   *  php (the only language with an out-of-band build flow today). */
+  scipLanguage?: ScipLanguage;
+  /** PSR-4 sidecar map for a PHP pre-built index, letting the loader recover
+   *  real file paths from scip-php's namespace-derived relative_path so PHP
+   *  symbols reconcile with the tree-sitter lane. See loader `phpPsr4Map`. */
+  phpPsr4Map?: Record<string, string>;
+}
+
+/** Normalize a user-supplied scip-language token (ts/typescript/py/python/php)
+ *  to the loader's `language` code. Throws on an unknown value. */
+export function normalizeScipLang(token: string): "ts" | "py" | "php" {
+  switch (token.toLowerCase()) {
+    case "ts":
+    case "typescript":
+      return "ts";
+    case "py":
+    case "python":
+      return "py";
+    case "php":
+      return "php";
+    default:
+      throw new Error(
+        `unknown --scip-language '${token}' (expected ts|typescript|py|python|php)`,
+      );
+  }
+}
+
+/** Ingest a pre-built `.scip` index through loadScip with a language override
+ *  and optional PHP PSR-4 sidecar. Extracted from indexOneRepo so the CLI
+ *  load-scip wiring is unit-testable without a live indexer. Returns the raw
+ *  LoadScipStats (documents / symbolsUpserted / edgesAdded / externalRefsSkipped
+ *  / externalBoundaryEdges / durationMs). */
+export async function ingestPrebuiltScip(
+  store: Store,
+  scipPath: string,
+  opts: {
+    repo: string;
+    branch: string;
+    scipLanguage?: ScipLanguage;
+    phpPsr4Map?: Record<string, string>;
+    repo_commit_sha?: string | null;
+    indexed_at?: string | null;
+    perCommitIdentity?: boolean;
+  },
+): ReturnType<typeof loadScip> {
+  if (!existsSync(scipPath)) {
+    throw new Error(`--load-scip: index file not found: ${scipPath}`);
+  }
+  const language = normalizeScipLang(opts.scipLanguage ?? "php");
+  return loadScip(store, scipPath, {
+    branch: opts.branch,
+    repo: opts.repo,
+    language,
+    repo_commit_sha: opts.repo_commit_sha,
+    indexed_at: opts.indexed_at,
+    perCommitIdentity: opts.perCommitIdentity,
+    phpPsr4Map: language === "php" ? opts.phpPsr4Map : undefined,
+  });
 }
 
 interface IndexOneResult {
@@ -233,7 +319,20 @@ async function indexOneRepo(
   });
   const out: IndexOneResult = { treeSitter: tsStats };
 
-  if (opts.wantScip) {
+  if (opts.loadScipPath) {
+    // Ingest a pre-built external index (out-of-band Docker full-site build).
+    // Skips the in-process indexer entirely — the index file already exists.
+    const stats = await ingestPrebuiltScip(store, opts.loadScipPath, {
+      repo: opts.repo,
+      branch: opts.branch,
+      scipLanguage: opts.scipLanguage,
+      phpPsr4Map: opts.phpPsr4Map,
+      repo_commit_sha: opts.repo_commit_sha,
+      indexed_at: opts.indexed_at,
+      perCommitIdentity: opts.perCommitIdentity,
+    });
+    out.scip = { source: "load-scip", scipPath: opts.loadScipPath, ...stats };
+  } else if (opts.wantScip) {
     const scipLangs = detectScipLanguages(targetAbs);
     const accum = { documents: 0, symbolsUpserted: 0, edgesAdded: 0, externalRefsSkipped: 0, externalBoundaryEdges: 0, indexerDurationMs: 0 };
     for (const lang of scipLangs) {
@@ -492,12 +591,23 @@ async function main(): Promise<void> {
 
 const KEEP_ALIVE = new Set(["serve", "watch"]);
 
-main()
-  .then(() => {
-    // Long-lived commands (serve, watch) own their own lifecycle.
-    if (!KEEP_ALIVE.has(process.argv[2] ?? "")) process.exit(0);
-  })
-  .catch((err) => {
-    console.error("metacoding:", err?.message ?? err);
-    process.exit(1);
-  });
+/** CLI entry. Called by bin.ts (after the ladybug fixup) and when main.ts is
+ *  run directly (`bun src/cli/main.ts …`). NOT invoked on plain import, so the
+ *  module's exported helpers (ingestPrebuiltScip, normalizeScipLang) can be
+ *  unit-tested without spawning a command. */
+export function run(): void {
+  main()
+    .then(() => {
+      // Long-lived commands (serve, watch) own their own lifecycle.
+      if (!KEEP_ALIVE.has(process.argv[2] ?? "")) process.exit(0);
+    })
+    .catch((err) => {
+      console.error("metacoding:", err?.message ?? err);
+      process.exit(1);
+    });
+}
+
+// Auto-run only when this file is the process entry point (dev invocation).
+// Via bin.ts the entry is bin.ts, so bin.ts calls run() explicitly after the
+// ladybug fixup side-effect module has loaded.
+if (import.meta.main) run();

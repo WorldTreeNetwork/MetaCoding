@@ -8,4 +8,5 @@
 // pulls in @ladybugdb/core) until after the fixup completes.
 
 import "../bootstrap/ladybug-fixup";
-await import("./main");
+const { run } = await import("./main");
+run();
