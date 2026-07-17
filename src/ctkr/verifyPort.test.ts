@@ -36,6 +36,7 @@ import {
   type SideGraph,
   type NormalizationSpec,
 } from "./verifyPort.ts";
+import { type PortDecision } from "./portDecisions.ts";
 
 // ---------------------------------------------------------------------------
 // Spec construction from a base graph (mirrors what T3/T2/T4 emit)
@@ -312,5 +313,190 @@ describe("§6.2 normalizeSide transforms", () => {
     const r = verifyPort({ spec, source, port, normalization: null, config: HIGH_SIGNAL });
     expect(r.normalizationApplied).toBe(false);
     expect(r.passedAtCeiling).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Port Decisions waivers — MetaCoding-59x
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a rewired-fork report that has punch-list failures to waive.
+ * Returns the report and the punch list so callers can pick items to waive.
+ */
+function buildRewiredReport() {
+  const { spec, source, base } = buildForkFixture();
+  const { fork } = renameFork(base);
+  const rewired = degreeMatchedRewire(fork, 0x5eed);
+  const rewiredP = computeDepth2Profiles(rewired);
+  const dstMembers = new Set(
+    rewired.objects
+      .map((o) => o.id)
+      .filter((id) => /^fk::(C[0-3]($|[.])|I[01]$)/.test(id)),
+  );
+  const port: SideGraph = {
+    objects: toFunctorObjects(rewired, rewiredP),
+    edges: rewired.edges,
+    memberSet: dstMembers,
+    qualifiedNames: new Map(rewired.objects.map((o) => [o.id, o.id])),
+    language: "py",
+  };
+  const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL });
+  return { spec, source, port, report: r };
+}
+
+describe("port decisions waivers", () => {
+  test("no decisions: waivedCount=0, staleWaivers=[], gatesNet absent", () => {
+    const { spec, source, port } = buildRewiredReport();
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL });
+    expect(r.waivedCount).toBe(0);
+    expect(r.staleWaivers).toHaveLength(0);
+    expect(r.gatesNet).toBeUndefined();
+  });
+
+  test("waiving a failure marks it waivedBy and lifts the net gate", () => {
+    const { spec, source, port, report: baseReport } = buildRewiredReport();
+    // Pick the first punch-list item (any gate) to waive.
+    expect(baseReport.punchList.length).toBeGreaterThan(0);
+    const target = baseReport.punchList[0]!;
+    const gateKey = target.gate;
+
+    // Confirm that gate fails raw (the item exists because it fails).
+    const rawGates = baseReport.gates;
+    const rawGateResult =
+      gateKey === "role-coverage" ? rawGates.roleCoverage
+      : gateKey === "interface-preservation" ? rawGates.interfacePreservation
+      : gateKey === "composition-preservation" ? rawGates.compositionPreservation
+      : gateKey === "fidelity" ? rawGates.fidelity
+      : rawGates.cycleConsistency;
+
+    const decision: PortDecision = {
+      id: "PD-test-001",
+      date: "2026-07-17",
+      subsystem: spec.subsystemId,
+      targetElement: target.cardSection,
+      decision: "supersede",
+      supersededSourceIntention: "The original role structure is intentionally not preserved in the port.",
+      rationale: "Test waiver — deliberate divergence in the rewired port.",
+      author: "test",
+    };
+
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, decisions: [decision] });
+
+    // The waived item has waivedBy set.
+    const waived = r.punchList.find((p) => p.cardSection === target.cardSection);
+    expect(waived).toBeDefined();
+    expect(waived!.waivedBy).toBe("PD-test-001");
+
+    // waivedCount reflects the match.
+    expect(r.waivedCount).toBeGreaterThanOrEqual(1);
+
+    // gatesNet is present.
+    expect(r.gatesNet).toBeDefined();
+
+    // Raw gates are UNCHANGED — the same score and passed as before.
+    expect(r.gates.roleCoverage.score).toBe(rawGates.roleCoverage.score);
+    expect(r.gates.fidelity.score).toBe(rawGates.fidelity.score);
+    expect(r.gates.roleCoverage.passed).toBe(rawGates.roleCoverage.passed);
+
+    // Net gate for the waived gate: if ALL items for that gate are waived, it
+    // should now pass in the net view.
+    const allItemsForGateWaived = r.punchList
+      .filter((p) => p.gate === gateKey)
+      .every((p) => p.waivedBy !== undefined);
+    const netGate =
+      gateKey === "role-coverage" ? r.gatesNet!.roleCoverage
+      : gateKey === "interface-preservation" ? r.gatesNet!.interfacePreservation
+      : gateKey === "composition-preservation" ? r.gatesNet!.compositionPreservation
+      : gateKey === "fidelity" ? r.gatesNet!.fidelity
+      : r.gatesNet!.cycleConsistency;
+    if (allItemsForGateWaived) {
+      expect(netGate.passed).toBe(true);
+    }
+
+    // passedAtCeiling never changes from raw — waivers cannot grant ceiling.
+    expect(netGate.passedAtCeiling).toBe(rawGateResult.passedAtCeiling);
+
+    // staleWaivers is empty — the decision matched something.
+    expect(r.staleWaivers).toHaveLength(0);
+  });
+
+  test("stale waiver: decision targeting nothing in the punch list is surfaced", () => {
+    const { spec, source, port } = buildRewiredReport();
+
+    const staleDecision: PortDecision = {
+      id: "PD-stale-001",
+      date: "2026-07-17",
+      subsystem: spec.subsystemId,
+      targetElement: "roles[role_id=NONEXISTENT_ROLE_THAT_NEVER_EXISTS]",
+      decision: "preserve-with-note",
+      supersededSourceIntention: "A role that no longer exists in the spec.",
+      rationale: "This waiver was written against an old spec version.",
+      author: "test",
+    };
+
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, decisions: [staleDecision] });
+
+    // The stale decision is reported.
+    expect(r.staleWaivers).toHaveLength(1);
+    expect(r.staleWaivers[0]!.id).toBe("PD-stale-001");
+
+    // waivedCount is 0 — nothing was actually matched.
+    expect(r.waivedCount).toBe(0);
+
+    // No punch-list items have waivedBy set.
+    expect(r.punchList.every((p) => p.waivedBy === undefined)).toBe(true);
+  });
+
+  test("raw gates are identical whether or not decisions are supplied", () => {
+    const { spec, source, port, report: baseReport } = buildRewiredReport();
+    expect(baseReport.punchList.length).toBeGreaterThan(0);
+    const target = baseReport.punchList[0]!;
+
+    const decision: PortDecision = {
+      id: "PD-test-002",
+      date: "2026-07-17",
+      subsystem: spec.subsystemId,
+      targetElement: target.cardSection,
+      decision: "weaken",
+      supersededSourceIntention: "Intentional weakening for test.",
+      rationale: "Verifying raw gates are unaffected by waiver machinery.",
+      author: "test",
+    };
+
+    const withDecisions = verifyPort({ spec, source, port, config: HIGH_SIGNAL, decisions: [decision] });
+
+    // Raw gate scores, thresholds, and raw pass/fail must match the no-decisions report.
+    expect(withDecisions.gates.roleCoverage.score).toBe(baseReport.gates.roleCoverage.score);
+    expect(withDecisions.gates.interfacePreservation.score).toBe(baseReport.gates.interfacePreservation.score);
+    expect(withDecisions.gates.compositionPreservation.score).toBe(baseReport.gates.compositionPreservation.score);
+    expect(withDecisions.gates.fidelity.score).toBe(baseReport.gates.fidelity.score);
+    expect(withDecisions.gates.cycleConsistency.score).toBe(baseReport.gates.cycleConsistency.score);
+    expect(withDecisions.gates.roleCoverage.passed).toBe(baseReport.gates.roleCoverage.passed);
+    expect(withDecisions.passedAtCeiling).toBe(baseReport.passedAtCeiling);
+  });
+
+  test("decision for a different subsystem is ignored (not stale, not matched)", () => {
+    const { spec, source, port, report: baseReport } = buildRewiredReport();
+    expect(baseReport.punchList.length).toBeGreaterThan(0);
+
+    const wrongSubsystemDecision: PortDecision = {
+      id: "PD-wrong-sub",
+      date: "2026-07-17",
+      subsystem: "ss:some-other-subsystem",  // different subsystem
+      targetElement: baseReport.punchList[0]!.cardSection,
+      decision: "supersede",
+      supersededSourceIntention: "Cross-subsystem waiver — must be ignored.",
+      rationale: "Should be filtered out before matching.",
+      author: "test",
+    };
+
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, decisions: [wrongSubsystemDecision] });
+
+    // No items waived, no stale waivers — wrong-subsystem decisions are simply ignored.
+    expect(r.waivedCount).toBe(0);
+    expect(r.staleWaivers).toHaveLength(0);
+    // gatesNet should not be present since no relevant decisions were found.
+    expect(r.gatesNet).toBeUndefined();
   });
 });
