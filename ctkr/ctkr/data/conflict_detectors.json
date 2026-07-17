@@ -17,7 +17,7 @@
       "id": "pure-doc-writes-state",
       "check": "docstring_claims_pure_but_writes",
       "severity": "port-critical",
-      "write_edge_kinds": ["WRITES_FIELD", "CONSTRUCTS"],
+      "write_edge_kinds": ["WRITES_FIELD"],
       "require_boundary": false,
       "min_write_edges": 1,
       "message_template": "docstring claims purity/statelessness ({claim}) but structurally writes state via {n} {kinds} edge(s). The port must reproduce the write; the 'pure' claim is stale or aspirational.",

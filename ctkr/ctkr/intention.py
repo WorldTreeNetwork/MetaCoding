@@ -817,22 +817,20 @@ def _detect_conflicts(
     write_toks = _write_implying(tokens, tables)
     sub = h.sym2sub.get(sid)
 
-    # crossing write edges (to a different subsystem) and any write edges
-    crossing_writes: dict[str, int] = defaultdict(int)
-    any_writes: dict[str, int] = defaultdict(int)
-    callers: dict[str, int] = defaultdict(int)
-    for _, dst, k in g.out_edges(sid, keys=True):
-        if k in ("WRITES_FIELD", "CONSTRUCTS"):
-            any_writes[k] += 1
-            if h.sym2sub.get(dst) not in (None, sub):
-                crossing_writes[k] += 1
-    for _src, _, k in g.in_edges(sid, keys=True):
-        if k in ("CALLS", "REFERENCES"):
-            callers[k] += 1
-
     docstrings = [s.content for s in sigs if s.indicator_kind == "S4"]
     doc_blob = " ".join(docstrings).lower()
     decorators = [s.content.lower() for s in sigs if s.indicator_kind == "A1"]
+
+    def write_edges(kinds: Sequence[str], *, boundary: bool) -> dict[str, int]:
+        """Out-edges of the given kinds (optionally only those crossing the
+        subsystem boundary). Honors the detector's declared ``write_edge_kinds``
+        so the table — not this code — decides what counts as a write."""
+        want = set(kinds)
+        acc: dict[str, int] = defaultdict(int)
+        for _, dst, k in g.out_edges(sid, keys=True):
+            if k in want and (not boundary or h.sym2sub.get(dst) not in (None, sub)):
+                acc[k] += 1
+        return acc
 
     out: list[dict] = []
     for det in h.detectors["detectors"]:
@@ -840,7 +838,10 @@ def _detect_conflicts(
         if check == "name_implies_read_but_writes":
             if not read_toks or write_toks:
                 continue
-            writes = crossing_writes if det.get("require_boundary") else any_writes
+            writes = write_edges(
+                det.get("write_edge_kinds", ["WRITES_FIELD", "CONSTRUCTS"]),
+                boundary=bool(det.get("require_boundary")),
+            )
             n = sum(writes.values())
             if n < det.get("min_write_edges", 1):
                 continue
@@ -854,10 +855,14 @@ def _detect_conflicts(
             )
             if not claim_phrase:
                 continue
-            n = sum(any_writes.values())
+            writes = write_edges(
+                det.get("write_edge_kinds", ["WRITES_FIELD"]),
+                boundary=bool(det.get("require_boundary")),
+            )
+            n = sum(writes.values())
             if n < det.get("min_write_edges", 1):
                 continue
-            kinds = ",".join(sorted(any_writes))
+            kinds = ",".join(sorted(writes))
             out.append(
                 _conflict_row(
                     sid, element_kind, det, f"docstring claims '{claim_phrase}'",
@@ -870,6 +875,11 @@ def _detect_conflicts(
             )
             if not is_dep:
                 continue
+            caller_kinds = set(det.get("caller_edge_kinds", ["CALLS", "REFERENCES"]))
+            callers: dict[str, int] = defaultdict(int)
+            for _src, _, k in g.in_edges(sid, keys=True):
+                if k in caller_kinds:
+                    callers[k] += 1
             n = sum(callers.values())
             if n < det.get("min_callers", 1):
                 continue
