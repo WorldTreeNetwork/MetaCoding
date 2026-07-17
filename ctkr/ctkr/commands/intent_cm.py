@@ -63,7 +63,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "subset. Off by default (LLM spend).",
     )
     p.add_argument("--model", default=None, help="Strong adjudication model (sonnet default).")
-    p.add_argument("--prompt-version", default=None, help="Override the adjudication prompt_version.")
+    p.add_argument(
+        "--prompt-version", default=None, help="Override the adjudication prompt_version."
+    )
     p.add_argument(
         "--max-elements",
         type=int,
@@ -77,7 +79,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "When given, prints a target-adaptation preview; never required.",
     )
     p.add_argument(
-        "--json", dest="as_json", action="store_true", help="Emit the run summary as JSON on stdout."
+        "--json",
+        dest="as_json",
+        action="store_true",
+        help="Emit the run summary as JSON on stdout.",
     )
     p.add_argument(
         "--generated-at",
@@ -151,7 +156,8 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write(
             f"  adjudicated        : {adj_stats.n_elements:,} element(s)\n"
             f"  by sensitivity     : {adj_stats.by_sensitivity}\n"
-            f"  llm cost / cached  : ${adj_stats.total_cost_usd:.4f} / {adj_stats.cache_hits} hit(s)\n"
+            f"  llm cost / cached  : ${adj_stats.total_cost_usd:.4f} / "
+            f"{adj_stats.cache_hits} hit(s)\n"
             f"  failed calls       : {adj_stats.n_failed_calls}\n"
             f"  artifact           : {ctkr_dir / INTENT_CM_ADJUDICATED_FILE}\n"
         )
@@ -160,9 +166,13 @@ def run(args: argparse.Namespace) -> int:
     if args.target_profile:
         profile = TargetProfile.load(args.target_profile)
         notes = build_target_adaptation_notes(adjudicated, profile)
+        n_sensitive = sum(1 for a in adjudicated if a.sensitivity in ("hard", "soft"))
+        note_status = (
+            f"rendered {n_sensitive} element(s)" if notes else "(none — run --adjudicate first)"
+        )
         sys.stderr.write(
             f"\n  target profile     : {profile.id} ({profile.name})\n"
-            f"  adaptation notes   : {'rendered ' + str(sum(1 for a in adjudicated if a.sensitivity in ('hard','soft'))) + ' element(s)' if notes else '(none — run --adjudicate first)'}\n"
+            f"  adaptation notes   : {note_status}\n"
         )
 
     if getattr(args, "as_json", False):

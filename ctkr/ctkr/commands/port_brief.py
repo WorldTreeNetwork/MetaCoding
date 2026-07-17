@@ -194,9 +194,9 @@ def run(args: argparse.Namespace) -> int:
             )
         elif not args.subsystem:
             sys.stderr.write(
-                f"WARNING: --target-profile needs an explicit --subsystem to scope the "
-                f"target-adaptation notes (CM sites are source-file-anchored). Rendering "
-                f"briefs without the section.\n"
+                "WARNING: --target-profile needs an explicit --subsystem to scope the "
+                "target-adaptation notes (CM sites are source-file-anchored). Rendering "
+                "briefs without the section.\n"
             )
         else:
             target_notes = build_target_adaptation_notes(adjudicated, profile)

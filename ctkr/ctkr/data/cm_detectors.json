@@ -56,10 +56,10 @@
       "check": "regex",
       "category": "unique-constraint",
       "languages": ["python", "ts", "js"],
-      "pattern": "unique\\s*=\\s*True|@Unique\\b|@Column\\([^)]*unique:\\s*true|UNIQUE\\s*\\(|\\.unique\\s*\\(\\s*\\)",
+      "pattern": "unique\\s*=\\s*True\\b|@Unique\\b|@Column\\([^)]*unique:\\s*true|UNIQUE\\s+(?:KEY|INDEX)\\b|CONSTRAINT\\s+\\w+\\s+UNIQUE\\b",
       "cm_seed": "CM-hard",
       "element_kind_hint": "class",
-      "message": "uniqueness constraint. Central store enforces at write; a distributed target must converge or coordinate."
+      "message": "uniqueness constraint (ORM column / DDL). Central store enforces at write; a distributed target must converge or coordinate. NB: a dataframe `.unique()` dedup is NOT this — the pattern targets store-enforced uniqueness only."
     },
     {
       "id": "php-drupal-serial-id",

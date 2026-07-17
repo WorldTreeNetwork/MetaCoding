@@ -91,8 +91,32 @@ _LANG_SUFFIXES: dict[str, tuple[str, ...]] = {
 }
 
 # Directories never scanned (vendored deps, VCS, build output, worktree copies).
+# Third-party code is not the source under decomposition — a uniqueness kwarg in
+# numpy or a `SERIAL` token in a SQL lexer is not the SOURCE's CM assumption.
 _SKIP_DIR_PARTS = frozenset(
-    {".git", "node_modules", "vendor", "dist", "build", "__pycache__", ".claude"}
+    {
+        ".git",
+        ".claude",
+        "node_modules",
+        "vendor",
+        "dist",
+        "build",
+        "__pycache__",
+        # python virtualenvs / installed deps
+        ".venv",
+        "venv",
+        "env",
+        "site-packages",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".eggs",
+        # rust / other build output
+        "target",
+        ".next",
+        "coverage",
+    }
 )
 
 _CM_RANK = {"CM-hard": 0, "hard": 0, "CM-soft": 1, "soft": 1, "CM-none": 2, "none": 2, "": 3}
@@ -504,7 +528,14 @@ def _cm_evidence_digest(element_id: str, element_kind: str, seeds: Sequence[dict
         "element_id": element_id,
         "element_kind": element_kind,
         "seeds": sorted(
-            [s["category"], s["detector_id"], s["cm_seed"], s["evidence"], s["file"], s["line_range"]]
+            [
+                s["category"],
+                s["detector_id"],
+                s["cm_seed"],
+                s["evidence"],
+                s["file"],
+                s["line_range"],
+            ]
             for s in seeds
         ),
     }
@@ -625,7 +656,8 @@ def adjudicate_cm(
                 per_category=per_cat,
                 rationale=" ".join(rationales),
                 evidence_refs=sorted({s["cm_id"] for s in seeds}),
-                citations=sorted(set(citations)) or sorted({f"{s['file']}:{s['line_range']}" for s in seeds})[:4],
+                citations=sorted(set(citations))
+                or sorted({f"{s['file']}:{s['line_range']}" for s in seeds})[:4],
                 evidence_digest=digest,
                 llm_model=model,
                 prompt_version=prompt_version,
@@ -702,11 +734,14 @@ class TargetProfile:
 
 
 _CATEGORY_ASSUMPTION = {
-    "transaction": "the source groups writes in an ACID transaction (atomic + isolated by a central store)",
+    "transaction": "the source groups writes in an ACID transaction "
+    "(atomic + isolated by a central store)",
     "unique-constraint": "the source relies on the store enforcing uniqueness at write time",
     "autoincrement-id": "the source relies on a server-assigned sequential/monotonic id",
-    "access-check": "the source answers 'who may see/do what' with a synchronous server-side check against central state",
-    "revision-lock": "the source assumes a single serialized write history (revisions / locks) managed centrally",
+    "access-check": "the source answers 'who may see/do what' with a synchronous "
+    "server-side check against central state",
+    "revision-lock": "the source assumes a single serialized write history "
+    "(revisions / locks) managed centrally",
 }
 
 
