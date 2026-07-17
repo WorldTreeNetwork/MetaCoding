@@ -613,6 +613,15 @@ def render_brief(
     st = stats or BriefRenderStats()
     st.subsystem_id = card.subsystem_id
     intent_by_el: dict[str, ElementIntention] = {e.element_id: e for e in card.intention}
+    # element_id → human-facing name (export symbol / role label / shape type), so the
+    # behavioral-spec and appendix headings read as names, not opaque symbol ids.
+    display_name: dict[str, str] = {}
+    for e in card.interface.provides:
+        display_name[e.symbol_id] = e.symbol
+    for r in card.roles:
+        display_name[r.role_id] = r.label
+    for s in card.data_shapes:
+        display_name[s.type_symbol_id] = s.type
     dig = brief_digest(card, fusion_dig, cfg)
     st.brief_digest = dig
     st.fusion_digest = fusion_dig
@@ -741,7 +750,8 @@ def render_brief(
         if ei.behavioral_scenarios:
             any_scen = True
             st.n_scenarios += len(ei.behavioral_scenarios)
-            L.append(f"### `{ei.element_id}` ({ei.element_kind})")
+            nm = display_name.get(ei.element_id, ei.element_id)
+            L.append(f"### {nm} ({ei.element_kind})")
             L += _fmt_scenarios(ei.behavioral_scenarios)
             L.append("")
     if not any_scen:
@@ -800,7 +810,8 @@ def render_brief(
             continue
         any_ev = True
         flag = " — **human review flagged** (ambiguous)" if alloc.human_flag else ""
-        L.append(f"### `{eid}` ({alloc.load_class or 'unclassified'}){flag}")
+        nm = display_name.get(eid, eid)
+        L.append(f"### {nm} `{eid}` ({alloc.load_class or 'unclassified'}){flag}")
         for s in alloc.chosen:
             loc = f" ({s.file}:{s.line_range})" if s.file else ""
             L.append(f"- `{s.indicator_kind}/{s.tier}` [{s.portability_tier}] {s.content}{loc}")
