@@ -1,0 +1,277 @@
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "survived_verbatim", "v1_name": "animal", "v2_name": "animal", "via": "verbatim"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "survived_verbatim", "v1_name": "compost", "v2_name": "compost", "via": "verbatim"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "survived_verbatim", "v1_name": "equipment", "v2_name": "equipment", "via": "verbatim"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "survived_verbatim", "v1_name": "group", "v2_name": "group", "via": "verbatim"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "planting", "v2_name": "plant", "via": "migrate"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "survived_verbatim", "v1_name": "sensor", "v2_name": "sensor", "via": "verbatim"}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "land", "via": ""}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "material", "via": ""}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "seed", "via": ""}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "structure", "via": ""}
+{"kind": "asset_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "water", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "access", "v2_name": "access", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "animal_tags", "v2_name": "id_tag", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "condition", "v2_name": "condition", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "created", "v2_name": "created", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "email", "v2_name": "delivery", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "fid", "v2_name": "fid", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_animal_castrated", "v2_name": "is_castrated", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_animal_nicknames", "v2_name": "nickname", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_animal_sex", "v2_name": "sex", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_animal_type", "v2_name": "animal_type", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_area_type", "v2_name": "land_type", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_companions", "v2_name": "companions", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_crop", "v2_name": "plant_type", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_crop_family", "v2_name": "crop_family", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_date", "v2_name": "birthdate", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_date_purchase", "v2_name": "purchase_date", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_images", "v2_name": "image", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_input_method", "v2_name": "method", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_input_source", "v2_name": "source", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_lot_number", "v2_name": "lot_number", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_manufacturer", "v2_name": "manufacturer", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_material", "v2_name": "_material_type", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_maturity_days", "v2_name": "maturity_days", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_model", "v2_name": "model", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_mother", "v2_name": "mother", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_notes/0/format", "v2_name": "notes/0/format", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_parent", "v2_name": "parent", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_season", "v2_name": "season", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "field_farm_seed_source", "v2_name": "source", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_serial_number", "v2_name": "serial_number", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_transplant_days", "v2_name": "transplant_days", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "field_farm_vet", "v2_name": "vet", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "filemime", "v2_name": "filemime", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "filename", "v2_name": "filename", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "id", "v2_name": "id_tag", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "init", "v2_name": "init", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "inventory_asset", "v2_name": "inventory_asset", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "inventory_value_sign", "v2_name": "inventory_adjustment", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "language", "v2_name": "preferred_langcode", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "location", "v2_name": "id_tag", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "login", "v2_name": "login", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "mail", "v2_name": "mail", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "name", "v2_name": "name", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "parent", "v2_name": "parent", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "pass", "v2_name": "pass", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "roles", "v2_name": "roles", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "sensor_settings", "v2_name": "private_key", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "status", "v2_name": "status", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "target_id", "v2_name": "parent", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "threshold", "v2_name": "condition", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "tid", "v2_name": "animal_type", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "timestamp", "v2_name": "created", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "timezone", "v2_name": "timezone", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "type", "v2_name": "id_tag", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "units", "v2_name": "units", "via": "verbatim"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "uri", "v2_name": "source_full_path", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "value_numerator", "v2_name": "value/numerator", "via": "migrate"}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "_notifications", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "changed", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "lab_test_type", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "parent_id", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "preferred_admin_langcode", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "providing_asset", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "public_key", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "role", "via": ""}
+{"kind": "field", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "structure_type", "via": ""}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_activity", "v2_name": "activity", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_birth", "v2_name": "birth", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_harvest", "v2_name": "harvest", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_input", "v2_name": "input", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_maintenance", "v2_name": "maintenance", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_medical", "v2_name": "medical", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_observation", "v2_name": "observation", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "", "status": "dropped", "v1_name": "farm_purchase", "v2_name": "", "via": ""}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "", "status": "dropped", "v1_name": "farm_sale", "v2_name": "", "via": ""}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_seeding", "v2_name": "seeding", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "", "status": "dropped", "v1_name": "farm_soil_test", "v2_name": "", "via": ""}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_transplanting", "v2_name": "transplanting", "via": "migrate"}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "", "status": "dropped", "v1_name": "farm_water_test", "v2_name": "", "via": ""}
+{"kind": "log_type", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "lab_test", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm", "v2_name": "farm", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_access", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_access_roles", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_api", "v2_name": "farm_api", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_api_development", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_area", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_area_generate", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_area_import", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_area_types", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_asset", "v2_name": "asset", "via": "token"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_asset_children", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_asset_property", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_asset_views", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_calendar", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_client", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_constraint", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_crop", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_crop_area_types", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_dashboard", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_data_field", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_equipment", "v2_name": "farm_equipment", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_equipment_field", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_fields", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_fields_autocomplete", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_fields_dynamic", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_flags", "v2_name": "farm_flag", "via": "token"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_group", "v2_name": "farm_group", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_help", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_import", "v2_name": "farm_import", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_inventory", "v2_name": "farm_inventory", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_l10n", "v2_name": "farm_l10n", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_ledger", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_livestock", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_livestock_area_types", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_livestock_weight", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_log", "v2_name": "farm_log", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_log_activity", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_log_harvest", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_log_input", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_log_observation", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_log_sale", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_map", "v2_name": "farm_map", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_map_geofield", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_map_google", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_map_kml", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_map_mapbox", "v2_name": "farm_map_mapbox", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_mapknitter", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_menu", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_metrics", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_movement", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_people", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_plan", "v2_name": "plan", "via": "token"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_plan_consideration", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_plan_map", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_quantity", "v2_name": "quantity", "via": "token"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_quantity_log", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_quantity_report", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_quick", "v2_name": "farm_quick", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_report", "v2_name": "farm_report", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_season", "v2_name": "farm_season", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_sensor", "v2_name": "farm_sensor", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_sensor_listener", "v2_name": "farm_sensor_listener", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_soil", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_soil_compost", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_soil_nrcs", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_term", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "dropped", "v1_name": "farm_theme", "v2_name": "", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_ui", "v2_name": "farm_ui", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "survived_verbatim", "v1_name": "farm_water", "v2_name": "farm_water", "via": "verbatim"}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "data_stream", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "data_stream_notification", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_activity", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_animal", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_animal_type", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_birth", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_compost", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_entity", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_entity_fields", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_entity_views", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_field", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_fieldkit", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_format", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_geo", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_harvest", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_id_tag", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_import_csv", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_import_kml", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_input", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_kml", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_lab", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_land", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_land_types", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_location", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_log_asset", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_log_category", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_log_quantity", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_login", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_maintenance", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_material", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_material_type", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_medical", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_migrate", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_notification", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_observation", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_owner", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_parent", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_plant", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_plant_type", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quantity_material", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quantity_standard", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quick_birth", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quick_group", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quick_movement", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_quick_planting", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_role", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_role_account_admin", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_role_roles", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_seed", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_seeding", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_settings", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_setup", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_structure", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_structure_types", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_test_method", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_transplanting", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_action", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_breadcrumb", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_dashboard", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_help", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_location", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_map", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_menu", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_metrics", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_theme", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_user", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_ui_views", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_unit", "via": ""}
+{"kind": "module", "predicted_tier": "A", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "farm_update", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "access farm api info", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "survived_verbatim", "v1_name": "access farm dashboard", "v2_name": "access farm dashboard", "via": "verbatim"}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "access farm help", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "access farm metrics", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm api oauth clients", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_access module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_asset module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "administer farm_asset types", "v2_name": "administer asset types", "via": "token"}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_map module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_mapknitter module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_plan module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "convention", "status": "survived_renamed", "v1_name": "administer farm_plan types", "v2_name": "administer plan types", "via": "token"}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "administer farm_quantity module", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "configure farm quick forms", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "configure farm reports", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "use farm area generator", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "use farm area importer", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "view farm areas", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "view farm assets", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "view farm plans", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "dropped", "v1_name": "view farm reports", "v2_name": "", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "access farm import index", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "access farm report index", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "access farm setup", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "access locations overview", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer assets", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer farm language", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer farm map", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer farm notification", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer farm settings", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer plans", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "administer quantity", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "configure account admin role", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "revert all asset revisions", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "revert all plan revisions", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "revert all quantity revisions", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "view all asset revisions", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "view all plan revisions", "via": ""}
+{"kind": "permission", "predicted_tier": "N", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "view all quantity revisions", "via": ""}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_animal_types", "v2_name": "animal_type", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_crop_families", "v2_name": "crop_family", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "farm_crops", "v2_name": "plant_type", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_log_categories", "v2_name": "log_category", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "farm_materials", "v2_name": "material_type", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "semantic", "status": "survived_renamed", "v1_name": "farm_quantity_units", "v2_name": "unit", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "convention", "status": "survived_renamed", "v1_name": "farm_season", "v2_name": "season", "via": "migrate"}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "lab", "via": ""}
+{"kind": "taxonomy_vocab", "predicted_tier": "I", "rename_class": "", "status": "new", "v1_name": "", "v2_name": "test_method", "via": ""}
