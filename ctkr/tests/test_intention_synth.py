@@ -354,17 +354,29 @@ def _minimal_card(subsystem_id: str):
         spec_basis_summary=SpecBasisSummary(structural=1.0, nl_only=0.0),
         roles=[
             RoleCard(
-                role_id="role:validator", view="similarity", label="Validator",
-                description="d", cardinality=2, members=["RateValidator"],
-                exemplar_symbol=None, exemplar_qualified_name=None, profile_depth=1,
-                granularity="0.8", interface_participation=[], invariance_tier="I",
+                role_id="role:validator",
+                view="similarity",
+                label="Validator",
+                description="d",
+                cardinality=2,
+                members=["RateValidator"],
+                exemplar_symbol=None,
+                exemplar_qualified_name=None,
+                profile_depth=1,
+                granularity="0.8",
+                interface_participation=[],
+                invariance_tier="I",
             )
         ],
         interface=InterfaceCard(
             provides=[
                 InterfaceExportCard(
-                    symbol="get_session", symbol_id="get_session", role_id=None,
-                    usage_modes=["CALLS"], contract="c", n_external_callers=1,
+                    symbol="get_session",
+                    symbol_id="get_session",
+                    role_id=None,
+                    usage_modes=["CALLS"],
+                    contract="c",
+                    n_external_callers=1,
                 )
             ]
         ),
@@ -382,8 +394,12 @@ def test_attach_intention_to_deck_joins_by_element_id(tmp_path: Path) -> None:
     signals_df, load_df, conf_df = _frames()
     client, _ = _mock_client()
     rows, _ = synthesize_intention(
-        signals_df=signals_df, load_df=load_df, conflicts_df=conf_df,
-        members_df=None, client=client, adjudication_model=None,
+        signals_df=signals_df,
+        load_df=load_df,
+        conflicts_df=conf_df,
+        members_df=None,
+        client=client,
+        adjudication_model=None,
     )
     intention_path = tmp_path / "intention.jsonl"
     write_intention_jsonl(rows, intention_path)
@@ -400,3 +416,83 @@ def test_attach_intention_to_deck_joins_by_element_id(tmp_path: Path) -> None:
     assert attached.intention_load_summary is not None
     assert attached.intention_load_summary["structure_clear"] == 0.5
     assert attached.intention_load_summary["ambiguous"] == 0.5
+
+
+# ───────────────────────── robustness (real-model failure modes) ─────────────────────────
+
+
+class _StringyListProvider(MockProvider):
+    """A cheap-model habit: returns the ``intent`` list field as a JSON *string*
+    rather than a list (the observed self-index crash). The before-validator must
+    parse it back into a list."""
+
+    def complete_structured(self, prompt, *, model, schema, temperature, max_tokens, system):  # noqa: ANN001
+        _, payload = super().complete_structured(
+            prompt,
+            model=model,
+            schema=schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+        payload = dict(payload)
+        payload["intent"] = json.dumps(payload["intent"])  # stringify the list field
+        return _ProviderResponse(text=json.dumps(payload), input_tokens=5, output_tokens=5), payload
+
+
+def test_stringified_list_field_is_coerced() -> None:
+    signals_df, load_df, conf_df = _frames()
+    c = LLMClient()
+    c.register_provider(_StringyListProvider())  # type: ignore[arg-type]
+    rows, stats = synthesize_intention(
+        signals_df=signals_df,
+        load_df=load_df,
+        conflicts_df=conf_df,
+        members_df=None,
+        client=c,
+        adjudication_model=None,
+    )
+    exp = next(r for r in rows if r.element_id == "get_session")
+    assert exp.intent and exp.intent[0].statement  # stringified list parsed back
+    assert stats.n_failed_calls == 0  # coerced, not failed
+
+
+class _FlakyProvider(MockProvider):
+    """Raises a non-transient error on the first structured call, then behaves —
+    the driver must degrade that element, not abort the batch."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.raised = False
+
+    def complete_structured(self, prompt, *, model, schema, temperature, max_tokens, system):  # noqa: ANN001
+        if not self.raised:
+            self.raised = True
+            raise ValueError("simulated malformed response")
+        return super().complete_structured(
+            prompt,
+            model=model,
+            schema=schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+
+
+def test_one_bad_response_degrades_element_not_batch() -> None:
+    signals_df, load_df, conf_df = _frames()
+    c = LLMClient()  # no cache; ValueError is non-transient so no slow retries
+    c.register_provider(_FlakyProvider())  # type: ignore[arg-type]
+    rows, stats = synthesize_intention(
+        signals_df=signals_df,
+        load_df=load_df,
+        conflicts_df=conf_df,
+        members_df=None,
+        client=c,
+        adjudication_model=None,
+    )
+    assert len(rows) == 2  # both elements produced despite one failed call
+    assert stats.n_failed_calls == 1
+    # the degraded element still has a valid, deterministic id + empty intent.
+    degraded = [r for r in rows if not r.intent]
+    assert len(degraded) == 1 and degraded[0].intention_id.startswith("intent:")

@@ -219,6 +219,34 @@ def _coerce_int_tags(v: object) -> list[int]:
     return []
 
 
+def _coerce_obj_list(v: object) -> list:
+    """Tolerate a nested-object list field returned as a JSON *string* — a cheap-
+    model habit (the whole ``[{...}, {...}]`` arrives stringified, or a lone
+    ``{...}`` for a one-item list). Pydantic then validates the inner dicts against
+    the nested model as usual. Anything unparseable degrades to ``[]`` rather than
+    crashing the run (the element gets an empty synthesis, not a lost batch)."""
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return v
+    if isinstance(v, dict):
+        return [v]
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            return [parsed]
+        return []
+    return []
+
+
 class _IntentStatementOut(BaseModel):
     statement: str = Field(
         description="One purpose sentence for this element, "
@@ -275,6 +303,11 @@ class ElementIntentOut(BaseModel):
         "Low when the evidence is thin, generic, or self-contradictory.",
     )
 
+    @field_validator("intent", "glossary", mode="before")
+    @classmethod
+    def _lists(cls, v: object) -> list:
+        return _coerce_obj_list(v)
+
     @field_validator("confidence", mode="before")
     @classmethod
     def _conf(cls, v: object) -> float:
@@ -303,6 +336,11 @@ class ScenarioDistillOut(BaseModel):
     """S1 → given/when/then behavioral scenarios (cheap model)."""
 
     scenarios: list[_ScenarioItemOut] = Field(default_factory=list)
+
+    @field_validator("scenarios", mode="before")
+    @classmethod
+    def _lists(cls, v: object) -> list:
+        return _coerce_obj_list(v)
 
 
 class AdjudicationOut(BaseModel):
@@ -596,6 +634,7 @@ class SynthStats:
     agreement_counts: dict[str, int] = field(default_factory=dict)
     n_confirmed_contradictions: int = 0
     by_element_kind: dict[str, int] = field(default_factory=dict)
+    n_failed_calls: int = 0  # LLM calls whose response didn't parse (degraded, not fatal)
     total_cost_usd: float = 0.0
     cache_hits: int = 0
     total_seconds: float = 0.0
@@ -611,15 +650,27 @@ class _Synthesizer:
     low_confidence: float = DEFAULT_LOW_CONFIDENCE
     max_tokens: int = 1200
 
-    def _call(self, prompt: str, *, schema: type[BaseModel], system: str, model: str):
-        return self.client.complete_structured(
-            prompt,
-            schema=schema,
-            model=model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            system=system,
-        )
+    def _call(
+        self, prompt: str, *, schema: type[BaseModel], system: str, model: str, stats: SynthStats
+    ) -> tuple[BaseModel | None, float, bool]:
+        """One resilient structured call. On a provider/validation failure returns
+        ``(None, 0.0, False)`` and bumps ``n_failed_calls`` — a single bad response
+        degrades one element's synthesis rather than aborting the whole batch
+        (mirrors :func:`ctkr.label_roles.label_roles`'s per-cluster try/except)."""
+        try:
+            res = self.client.complete_structured(
+                prompt,
+                schema=schema,
+                model=model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                system=system,
+            )
+            return res.parsed, res.cost_estimate_usd, res.cache_hit
+        except Exception as e:  # noqa: BLE001 — provider/validation errors vary
+            logger.warning("synthesis call failed (%s): %s", schema.__name__, e)
+            stats.n_failed_calls += 1
+            return None, 0.0, False
 
     def synthesize_element(
         self,
@@ -640,13 +691,17 @@ class _Synthesizer:
 
         # ── intent synthesis (cheap) ──
         intent_prompt = render_intent_prompt(element_id, element_kind, tagged, load_row)
-        ires = self._call(
-            intent_prompt, schema=ElementIntentOut, system=_SYS_INTENT, model=self.model
+        iparsed, icost, ihit = self._call(
+            intent_prompt,
+            schema=ElementIntentOut,
+            system=_SYS_INTENT,
+            model=self.model,
+            stats=stats,
         )
-        iout: ElementIntentOut = ires.parsed  # type: ignore[assignment]
+        iout: ElementIntentOut = iparsed or ElementIntentOut()  # type: ignore[assignment]
         stats.n_intent_calls += 1
-        stats.total_cost_usd += ires.cost_estimate_usd
-        stats.cache_hits += 1 if ires.cache_hit else 0
+        stats.total_cost_usd += icost
+        stats.cache_hits += 1 if ihit else 0
 
         intent: list[IntentTriple] = []
         for st in iout.intent:
@@ -674,13 +729,17 @@ class _Synthesizer:
         s1 = [t for t in tagged if t.indicator_kind == "S1"]
         if s1:
             sprompt = render_scenario_prompt(element_id, element_kind, s1)
-            sres = self._call(
-                sprompt, schema=ScenarioDistillOut, system=_SYS_SCENARIO, model=self.model
+            sparsed, scost, shit = self._call(
+                sprompt,
+                schema=ScenarioDistillOut,
+                system=_SYS_SCENARIO,
+                model=self.model,
+                stats=stats,
             )
-            sout: ScenarioDistillOut = sres.parsed  # type: ignore[assignment]
+            sout: ScenarioDistillOut = sparsed or ScenarioDistillOut()  # type: ignore[assignment]
             stats.n_scenario_calls += 1
-            stats.total_cost_usd += sres.cost_estimate_usd
-            stats.cache_hits += 1 if sres.cache_hit else 0
+            stats.total_cost_usd += scost
+            stats.cache_hits += 1 if shit else 0
             for sc in sout.scenarios:
                 cites = _resolve_citations(sc.citations, tagged)
                 stats.n_citations_resolved += len(cites)
@@ -707,22 +766,29 @@ class _Synthesizer:
             aprompt = render_adjudication_prompt(
                 element_id, element_kind, tagged, load_row, conflict_rows
             )
-            ares = self._call(
-                aprompt, schema=AdjudicationOut, system=_SYS_ADJUDICATE, model=adj_model
+            aparsed, acost, ahit = self._call(
+                aprompt,
+                schema=AdjudicationOut,
+                system=_SYS_ADJUDICATE,
+                model=adj_model,
+                stats=stats,
             )
-            aout: AdjudicationOut = ares.parsed  # type: ignore[assignment]
-            stats.n_adjudications += 1
-            stats.total_cost_usd += ares.cost_estimate_usd
-            stats.cache_hits += 1 if ares.cache_hit else 0
-            cites = _resolve_citations(aout.citations, tagged)
-            stats.n_citations_resolved += len(cites)
-            stats.n_citations_dropped += max(0, len(aout.citations) - len(cites))
-            agreement = AgreementRecord(
-                verdict=aout.verdict, rationale=aout.rationale, citations=cites, model=adj_model
-            )
-            stats.agreement_counts[aout.verdict] = stats.agreement_counts.get(aout.verdict, 0) + 1
-            if aout.verdict == "contradiction":
-                stats.n_confirmed_contradictions += 1
+            stats.total_cost_usd += acost
+            stats.cache_hits += 1 if ahit else 0
+            if aparsed is not None:
+                aout: AdjudicationOut = aparsed  # type: ignore[assignment]
+                stats.n_adjudications += 1
+                cites = _resolve_citations(aout.citations, tagged)
+                stats.n_citations_resolved += len(cites)
+                stats.n_citations_dropped += max(0, len(aout.citations) - len(cites))
+                agreement = AgreementRecord(
+                    verdict=aout.verdict, rationale=aout.rationale, citations=cites, model=adj_model
+                )
+                stats.agreement_counts[aout.verdict] = (
+                    stats.agreement_counts.get(aout.verdict, 0) + 1
+                )
+                if aout.verdict == "contradiction":
+                    stats.n_confirmed_contradictions += 1
 
         conflicts = [
             ConflictRecord(
