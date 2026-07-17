@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "description": "Mechanical conflict-detector table (ct-intention-extraction.md §6.1 stage 1). Curated, versioned, per-check DATA — the sibling of src/ctkr/normalization.json (open decision e, recommended: sibling data file). Each entry is a cheap, deterministic, HIGH-PRECISION claim-vs-structure check: a strong intention signal (a name, a docstring claim, a decorator) contradicting a tier-I structural fact (crossing edges, field-flow direction, caller counts). Emits conflict-candidate rows for T5b's LM adjudication (§6.1 stage 2) to confirm — the table proposes, the strong model disposes. `check` selects the engine routine; the remaining fields are its parameters. Adding a check kind is code; adding a pattern/threshold to an existing kind is a table edit.",
+  "severity_note": "port-critical = a name/doc claims behavior the structure refutes and the element crosses a boundary (external code observes the truth); advisory = softer disagreement (stale docs, deprecated-but-used). port-critical conflicts force the element out of 'structure-clear' (§5.2 override) and head the brief's Warnings section (§6.2).",
+  "detectors": [
+    {
+      "id": "read-name-writes-state",
+      "check": "name_implies_read_but_writes",
+      "severity": "port-critical",
+      "write_edge_kinds": ["WRITES_FIELD", "CONSTRUCTS"],
+      "require_boundary": true,
+      "min_write_edges": 1,
+      "message_template": "named/typed as a read ({read_tokens}) but structurally writes external state via {n} {kinds} edge(s) across the subsystem boundary. Trust structure for what happens, the name for what was meant: the port must reproduce the write (tier-I, externally observed) and may rename honestly.",
+      "rationale": "A 'Cache'/'get*'/'read*' that mutates external state is re-implemented wrongly by any builder who trusts the name (§6.1 canonical example)."
+    },
+    {
+      "id": "pure-doc-writes-state",
+      "check": "docstring_claims_pure_but_writes",
+      "severity": "port-critical",
+      "write_edge_kinds": ["WRITES_FIELD", "CONSTRUCTS"],
+      "require_boundary": false,
+      "min_write_edges": 1,
+      "message_template": "docstring claims purity/statelessness ({claim}) but structurally writes state via {n} {kinds} edge(s). The port must reproduce the write; the 'pure' claim is stale or aspirational.",
+      "rationale": "A 'pure'/'stateless' docstring vs. observed state edges is a §6.1 mechanical check."
+    },
+    {
+      "id": "deprecated-with-callers",
+      "check": "deprecated_but_has_callers",
+      "severity": "advisory",
+      "decorator_patterns": ["deprecated"],
+      "doc_patterns": ["@deprecated", "deprecated:", "\\bdeprecated\\b"],
+      "caller_edge_kinds": ["CALLS", "REFERENCES"],
+      "min_callers": 1,
+      "message_template": "marked @deprecated but still has {n} caller(s) via {kinds}. The port must decide: reproduce, or migrate callers off it — do not silently drop.",
+      "rationale": "@deprecated on exports with live callers is a §6.1 declared-debt conflict; advisory because it is a known-state divergence, not a lie about behavior."
+    },
+    {
+      "id": "docstring-arity-mismatch",
+      "check": "docstring_arity_vs_signature",
+      "severity": "advisory",
+      "min_delta": 1,
+      "message_template": "docstring documents {doc_arity} parameter(s) but the signature declares {sig_arity}. The docs have drifted from the contract; trust the signature for shape.",
+      "rationale": "Docstring parameter list vs. actual signature arity is a §6.1 detectable drift (S4 rots when signatures move)."
+    }
+  ]
+}

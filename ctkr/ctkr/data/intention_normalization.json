@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "description": "Intention-lane normalization tables for the mechanical harvest (ct-intention-extraction.md §7.1). The text-lane sibling of src/ctkr/normalization.json: that file folds STRUCTURAL idioms before the name-blind math; this one folds NAMING/COMMENT idioms after the structure is frozen, so the intention channel compares token sequences and semantics rather than raw source strings. All entries are DATA (versioned) — adding a language or an affix is a table edit, not code. Raw text is always retained alongside the normalized form (§7.1 'raw text always retained').",
+
+  "convention_affixes": {
+    "note": "§7.1(2) — per-language/framework affixes that carry CONVENTION rather than DOMAIN. Folded out of identifier token sequences before A5 naming-pattern extraction and before cross-stack comparison. `where` = prefix|suffix|token (matched on the tokenized, lowercased sequence). `portability` tags what survives a port: 'N' = convention-encoded (restate, e.g. an interface's I-prefix), 'A' = idiom-specific (drop, e.g. a Python dunder). Domain tokens (no entry) default to intent-I.",
+    "common": [
+      {"affix": "abstract", "where": "prefix", "portability": "N", "reason": "abstract-base convention"},
+      {"affix": "base", "where": "prefix", "portability": "N", "reason": "base-class convention"},
+      {"affix": "impl", "where": "suffix", "portability": "N", "reason": "implementation-of-interface convention"},
+      {"affix": "default", "where": "prefix", "portability": "N", "reason": "default-implementation convention"},
+      {"affix": "test", "where": "prefix", "portability": "N", "reason": "test-symbol convention"},
+      {"affix": "test", "where": "suffix", "portability": "N", "reason": "test-symbol convention"},
+      {"affix": "spec", "where": "suffix", "portability": "N", "reason": "test-spec convention"}
+    ],
+    "ts": [
+      {"affix": "i", "where": "prefix", "portability": "N", "reason": "I-prefixed interface convention (only when followed by PascalCase, handled by the tokenizer's single-letter guard)"},
+      {"affix": "use", "where": "prefix", "portability": "N", "reason": "React hook convention"},
+      {"affix": "with", "where": "prefix", "portability": "N", "reason": "HOC convention"},
+      {"affix": "props", "where": "suffix", "portability": "A", "reason": "React props type idiom"}
+    ],
+    "py": [
+      {"affix": "abc", "where": "suffix", "portability": "N", "reason": "abstract-base convention"},
+      {"affix": "mixin", "where": "suffix", "portability": "N", "reason": "mixin convention"}
+    ]
+  },
+
+  "marker_vocabulary": {
+    "note": "§7.1(3) — marker comments normalized into one canonical scenario form. Each canonical marker carries a `meta` reading used by §6 (HACK = structure & intention knowingly diverge; TODO = intent not yet realized). Matched case-insensitively as a whole word.",
+    "canonical": {
+      "TODO": ["todo", "to-do", "@todo"],
+      "FIXME": ["fixme", "fix-me", "fix me"],
+      "HACK": ["hack", "kludge", "kluge"],
+      "XXX": ["xxx"],
+      "NOTE": ["note", "nb"],
+      "SAFETY": ["safety", "unsafe"],
+      "PERF": ["perf", "performance", "optimization"],
+      "BUG": ["bug"],
+      "WARNING": ["warning", "warn", "caution"]
+    },
+    "meta": {
+      "HACK": "structure-intention divergence declared here (feeds §6 dissonance)",
+      "TODO": "intent not yet realized; the port must decide, not stumble",
+      "FIXME": "known-broken intent; the port inherits a decision",
+      "SAFETY": "non-obvious constraint the shape does not show",
+      "PERF": "performance rationale for an otherwise-puzzling shape"
+    },
+    "why_lead": ["because", "so that", "to avoid", "must", "do not", "don't", "never", "ensure", "workaround", "otherwise", "required"]
+  },
+
+  "test_conventions": {
+    "note": "§1 S1 / §7.1(3) — test-file detection and test-name grammars, per ecosystem. `path_globs` are matched on the repo-relative file path; `import_markers` corroborate (a file importing a framework). `name_prefixes` mark test *symbols* within a test file. Deterministic, no framework execution.",
+    "path_globs": [
+      "**/test_*.py", "**/*_test.py", "**/tests/**", "**/test/**",
+      "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.spec.ts",
+      "**/*.spec.js", "**/__tests__/**", "**/*_test.go", "**/*Test.java",
+      "**/*Tests.cs", "**/spec/**"
+    ],
+    "import_markers": ["pytest", "unittest", "bun:test", "vitest", "jest", "@jest", "mocha", "chai", "testing", "assert"],
+    "name_prefixes": ["test_", "test", "it_", "should_", "spec_"],
+    "describe_calls": ["describe", "it", "test", "context", "suite"]
+  },
+
+  "name_semantics": {
+    "note": "§6.1 — read/write-implying name morphemes used by the mechanical conflict detectors and by the S2 identifier harvest's semantic hint. Matched against the FOLDED token sequence (tokenizer output), so `getUserById` and `get_user_by_id` hit the same rule. These are HINTS about claimed behavior; structure owns what actually happens (§6.2).",
+    "read_implying": ["get", "read", "fetch", "load", "peek", "query", "find", "lookup", "is", "has", "should", "view", "list", "cache", "cached", "snapshot", "current"],
+    "write_implying": ["set", "write", "save", "store", "update", "put", "insert", "delete", "remove", "flush", "commit", "mutate", "append", "push", "clear", "reset"],
+    "pure_claiming": ["pure", "stateless", "immutable", "readonly", "read-only", "idempotent", "side-effect free", "no side effects", "does not modify", "without modifying"]
+  },
+
+  "string_classifiers": {
+    "note": "§1 A2 — cheap regex classifiers over string literals harvested from member source slices (regex approximation of tree-sitter string nodes; see coverage note in the harvest output). Ordered; first match wins. `portability` is the default intent tier for that class.",
+    "classes": [
+      {"kind": "sql", "pattern": "(?is)\\b(select|insert into|update|delete from|create table|alter table|drop table|join)\\b", "portability": "I"},
+      {"kind": "route", "pattern": "^\\s*/[a-zA-Z0-9_:{}\\-/]*\\s*$", "portability": "I"},
+      {"kind": "url", "pattern": "(?i)^(https?|wss?|ftp)://", "portability": "I"},
+      {"kind": "format", "pattern": "%[sd]|\\{[a-zA-Z0-9_]*\\}|\\$\\{", "portability": "I"}
+    ],
+    "min_length": 4,
+    "max_length": 240
+  },
+
+  "scoring": {
+    "note": "§5.2 D/R composite weights and §5.3 class thresholds. ALL DIALS (entropy-as-dial), overridable at the CLI. Shipped defaults, calibrated on the first real port (§5.3), NOT truths.",
+    "kind_discriminativeness": {
+      "note": "per-edge-kind weight for the D 'profile information mass' term. CONTAINS is scaffolding (says almost nothing); crossing/behavioral kinds are discriminative. Mirrors the src/ctkr down-weighting instinct.",
+      "CONTAINS": 0.1,
+      "IMPORTS": 0.3,
+      "REFERENCES": 0.6,
+      "ANNOTATES": 0.6,
+      "CALLS": 0.8,
+      "TYPE_OF": 0.8,
+      "RETURNS_TYPE": 0.8,
+      "READS_FIELD": 0.9,
+      "WRITES_FIELD": 1.0,
+      "CONSTRUCTS": 1.0,
+      "IMPLEMENTS": 1.0,
+      "EXTENDS": 1.0,
+      "OVERRIDES": 0.9,
+      "INJECTS": 0.9,
+      "RAISES": 0.9,
+      "_default": 0.6
+    },
+    "d_mass_saturation": 6.0,
+    "d_diversity_weight": 0.35,
+    "d_boundary_bonus": 0.15,
+    "tier_weights": {"S": 1.0, "A": 0.6, "B": 0.25, "C": 0.1},
+    "r_saturation": 3.0,
+    "r_coherence_hi": 1.2,
+    "r_coherence_lo": 0.5,
+    "r_coherence_entropy_hi": 0.35,
+    "r_test_linkage_floor": 0.4,
+    "d_hi": 0.55,
+    "r_min": 0.4
+  },
+
+  "portability_defaults": {
+    "note": "§7.2 — default intent-tier per indicator kind; the affix/marker tables catch the N/A residue. I=universal (into the brief as-is), N=convention-encoded (restate), A=idiom-specific (drop, retained in provenance).",
+    "S1": "I", "S2": "N", "S3-message": "I", "S3-type": "N", "S4": "I",
+    "A1": "N", "A2": "I", "A3": "I", "A4": "N", "A5": "N", "A6": "I",
+    "B1": "A", "B3": "A"
+  }
+}
