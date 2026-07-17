@@ -350,3 +350,77 @@ def test_merge_patterns_jsonl_is_idempotent_and_additive(tmp_path: Path):
     ids = [r["pattern_id"] for r in lines]
     assert ids.count("subsystem:aaa") == 1  # overwrite, not accumulate
     assert "motif:xyz" in ids  # other labeler's row preserved
+
+
+def _patch_field_types_to_abs(ctkr: Path, abs_prefix: str) -> None:
+    """Overwrite field_type in data_shapes.parquet with absolute worktree paths."""
+    data = pl.read_parquet(ctkr / "data_shapes.parquet")
+    patched = data.with_columns(
+        pl.when(pl.col("field_type").is_not_null())
+        .then(pl.lit(abs_prefix) + pl.col("field_type"))
+        .otherwise(pl.col("field_type"))
+        .alias("field_type")
+    )
+    patched.write_parquet(ctkr / "data_shapes.parquet")
+
+
+def test_field_type_worktree_path_normalized(tmp_path: Path):
+    """DataFieldCard.type must not contain absolute worktree-checkout paths.
+
+    A deck built from a worktree may have field_type values like
+    ``/abs/path/.../str``; after card assembly these must be normalized so
+    worktree and main-checkout decks produce identical values (MetaCoding-j3y
+    fix 2)."""
+    data_dir, repo_root = _write_fixture(tmp_path)
+    ctkr = data_dir / "ctkr"
+    abs_prefix = "/Users/dukejones/.claude/worktrees/agent-abc123/R/"
+    _patch_field_types_to_abs(ctkr, abs_prefix)
+
+    cards, *_ = build_deck(
+        data_dir=data_dir, repo_root=repo_root, client=_mock_client(),
+        prompt_version="spec-labeler:test", generated_at="2026-02-02T00:00:00Z",
+    )
+    ss1 = next(c for c in cards if c.subsystem_id == "ss:1")
+    assert ss1.data_shapes, "expected at least one data shape card"
+    for shape in ss1.data_shapes:
+        for f in shape.fields:
+            if f.type is not None:
+                assert not f.type.startswith("/"), (
+                    f"absolute path leaked into DataFieldCard.type: {f.type!r}"
+                )
+
+
+def test_field_type_worktree_equals_main_checkout(tmp_path: Path):
+    """A deck built with absolute worktree paths in field_type must produce
+    the same DataFieldCard.type values as the unpatched (relative) deck."""
+    data_dir, repo_root = _write_fixture(tmp_path)
+    ctkr = data_dir / "ctkr"
+
+    # Run 1: unpatched (relative paths as produced by normal main checkout).
+    cards_main, *_ = build_deck(
+        data_dir=data_dir, repo_root=repo_root, client=_mock_client(),
+        prompt_version="spec-labeler:test", generated_at="2026-02-02T00:00:00Z",
+    )
+
+    # Patch: inject absolute worktree paths.
+    abs_prefix = "/Users/dukejones/.claude/worktrees/agent-abc123/R/"
+    _patch_field_types_to_abs(ctkr, abs_prefix)
+
+    # Run 2: patched (absolute worktree paths in field_type).
+    cards_wt, *_ = build_deck(
+        data_dir=data_dir, repo_root=repo_root, client=_mock_client(),
+        prompt_version="spec-labeler:test", generated_at="2026-02-02T00:00:00Z",
+    )
+
+    def _field_types(card_list: list) -> list[str]:
+        return sorted(
+            f.type
+            for c in card_list
+            for s in c.data_shapes
+            for f in s.fields
+            if f.type is not None
+        )
+
+    assert _field_types(cards_main) == _field_types(cards_wt), (
+        "worktree and main-checkout decks produced different DataFieldCard.type values"
+    )
