@@ -551,6 +551,7 @@ class BriefRenderStats:
     n_structure_clear: int = 0
     n_intention_critical: int = 0
     n_ambiguous: int = 0
+    n_target_adaptation: int = 0  # intent-CM target-adaptation note blocks (0 without a profile)
     fusion_cost_usd: float = 0.0
     fusion_cache_hit: bool = False
 
@@ -607,9 +608,16 @@ def render_brief(
     cfg: PortBriefConfig,
     generated_at: str | None = None,
     stats: BriefRenderStats | None = None,
+    target_notes: Sequence[str] | None = None,
 ) -> str:
     """Render the port brief markdown per §4.2's exact section order. Deterministic
-    given the card, fusion output, budget allocation, and signals."""
+    given the card, fusion output, budget allocation, and signals.
+
+    ``target_notes`` are pre-rendered 'Target adaptation notes' lines
+    (:func:`ctkr.intent_cm.build_target_adaptation_notes`) — inserted after Warnings
+    and before the raw-evidence appendix. Present ONLY when a target profile was
+    supplied; the brief stands complete without them (Phase 3: the profile conditions
+    only this section, never the harvest or the intent)."""
     st = stats or BriefRenderStats()
     st.subsystem_id = card.subsystem_id
     intent_by_el: dict[str, ElementIntention] = {e.element_id: e for e in card.intention}
@@ -789,6 +797,16 @@ def render_brief(
         if instr:
             L.append(f"  - _{instr}_")
     L.append("")
+
+    # ── 8b. Target adaptation notes (port-loop Phase 3) — TARGET-CONDITIONED, only
+    # when a target profile was supplied. Never source-derived INTENT; the CM grades
+    # it renders describe the source and stand without any profile. ──
+    if target_notes:
+        # count the "### " heading lines as the note-block tally
+        st.n_target_adaptation = sum(1 for ln in target_notes if ln.startswith("### "))
+        L += list(target_notes)
+        if target_notes and target_notes[-1] != "":
+            L.append("")
 
     # ── 9. Appendix: raw evidence (§4.2 item 9) ──
     L.append("## Appendix — raw evidence")
@@ -1009,6 +1027,7 @@ def build_port_brief(
     cfg: PortBriefConfig | None = None,
     *,
     generated_at: str | None = None,
+    target_notes: Sequence[str] | None = None,
 ) -> tuple[str, BriefRenderStats]:
     """Build one subsystem's port brief end-to-end: fuse (one strong call), allocate
     the evidence budget, render the markdown. Returns ``(markdown, stats)``.
@@ -1016,6 +1035,9 @@ def build_port_brief(
     ``card`` must already carry its attached intention
     (:func:`ctkr.cards.attach_intention_to_deck`). ``signals_df`` is the whole
     ``intention_signals.parquet``; only this subsystem's element signals are used.
+
+    ``target_notes`` are optional pre-rendered intent-CM target-adaptation lines
+    (Phase 3); pass ``None`` (the default) for a profile-free brief.
     """
     cfg = cfg or PortBriefConfig()
     t0 = time.perf_counter()
@@ -1033,6 +1055,7 @@ def build_port_brief(
     md = render_brief(
         card, fusion, budget, card_sigs,
         fusion_dig=fdig, cfg=cfg, generated_at=generated_at, stats=stats,
+        target_notes=target_notes,
     )
     for e in card.intention:
         if e.load_class == "intention-critical":

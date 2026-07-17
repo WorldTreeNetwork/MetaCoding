@@ -75,6 +75,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help="Fixed ISO-8601 timestamp for the brief footer (does not affect the digest).",
     )
+    p.add_argument(
+        "--target-profile",
+        default=None,
+        help="OPTIONAL target-profile YAML (docs/design/target-profile.md). When given "
+        "(with adjudicated intent-CM rows), renders a 'Target adaptation notes' section "
+        "per brief. The brief stands complete without it (port-loop Phase 3).",
+    )
+    p.add_argument(
+        "--intent-cm",
+        default=None,
+        help="Path to intent_cm_adjudicated.jsonl (default: <data-dir>/ctkr/ if present). "
+        "Only used when --target-profile is given.",
+    )
     p.set_defaults(func=run)
 
 
@@ -155,12 +168,51 @@ def run(args: argparse.Namespace) -> int:
     client = LLMClient(cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl")
     out_dir = ctkr_dir / "port_briefs"
 
+    # ── OPTIONAL intent-CM target-adaptation notes (port-loop Phase 3) ──
+    # Rendered only when a target profile is supplied AND adjudicated intent-CM rows
+    # exist. The CM element_ids are source-file-anchored (not structural symbol ids);
+    # a precise per-subsystem join needs the graph, so notes are scoped to an
+    # explicit --subsystem selection (the vertical-slice usage). Without a profile the
+    # briefs are unchanged — the system stands alone (Phase 3).
+    target_notes: list[str] | None = None
+    if args.target_profile:
+        from ctkr.intent_cm import (
+            INTENT_CM_ADJUDICATED_FILE,
+            TargetProfile,
+            build_target_adaptation_notes,
+            read_adjudicated_jsonl,
+        )
+
+        profile = TargetProfile.load(args.target_profile)
+        adj_path = Path(args.intent_cm) if args.intent_cm else ctkr_dir / INTENT_CM_ADJUDICATED_FILE
+        adjudicated = read_adjudicated_jsonl(adj_path)
+        if not adjudicated:
+            sys.stderr.write(
+                f"WARNING: --target-profile given but no adjudicated intent-CM rows at "
+                f"{adj_path} — run `ctkr intent-cm --adjudicate` first. Briefs render "
+                f"without the target-adaptation section.\n"
+            )
+        elif not args.subsystem:
+            sys.stderr.write(
+                f"WARNING: --target-profile needs an explicit --subsystem to scope the "
+                f"target-adaptation notes (CM sites are source-file-anchored). Rendering "
+                f"briefs without the section.\n"
+            )
+        else:
+            target_notes = build_target_adaptation_notes(adjudicated, profile)
+            sys.stderr.write(
+                f"  target profile : {profile.id} → "
+                f"{sum(1 for a in adjudicated if a.sensitivity in ('hard', 'soft'))} "
+                f"CM-sensitive element(s) for the adaptation section\n"
+            )
+
     manifest_entries: dict[str, dict] = {}
     total_cost = 0.0
     written: list[Path] = []
     for card in selected:
         md, stats = build_port_brief(
-            card, signals_df, client, cfg, generated_at=args.generated_at
+            card, signals_df, client, cfg, generated_at=args.generated_at,
+            target_notes=target_notes,
         )
         path = write_brief(md, out_dir, card.subsystem_id)
         written.append(path)
@@ -179,6 +231,7 @@ def run(args: argparse.Namespace) -> int:
             "n_glossary_terms": stats.n_glossary_terms,
             "n_signals_materialized": stats.n_signals_materialized,
             "n_signals_elided": stats.n_signals_elided,
+            "n_target_adaptation": stats.n_target_adaptation,
             "load": {
                 "structure_clear": stats.n_structure_clear,
                 "intention_critical": stats.n_intention_critical,
