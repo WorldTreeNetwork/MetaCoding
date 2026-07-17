@@ -1000,6 +1000,107 @@ FUNCTOR_EDGES_COLUMNS: tuple[str, ...] = (
 )
 
 
+# ----- Drupal declarative-config intention lane (MetaCoding-77x, port-loop
+# Phase 0). Appended additively at the end to minimise merge conflict with the
+# concurrently-edited structural lane above. -----
+
+
+class FeatureRow(BaseModel):
+    """One feature of the D1 Feature Inventory (decomposition-schema.md §2).
+
+    Produced by the Drupal declarative lane (``ctkr drupal-harvest``), one row
+    per module (**module ≈ feature**; §11): the module's ``.info.yml`` gives the
+    label + description and — for free — the feature-level dependency graph
+    (``depends_on``); routing / permission YAML give the counts; config/install
+    filenames give the owned config entity types. ``source_basis`` is the honesty
+    gauge: ``"declarative"`` when read from a manifest (the strong case),
+    ``"structural"`` when proposed from subsystem boundaries (lower confidence).
+
+    ``feature_id`` is content-addressed (blake3 of repo + module machine name) so
+    re-runs over the same tree are byte-identical and no timestamp enters a row.
+    ``subsystem_ids`` / ``interface_refs`` are the M:N joins into the structural
+    lane (empty here — this lane runs without the Louvain partition; a later join
+    populates them). ``member_globs`` are the module-subtree path globs a port
+    uses to scope a feature's files.
+    """
+
+    feature_id: str  # blake3(repo, module machine name)
+    repo: str
+    name: str  # module machine name (declarative key), e.g. farm_harvest
+    label: str  # human name from .info.yml `name`
+    description: str  # .info.yml `description` — the one-line capability statement
+    source_basis: Literal["declarative", "structural"]
+    declarative_ref: str  # repo-relative path to the .info.yml (or "")
+    package: str | None  # .info.yml `package` grouping, if any
+    core_requirement: str | None  # .info.yml `core_version_requirement`, if any
+    depends_on: list[str]  # feature_ids of in-corpus module dependencies
+    config_entity_types: list[str]  # config entity types the module owns (asset.type …)
+    routes_count: NonNegativeInt  # rows in the module's *.routing.yml
+    permissions_count: NonNegativeInt  # rows in the module's *.permissions.yml
+    member_globs: list[str]  # module-subtree path globs (e.g. modules/log/harvest/**)
+    schema_version: int = SCHEMA_VERSION
+
+
+class ConfigShapeRow(BaseModel):
+    """One config-entity type or field, from Drupal ``config/schema`` (D3-style).
+
+    Produced by the Drupal declarative lane, the data-shape analogue for
+    *declarative* config entities: read from ``config/schema/*.schema.yml``
+    mapping definitions rather than the structural ``READS_FIELD``/``WRITES_FIELD``
+    edges (which this lane does not have). One row per ``(config_type,
+    field_name)``; a ``field_name is None`` row is the type-summary. ``config_type``
+    is the schema key (e.g. ``asset.type.*``); ``entity_kind`` is the schema
+    ``type:`` (``config_entity`` / ``mapping`` / …); ``field_type`` is the Drupal
+    typed-data type (``string`` / ``label`` / ``sequence`` / ``boolean`` / …).
+    Keyed to the owning ``module`` (nearest ancestor ``.info.yml``). Content-
+    addressed ``shape_id`` (blake3 of repo + config_type + field_name) → byte-
+    identical re-runs, no timestamps.
+    """
+
+    shape_id: str  # blake3(repo, config_type, field_name or "")
+    repo: str
+    module: str  # owning module machine name (may be "" for site-level schema)
+    config_type: str  # schema key, e.g. "asset.type.*"
+    entity_kind: str  # schema `type:` — config_entity | mapping | …
+    field_name: str | None  # None for the type-summary row
+    field_type: str | None  # Drupal typed-data type of the field, if given
+    field_label: str | None  # field/type label from the schema, if given
+    source_file: str  # repo-relative config/schema path (provenance)
+    schema_version: int = SCHEMA_VERSION
+
+
+FEATURES_COLUMNS: tuple[str, ...] = (
+    "feature_id",
+    "repo",
+    "name",
+    "label",
+    "description",
+    "source_basis",
+    "declarative_ref",
+    "package",
+    "core_requirement",
+    "depends_on",
+    "config_entity_types",
+    "routes_count",
+    "permissions_count",
+    "member_globs",
+    "schema_version",
+)
+
+CONFIG_SHAPES_COLUMNS: tuple[str, ...] = (
+    "shape_id",
+    "repo",
+    "module",
+    "config_type",
+    "entity_kind",
+    "field_name",
+    "field_type",
+    "field_label",
+    "source_file",
+    "schema_version",
+)
+
+
 __all__ = [
     "SCHEMA_VERSION",
     "EdgeKind",
@@ -1043,4 +1144,8 @@ __all__ = [
     "HOM_PROFILES_COLUMNS",
     "FUNCTORS_COLUMNS",
     "FUNCTOR_EDGES_COLUMNS",
+    "FeatureRow",
+    "ConfigShapeRow",
+    "FEATURES_COLUMNS",
+    "CONFIG_SHAPES_COLUMNS",
 ]
