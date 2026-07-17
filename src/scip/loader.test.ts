@@ -13,8 +13,9 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
-import { parseScipSymbol, kindOf, phpRealFile } from "./symbol.ts";
+import { parseScipSymbol, kindOf, phpRealFile, qualifiedNameOf } from "./symbol.ts";
 import type { Edge, EdgeKind } from "../store/types.ts";
+import { symbolId } from "../extractor/identity.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory Store stub — captures edges for assertion.
@@ -562,5 +563,176 @@ describe("phpRealFile — recover real path from FQN + PSR-4 map", () => {
   test("returns null when no prefix matches (falls back to relative_path)", () => {
     const sym = parse("scip-php composer x 1 Symfony/Component/Foo#");
     expect(phpRealFile(sym, PSR4)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Field-level merge (bead MetaCoding-e2k)
+//
+// SCIP must NOT overwrite tree-sitter's structural fields (visibility,
+// is_static, is_abstract, signature, ast_hash) when SCIP has null/false
+// defaults for them.  SCIP stays authoritative for kind, positions, edges.
+//
+// The stub below simulates the Cypher COALESCE merge so we can verify the
+// end-to-end contract without a real LadybugDB.  `??` in JS skips only
+// null/undefined — identical to SQL/Cypher COALESCE semantics.
+// ---------------------------------------------------------------------------
+describe("field-level merge in loadScip (bead MetaCoding-e2k)", () => {
+  test("tree-sitter visibility/is_static survive when SCIP provides null/false", async () => {
+    // Compute the symbol ID that loadScip will produce for SCIP_METHOD.
+    const parsed = parseScipSymbol(SCIP_METHOD)!;
+    const qn = qualifiedNameOf(parsed);
+    const expectedId = symbolId("ts", "test-repo", qn);
+
+    // State map simulates what the DB holds after tree-sitter wrote the row.
+    const state = new Map<string, Record<string, unknown>>();
+    state.set(expectedId, {
+      id: expectedId,
+      source: "tree_sitter",
+      visibility: "private",
+      is_static: true,
+      is_abstract: false,
+      signature: "(x: number): void",
+      ast_hash: "aabbccdd11223344",
+    });
+
+    const edges: StubEdge[] = [];
+
+    // Merge-aware stub: when opts.preserveStructural is true, apply COALESCE
+    // semantics for the five structural fields (null/undefined falls through
+    // to the incoming value, non-null existing value wins).
+    const mergeStore = {
+      async upsertSymbol(s: any, opts?: { preserveStructural?: boolean }) {
+        const existing = state.get(s.id);
+        if (opts?.preserveStructural && existing) {
+          state.set(s.id, {
+            ...s,
+            visibility:   existing.visibility   ?? s.visibility,
+            is_abstract:  existing.is_abstract  ?? s.is_abstract,
+            is_static:    existing.is_static    ?? s.is_static,
+            signature:    existing.signature    ?? s.signature,
+            ast_hash:     existing.ast_hash     ?? s.ast_hash,
+          });
+        } else {
+          state.set(s.id, { ...s });
+        }
+      },
+      async addEdge(e: { kind: EdgeKind; src_id: string; dst_id: string }) {
+        edges.push({ kind: e.kind, src_id: e.src_id, dst_id: e.dst_id });
+      },
+      async fileHash() { return null; },
+      async deleteFileData() {},
+      writeTokens() {},
+    } as unknown as Parameters<typeof loadScip>[0];
+
+    // SCIP index: just SCIP_METHOD defined, no structural info.
+    const bytes = buildScipBytes([
+      { symbol: SCIP_METHOD, range: METHOD_RANGE, symbol_roles: scip.SymbolRole.Definition },
+    ]);
+    await withTmpScip(bytes, (p) => loadScip(mergeStore, p, OPTS));
+
+    const merged = state.get(expectedId);
+    expect(merged).toBeDefined();
+
+    // Structural fields from tree-sitter must survive.
+    expect(merged?.visibility).toBe("private");
+    expect(merged?.is_static).toBe(true);
+    expect(merged?.is_abstract).toBe(false);
+    expect(merged?.signature).toBe("(x: number): void");
+    expect(merged?.ast_hash).toBe("aabbccdd11223344");
+
+    // SCIP-authoritative field: source updated to "scip".
+    expect(merged?.source).toBe("scip");
+  });
+
+  test("structural fields are written on first upsert (no pre-existing row)", async () => {
+    // When no tree-sitter row exists, SCIP's values (even null/false) must land.
+    const state = new Map<string, Record<string, unknown>>();
+    const mergeStore = {
+      async upsertSymbol(s: any, opts?: { preserveStructural?: boolean }) {
+        const existing = state.get(s.id);
+        if (opts?.preserveStructural && existing) {
+          state.set(s.id, {
+            ...s,
+            visibility:   existing.visibility   ?? s.visibility,
+            is_abstract:  existing.is_abstract  ?? s.is_abstract,
+            is_static:    existing.is_static    ?? s.is_static,
+            signature:    existing.signature    ?? s.signature,
+            ast_hash:     existing.ast_hash     ?? s.ast_hash,
+          });
+        } else {
+          state.set(s.id, { ...s });
+        }
+      },
+      async addEdge() {},
+      async fileHash() { return null; },
+      async deleteFileData() {},
+      writeTokens() {},
+    } as unknown as Parameters<typeof loadScip>[0];
+
+    const bytes = buildScipBytes([
+      { symbol: SCIP_METHOD, range: METHOD_RANGE, symbol_roles: scip.SymbolRole.Definition },
+    ]);
+    await withTmpScip(bytes, (p) => loadScip(mergeStore, p, OPTS));
+
+    // There should be exactly one entry, written by SCIP.
+    expect(state.size).toBe(1);
+    const row = [...state.values()][0]!;
+    // SCIP defaults: visibility null, is_abstract false, is_static false.
+    expect(row.visibility).toBeNull();
+    expect(row.is_abstract).toBe(false);
+    expect(row.is_static).toBe(false);
+    expect(row.source).toBe("scip");
+  });
+
+  test("SCIP edges are emitted even when structural fields are preserved", async () => {
+    // Confirm that edges (CALLS, REFERENCES, etc.) still flow through when
+    // preserveStructural=true suppresses structural field overwrite.
+    const state = new Map<string, Record<string, unknown>>();
+    const edges: StubEdge[] = [];
+    const SCIP_CALLER = "scip-typescript npm test-repo HEAD src/ `example.ts`/ MyClass# caller().";
+    const CALLER_RANGE = [30, 0, 45, 1];
+
+    const mergeStore = {
+      async upsertSymbol(s: any, opts?: { preserveStructural?: boolean }) {
+        const existing = state.get(s.id);
+        if (opts?.preserveStructural && existing) {
+          state.set(s.id, {
+            ...s,
+            visibility:   existing.visibility   ?? s.visibility,
+            is_abstract:  existing.is_abstract  ?? s.is_abstract,
+            is_static:    existing.is_static    ?? s.is_static,
+            signature:    existing.signature    ?? s.signature,
+            ast_hash:     existing.ast_hash     ?? s.ast_hash,
+          });
+        } else {
+          state.set(s.id, { ...s });
+        }
+      },
+      async addEdge(e: { kind: EdgeKind; src_id: string; dst_id: string }) {
+        edges.push({ kind: e.kind, src_id: e.src_id, dst_id: e.dst_id });
+      },
+      async fileHash() { return null; },
+      async deleteFileData() {},
+      writeTokens() {},
+    } as unknown as Parameters<typeof loadScip>[0];
+
+    const bytes = buildScipBytes([
+      {
+        symbol: SCIP_CALLER,
+        range: CALLER_RANGE,
+        enclosing_range: CALLER_RANGE,
+        symbol_roles: scip.SymbolRole.Definition,
+      },
+      { symbol: SCIP_METHOD, range: METHOD_RANGE, symbol_roles: scip.SymbolRole.Definition },
+      // Reference to SCIP_METHOD inside CALLER — should produce REFERENCES + CALLS.
+      { symbol: SCIP_METHOD, range: [35, 6, 35, 14], symbol_roles: 0 },
+    ]);
+    await withTmpScip(bytes, (p) => loadScip(mergeStore, p, OPTS));
+
+    const callEdges = edges.filter((e) => e.kind === "CALLS");
+    expect(callEdges.length).toBeGreaterThan(0);
+    const refEdges = edges.filter((e) => e.kind === "REFERENCES");
+    expect(refEdges.length).toBeGreaterThan(0);
   });
 });

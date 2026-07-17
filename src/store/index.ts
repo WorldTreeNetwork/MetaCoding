@@ -247,7 +247,7 @@ export class Store {
     }
   }
 
-  async upsertSymbol(s: Symbol): Promise<void> {
+  async upsertSymbol(s: Symbol, opts?: { preserveStructural?: boolean }): Promise<void> {
     // The four temporal/partition columns (indexed_at, repo_commit_sha,
     // repo_commit_date, partition) are NULLable post Orchestrators-2ez.
     // Pass-through write — when undefined the column stays NULL.
@@ -256,6 +256,20 @@ export class Store {
     if (payload.repo_commit_sha === undefined) payload.repo_commit_sha = null;
     if (payload.repo_commit_date === undefined) payload.repo_commit_date = null;
     if (payload.partition === undefined) payload.partition = null;
+
+    // When opts.preserveStructural is true (SCIP lane), use COALESCE so an
+    // existing non-null value written by tree-sitter is never clobbered by
+    // SCIP's null/false defaults for fields it doesn't provide (visibility,
+    // is_abstract, is_static, signature, ast_hash).  COALESCE(n.field, $field)
+    // returns the existing node value when it is already set, and falls back to
+    // $field on first write (node was just MERGEd into existence).  The five
+    // SCIP-authoritative fields (kind, qualified_name, positions, source, …) are
+    // always overwritten so SCIP's better resolution wins there.
+    // bead MetaCoding-e2k.
+    const ps = opts?.preserveStructural ?? false;
+    const f = (field: string): string =>
+      ps ? `COALESCE(n.${field}, $${field})` : `$${field}`;
+
     await this.query(
       `MERGE (n:Symbol {id: $id})
        SET n.kind = $kind,
@@ -268,11 +282,11 @@ export class Store {
            n.col = $col,
            n.end_line = $end_line,
            n.end_col = $end_col,
-           n.signature = $signature,
-           n.visibility = $visibility,
-           n.is_abstract = $is_abstract,
-           n.is_static = $is_static,
-           n.ast_hash = $ast_hash,
+           n.signature = ${f("signature")},
+           n.visibility = ${f("visibility")},
+           n.is_abstract = ${f("is_abstract")},
+           n.is_static = ${f("is_static")},
+           n.ast_hash = ${f("ast_hash")},
            n.branch = $branch,
            n.source = $source,
            n.indexed_at = CASE WHEN $indexed_at IS NULL THEN NULL ELSE timestamp($indexed_at) END,
