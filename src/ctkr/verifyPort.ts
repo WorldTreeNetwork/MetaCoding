@@ -44,6 +44,7 @@ import {
   type FunctorSearchConfig,
   type FunctorSearchResult,
 } from "./functorSearch.ts";
+import type { PortDecision } from "./portDecisions.ts";
 
 // ---------------------------------------------------------------------------
 // §6.2 normalization spec
@@ -175,6 +176,20 @@ export interface PunchListItem {
   label?: string;
   detail: string;
   exemplarSlices: ExemplarSlice[];
+  /**
+   * Set to the matching `PortDecision.id` when a decisions input was supplied
+   * and this item's `cardSection` matches a decision's `targetElement`. Waived
+   * items are still reported in the punch list but excluded from the net gates.
+   */
+  waivedBy?: string;
+}
+
+export interface GatesShape {
+  roleCoverage: GateResult;
+  interfacePreservation: GateResult;
+  compositionPreservation: GateResult;
+  fidelity: GateResult;
+  cycleConsistency: GateResult;
 }
 
 export interface PortVerificationReport {
@@ -183,17 +198,31 @@ export interface PortVerificationReport {
   portRepo: string;
   normalizationApplied: boolean;
   normalizationVersion: number | null;
-  gates: {
-    roleCoverage: GateResult;
-    interfacePreservation: GateResult;
-    compositionPreservation: GateResult;
-    fidelity: GateResult;
-    cycleConsistency: GateResult;
-  };
+  /** Raw gate scores — unaffected by any decisions/waivers. */
+  gates: GatesShape;
+  /**
+   * Gate scores net of waivers — present only when a `decisions` input was
+   * supplied to `verifyPort`. `passed` is lifted to `true` when every punch-list
+   * item for that gate is waived; `passedAtCeiling` is never lifted by waivers
+   * (waivers reclassify floor failures, they cannot grant ceiling status).
+   */
+  gatesNet?: GatesShape;
   /** convenience: every gate passes at its ceiling (the rename-fork "port" bar). */
   passedAtCeiling: boolean;
   /** the §7 PUNCH LIST — localized failures. Empty iff every gate is at ceiling. */
   punchList: PunchListItem[];
+  /**
+   * How many punch-list items were waived. Zero when no decisions were supplied
+   * or no decision targets matched.
+   */
+  waivedCount: number;
+  /**
+   * Decision records whose `targetElement` matched no punch-list item in this
+   * run. A stale waiver is not silently dropped — it is surfaced here so the
+   * decisions log can be kept current. Only populated when a `decisions` input
+   * was supplied.
+   */
+  staleWaivers: PortDecision[];
   functor: {
     coverage: number;
     fidelity: number;
@@ -221,6 +250,15 @@ export interface VerifyPortOptions {
   applyNormalization?: boolean;
   config?: Partial<FunctorSearchConfig>;
   thresholds?: Partial<GateThresholds>;
+  /**
+   * Optional port decision records. When supplied, punch-list items whose
+   * `cardSection` matches a decision's `targetElement` are marked `waivedBy`
+   * (the decision id) and excluded from the net gate computation. Decisions for
+   * a different subsystem (decision.subsystem !== spec.subsystemId) are ignored.
+   *
+   * Load from `port_decisions/<subsystem_id>.jsonl` via `loadPortDecisions()`.
+   */
+  decisions?: PortDecision[];
 }
 
 export interface GateThresholds {
@@ -743,6 +781,63 @@ export function verifyPort(opts: VerifyPortOptions): PortVerificationReport {
     return gateOrder.indexOf(a.gate) - gateOrder.indexOf(b.gate);
   });
 
+  // ---- Waiver processing ----
+  // Filter decisions to only those for this subsystem.
+  const relevantDecisions = (opts.decisions ?? []).filter(
+    (d) => d.subsystem === opts.spec.subsystemId,
+  );
+
+  let gatesNet: GatesShape | undefined;
+  let waivedCount = 0;
+  let staleWaivers: PortDecision[] = [];
+
+  if (relevantDecisions.length > 0) {
+    // Build a lookup: cardSection → decision id, for O(1) matching.
+    const decisionByTarget = new Map<string, string>();
+    for (const d of relevantDecisions) {
+      // Last-writer-wins when two decisions share the same targetElement.
+      decisionByTarget.set(d.targetElement, d.id);
+    }
+
+    // Mark matched punch-list items as waived.
+    const matchedTargets = new Set<string>();
+    for (const item of punch) {
+      const decisionId = decisionByTarget.get(item.cardSection);
+      if (decisionId !== undefined) {
+        item.waivedBy = decisionId;
+        matchedTargets.add(item.cardSection);
+        waivedCount++;
+      }
+    }
+
+    // Stale waivers: decisions whose targetElement matched nothing.
+    staleWaivers = relevantDecisions.filter(
+      (d) => !matchedTargets.has(d.targetElement),
+    );
+
+    // Compute net gates: same score/threshold/ceiling; `passed` is lifted when
+    // every punch-list item for that gate is waived; `passedAtCeiling` is never
+    // lifted by waivers (can't waive into ceiling territory).
+    const allWaivedForGate = (gateName: string): boolean =>
+      punch
+        .filter((p) => p.gate === gateName)
+        .every((p) => p.waivedBy !== undefined);
+
+    const liftGate = (raw: GateResult, gateName: string): GateResult => ({
+      ...raw,
+      passed: raw.passed || allWaivedForGate(gateName),
+      // passedAtCeiling never changes — waivers reclassify floor failures only.
+    });
+
+    gatesNet = {
+      roleCoverage: liftGate(gates.roleCoverage, "role-coverage"),
+      interfacePreservation: liftGate(gates.interfacePreservation, "interface-preservation"),
+      compositionPreservation: liftGate(gates.compositionPreservation, "composition-preservation"),
+      fidelity: liftGate(gates.fidelity, "fidelity"),
+      cycleConsistency: liftGate(gates.cycleConsistency, "cycle-consistency"),
+    };
+  }
+
   return {
     subsystemId: opts.spec.subsystemId,
     repo: opts.spec.repo,
@@ -750,8 +845,11 @@ export function verifyPort(opts: VerifyPortOptions): PortVerificationReport {
     normalizationApplied: applyNorm,
     normalizationVersion: norm ? norm.version : null,
     gates,
+    ...(gatesNet !== undefined ? { gatesNet } : {}),
     passedAtCeiling,
     punchList: punch,
+    waivedCount,
+    staleWaivers,
     functor: {
       coverage: fwd.coverage,
       fidelity: fidScore,
@@ -770,21 +868,47 @@ export function formatReport(r: PortVerificationReport): string {
   lines.push(`# Port verification — ${r.repo} / ${r.subsystemId}`);
   lines.push(`normalization: ${r.normalizationApplied ? `on (v${r.normalizationVersion})` : "off"}   passedAtCeiling: ${r.passedAtCeiling}`);
   lines.push("");
-  lines.push("## Gates");
+  lines.push("## Gates (raw)");
   for (const g of Object.values(r.gates)) {
     const mark = g.passedAtCeiling ? "✓✓" : g.passed ? "✓ " : "✗ ";
     lines.push(`  ${mark} ${g.name.padEnd(26)} ${pct(g.score).padStart(7)}  (floor ${g.threshold}, ceiling ${g.ceiling})  — ${g.detail}`);
   }
+  if (r.gatesNet !== undefined) {
+    lines.push("");
+    lines.push(`## Gates (net of ${r.waivedCount} waiver${r.waivedCount === 1 ? "" : "s"})`);
+    for (const g of Object.values(r.gatesNet)) {
+      const mark = g.passedAtCeiling ? "✓✓" : g.passed ? "✓ " : "✗ ";
+      lines.push(`  ${mark} ${g.name.padEnd(26)} ${pct(g.score).padStart(7)}  (floor ${g.threshold}, ceiling ${g.ceiling})  — ${g.detail}`);
+    }
+  }
   lines.push("");
-  lines.push(`## Punch list (${r.punchList.length} item${r.punchList.length === 1 ? "" : "s"})`);
+  const activeItems = r.punchList.filter((p) => p.waivedBy === undefined);
+  const waivedItems = r.punchList.filter((p) => p.waivedBy !== undefined);
+  lines.push(`## Punch list (${r.punchList.length} item${r.punchList.length === 1 ? "" : "s"}${r.waivedCount > 0 ? `, ${r.waivedCount} waived` : ""})`);
   if (r.punchList.length === 0) {
     lines.push("  (empty — every gate at ceiling)");
   }
-  for (const p of r.punchList) {
+  for (const p of activeItems) {
     lines.push(`  [${p.severity}] ${p.gate} → ${p.cardSection}`);
     lines.push(`      ${p.detail}`);
     for (const s of p.exemplarSlices) {
       lines.push(`      · ${s.qualifiedName ?? s.symbolId}${s.role ? ` (role ${s.role})` : ""}`);
+    }
+  }
+  if (waivedItems.length > 0) {
+    lines.push("");
+    lines.push("  --- waived ---");
+    for (const p of waivedItems) {
+      lines.push(`  [waived:${p.waivedBy}] ${p.gate} → ${p.cardSection}`);
+      lines.push(`      ${p.detail}`);
+    }
+  }
+  if (r.staleWaivers.length > 0) {
+    lines.push("");
+    lines.push(`## Stale waivers (${r.staleWaivers.length}) — these decision records matched no punch-list item`);
+    for (const d of r.staleWaivers) {
+      lines.push(`  [stale] ${d.id}  target: ${d.targetElement}`);
+      lines.push(`      decision: ${d.decision}  rationale: ${d.rationale}`);
     }
   }
   return lines.join("\n");
