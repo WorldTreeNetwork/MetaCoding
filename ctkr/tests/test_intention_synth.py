@@ -329,3 +329,74 @@ def test_adjudication_routes_to_strong_model() -> None:
     )
     assert "strong-m" in prov.models  # adjudication routed to the strong model
     assert "cheap-m" in prov.models  # intent/scenario on the cheap model
+
+
+# ───────────────────────── deck attach (§9.1 card extension) ─────────────────────────
+
+
+def _minimal_card(subsystem_id: str):
+    from ctkr.cards import (
+        InterfaceCard,
+        InterfaceExportCard,
+        Provenance,
+        RoleCard,
+        SpecBasisSummary,
+        SubsystemCard,
+        TopologyCard,
+    )
+
+    return SubsystemCard(
+        card_id=f"card:{subsystem_id}",
+        subsystem_id=subsystem_id,
+        repo="R",
+        name="Svc",
+        intent="Does a job.",
+        spec_basis_summary=SpecBasisSummary(structural=1.0, nl_only=0.0),
+        roles=[
+            RoleCard(
+                role_id="role:validator", view="similarity", label="Validator",
+                description="d", cardinality=2, members=["RateValidator"],
+                exemplar_symbol=None, exemplar_qualified_name=None, profile_depth=1,
+                granularity="0.8", interface_participation=[], invariance_tier="I",
+            )
+        ],
+        interface=InterfaceCard(
+            provides=[
+                InterfaceExportCard(
+                    symbol="get_session", symbol_id="get_session", role_id=None,
+                    usage_modes=["CALLS"], contract="c", n_external_callers=1,
+                )
+            ]
+        ),
+        topology=TopologyCard(n_members=3),
+        n_members=3,
+        provenance=Provenance(
+            generated_at="t", llm_model="m", llm_temperature=0.0, prompt_version="v"
+        ),
+    )
+
+
+def test_attach_intention_to_deck_joins_by_element_id(tmp_path: Path) -> None:
+    from ctkr.cards import attach_intention_to_deck
+
+    signals_df, load_df, conf_df = _frames()
+    client, _ = _mock_client()
+    rows, _ = synthesize_intention(
+        signals_df=signals_df, load_df=load_df, conflicts_df=conf_df,
+        members_df=None, client=client, adjudication_model=None,
+    )
+    intention_path = tmp_path / "intention.jsonl"
+    write_intention_jsonl(rows, intention_path)
+
+    card = _minimal_card("ss:svc")
+    (attached,) = attach_intention_to_deck([card], intention_path)
+    # both the export and the role element attach to this card.
+    attached_ids = {e.element_id for e in attached.intention}
+    assert attached_ids == {"get_session", "role:validator"}
+    exp = next(e for e in attached.intention if e.element_id == "get_session")
+    assert exp.intent and exp.intent[0].citations  # cited intent landed
+    assert exp.behavioral_scenarios  # scenarios landed
+    # header summary (§5.4): one structure-clear export + one ambiguous role → 0.5/0.5
+    assert attached.intention_load_summary is not None
+    assert attached.intention_load_summary["structure_clear"] == 0.5
+    assert attached.intention_load_summary["ambiguous"] == 0.5

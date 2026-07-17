@@ -29,6 +29,19 @@ from typing import Literal
 import blake3
 from pydantic import BaseModel, Field, NonNegativeInt
 
+# The intention channel (T5b) is a strict downstream of this schema module — the
+# card *consumes* synthesized intention, never the reverse — so importing its
+# output models here introduces no cycle (intention_synth imports neither cards
+# nor spec_cards).
+from ctkr.intention_synth import (
+    AgreementRecord,
+    BehavioralScenario,
+    ConflictRecord,
+    GlossaryTerm,
+    IntentTriple,
+    read_intention_jsonl,
+)
+
 SCHEMA_VERSION: int = 1
 
 InvarianceTier = Literal["I", "N", "A"]
@@ -177,6 +190,26 @@ class NlOnlySymbol(BaseModel):
     description: str = ""  # L3, may be empty when not sampled for labeling
 
 
+class ElementIntention(BaseModel):
+    """One structural element's synthesized intention (T5b), landed on the card.
+
+    Sourced from ``intention.jsonl`` (:mod:`ctkr.intention_synth`) and joined onto
+    a card by ``element_id`` (an export/data-shape symbol_id or a role_id). Carries
+    the fusion-triple INTENT block (§4.1): cited ``intent`` statements, the domain
+    ``glossary``, S1 ``behavioral_scenarios``, the §5.4 ``load_class``, and the
+    §6.1 ``agreement``/``conflicts``. All citations are ``intention_signals`` row
+    ids (they resolve by construction, §9.2)."""
+
+    element_id: str
+    element_kind: str
+    load_class: str | None = None
+    intent: list[IntentTriple] = Field(default_factory=list)
+    glossary: list[GlossaryTerm] = Field(default_factory=list)
+    behavioral_scenarios: list[BehavioralScenario] = Field(default_factory=list)
+    agreement: AgreementRecord | None = None
+    conflicts: list[ConflictRecord] = Field(default_factory=list)
+
+
 class Provenance(BaseModel):
     generated_at: str  # ISO-8601
     schema_version: int = SCHEMA_VERSION
@@ -207,6 +240,12 @@ class SubsystemCard(BaseModel):
     topology: TopologyCard
     exemplar_slices: list[ExemplarSlice] = Field(default_factory=list)
     nl_only_symbols: list[NlOnlySymbol] = Field(default_factory=list)
+    # ── intention channel (T5b, ct-intention-extraction.md §5.4/§9.1) ──
+    # The §5.4 honesty gauge: fractions of the subsystem's elements per load class
+    # ({structure_clear, intention_critical, ambiguous}); None until T5b runs.
+    intention_load_summary: dict[str, float] | None = None
+    # Per-element synthesized intention, joined from intention.jsonl by element_id.
+    intention: list[ElementIntention] = Field(default_factory=list)
     n_members: NonNegativeInt
     provenance: Provenance
     schema_version: int = SCHEMA_VERSION
@@ -296,7 +335,70 @@ def read_cards(path: str | Path) -> list[SubsystemCard]:
     return out
 
 
+# ----- intention landing (T5b) -----
+
+
+def _card_element_ids(card: SubsystemCard) -> set[str]:
+    """Every structural element on a card that an ``intention.jsonl`` row can key
+    to: role ids, provided-export symbol ids, and data-shape type symbol ids."""
+    ids: set[str] = {r.role_id for r in card.roles}
+    ids |= {e.symbol_id for e in card.interface.provides}
+    ids |= {s.type_symbol_id for s in card.data_shapes}
+    return ids
+
+
+def attach_intention_to_deck(
+    cards: list[SubsystemCard], intention_path: str | Path
+) -> list[SubsystemCard]:
+    """Join ``intention.jsonl`` (T5b) onto an existing deck (§9.1 card extension).
+
+    For each card, attaches every :class:`ElementIntention` whose ``element_id``
+    names one of the card's elements (:func:`_card_element_ids`) and computes the
+    card's ``intention_load_summary`` header (§5.4) from those elements' load
+    classes. Cards are mutated in place and returned. Idempotent: re-running
+    replaces the attached intention. Elements with no card (rare — a harvested
+    element the deck capped out of its labeled subset) are simply not attached.
+    """
+    rows = read_intention_jsonl(intention_path)
+    by_element = {r.element_id: r for r in rows}
+    for card in cards:
+        attached: list[ElementIntention] = []
+        class_counts: dict[str, int] = {}
+        for eid in sorted(_card_element_ids(card)):
+            r = by_element.get(eid)
+            if r is None:
+                continue
+            attached.append(
+                ElementIntention(
+                    element_id=r.element_id,
+                    element_kind=r.element_kind,
+                    load_class=r.load_class,
+                    intent=r.intent,
+                    glossary=r.glossary,
+                    behavioral_scenarios=r.behavioral_scenarios,
+                    agreement=r.agreement,
+                    conflicts=r.conflicts,
+                )
+            )
+            if r.load_class:
+                class_counts[r.load_class] = class_counts.get(r.load_class, 0) + 1
+        card.intention = attached
+        total = sum(class_counts.values())
+        card.intention_load_summary = (
+            {
+                "structure_clear": round(class_counts.get("structure-clear", 0) / total, 4),
+                "intention_critical": round(class_counts.get("intention-critical", 0) / total, 4),
+                "ambiguous": round(class_counts.get("ambiguous", 0) / total, 4),
+            }
+            if total
+            else None
+        )
+    return cards
+
+
 __all__ = [
+    "ElementIntention",
+    "attach_intention_to_deck",
     "SCHEMA_VERSION",
     "InvarianceTier",
     "SpecBasis",
