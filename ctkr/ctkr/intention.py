@@ -43,7 +43,6 @@ from pathlib import Path
 
 import networkx as nx
 import polars as pl
-
 from blake3 import blake3
 
 from ctkr.evidence import _extract_docstring  # reuse the shipped docstring heuristic
@@ -516,7 +515,7 @@ class Harvester:
                     Sig(sid, element_kind, "S3", "S", f"errmsg:{_clip(text, 200)}", file, lno, lno, pdef["S3-message"])
                 )
             # A6 — WHY / marker comments
-            for content, marker, lno in self._comments(lines, start):
+            for content, _marker, lno in self._comments(lines, start):
                 sigs.append(Sig(sid, element_kind, "A6", "A", content, file, lno, lno, pdef["A6"]))
 
         # S1 — test linkage (behavioral intention), only meaningful for exports
@@ -612,9 +611,12 @@ class Harvester:
 
 
 def _glob_to_re(glob: str) -> str:
-    # Minimal glob→regex: ** matches any path chars, * matches non-slash.
-    out = re.escape(glob).replace(r"\*\*", ".*").replace(r"\*", "[^/]*").replace(r"\?", ".")
-    return out.replace(r"\.\*", ".*") + r"$"
+    # Minimal glob→regex. ``**/`` matches zero or more leading path segments (so
+    # ``**/test_*.py`` matches both ``test_x.py`` and ``a/b/test_x.py``); ``**``
+    # matches any chars; ``*`` matches within a segment.
+    out = re.escape(glob)
+    out = out.replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+    return out.replace(r"\?", ".") + r"$"
 
 
 def _clip(s: str, n: int) -> str:
@@ -824,7 +826,7 @@ def _detect_conflicts(
             any_writes[k] += 1
             if h.sym2sub.get(dst) not in (None, sub):
                 crossing_writes[k] += 1
-    for src, _, k in g.in_edges(sid, keys=True):
+    for _src, _, k in g.in_edges(sid, keys=True):
         if k in ("CALLS", "REFERENCES"):
             callers[k] += 1
 
