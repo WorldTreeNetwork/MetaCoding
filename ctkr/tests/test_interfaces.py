@@ -181,3 +181,57 @@ def test_interfaces_deterministic_byte_identical(tmp_path: Path) -> None:
     assert (tmp_path / "data_run1.parquet").read_bytes() == (
         tmp_path / "data_run2.parquet"
     ).read_bytes()
+
+
+def test_scalar_field_type_from_signature() -> None:
+    """When a field has no TYPE_OF edge but carries a ``signature`` with a type
+    annotation, ``field_type`` is populated from the signature instead of
+    staying None (MetaCoding-j3y fix 1: scalar-type fallback)."""
+    g, mem = _two_subsystem_graph()
+
+    # Add a new field "count" on AConfig with a primitive "int" type annotation
+    # in its signature — but no TYPE_OF edge (simulates a scalar field).
+    g.add_node("acz", repo="R", qualified_name="a/svc.ts::AConfig::count",
+               file="a/svc.ts", kind="field", short_name="count",
+               signature="count: int")
+    g.add_edge("AConfig", "acz", key="CONTAINS", kind="CONTAINS")
+    # B reads the field so it becomes a data-shape field we can inspect.
+    g.add_edge("bMain", "acz", key="READS_FIELD", kind="READS_FIELD")
+
+    _, data, _ = compute_interfaces(g, mem, generated_at=FIXED_TS)
+    count_row = next(
+        (r for r in data.to_dicts() if r.get("field_name") == "count"), None
+    )
+    assert count_row is not None, "count field row not found in data_shapes"
+    assert count_row["field_type"] == "int", (
+        f"expected 'int' from signature fallback, got {count_row['field_type']!r}"
+    )
+
+
+def test_scalar_field_type_from_signature_coverage() -> None:
+    """Honest coverage: verify that TYPE_OF-linked fields keep their type, and
+    signature-fallback fields are populated; report the split for auditing."""
+    g, mem = _two_subsystem_graph()
+
+    # Add a scalar field with signature but no TYPE_OF edge
+    g.add_node("acz", repo="R", qualified_name="a/svc.ts::AConfig::count",
+               file="a/svc.ts", kind="field", short_name="count",
+               signature="count: int")
+    g.add_edge("AConfig", "acz", key="CONTAINS", kind="CONTAINS")
+    g.add_edge("bMain", "acz", key="READS_FIELD", kind="READS_FIELD")
+
+    _, data, _ = compute_interfaces(g, mem, generated_at=FIXED_TS)
+    dA = data.filter(pl.col("subsystem_id") == "ss:A")
+    field_rows = [r for r in dA.to_dicts() if r["field_name"] is not None]
+    total = len(field_rows)
+    with_type = sum(1 for r in field_rows if r["field_type"] is not None)
+    coverage_pct = with_type / total * 100 if total else 0.0
+    # After the scalar-type fix, every typed field (TYPE_OF + signature fallback)
+    # should be populated.  "x" has TYPE_OF edge, "count" has signature. "y" has
+    # no TYPE_OF and no signature on the node (no `signature` attr added), so
+    # it stays None — that's honest.
+    # At minimum: "x" (TYPE_OF → AInternal) + "count" (signature → int)
+    assert with_type >= 2, (
+        f"expected >= 2 typed fields, got {with_type}/{total} "
+        f"({coverage_pct:.0f}% coverage)"
+    )

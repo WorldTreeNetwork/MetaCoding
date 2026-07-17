@@ -839,7 +839,16 @@ def _build_card(
         )
         if r.get("field_name"):
             flow = _field_flow(r)
-            e["fields"].append(DataFieldCard(name=r["field_name"], type=r.get("field_type"), flow=flow))
+            raw_ftype = r.get("field_type")
+            # Normalize: strip any absolute worktree-checkout path prefix so that a
+            # deck built from a worktree produces identical DataFieldCard.type values
+            # to one built from the main checkout (§MetaCoding-j3y).
+            # _short() already strips everything before the last "/" which covers both
+            # "/abs/.../file.ts::Type" → "file.ts::Type" and "pkg/file.ts::Type" →
+            # "file.ts::Type" consistently.  Scalar primitives ("str", "int", …) have
+            # no "/" so they pass through unchanged.
+            norm_ftype = _short(raw_ftype) if raw_ftype else raw_ftype
+            e["fields"].append(DataFieldCard(name=r["field_name"], type=norm_ftype, flow=flow))
     # boundary types first, then by field count
     ordered_types = sorted(
         shapes_by_type.items(), key=lambda kv: (not kv[1]["boundary"], -len(kv[1]["fields"]), kv[0])

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from collections.abc import Iterable
@@ -60,6 +61,28 @@ from ctkr.schema import (
 )
 
 logger = logging.getLogger("ctkr.interfaces")
+
+# Best-effort: extract the type annotation from a field's signature string.
+# Handles Python "name: Type", "name: Type = default" and TypeScript "name: Type;".
+# Returns the raw annotation text, or None when the pattern doesn't match.
+_FIELD_SIG_TYPE_RE = re.compile(r'^[^:(]+:\s*([^=;{}\n]+?)\s*(?:=.*|;.*)?\s*$')
+
+
+def _type_from_signature(sig: str) -> str | None:
+    """Extract a type annotation from a field's ``signature`` node attribute.
+
+    Used as a best-effort fallback when no ``TYPE_OF`` graph edge was emitted
+    for the field (common for scalar/primitive types that the SCIP extractor
+    doesn't fully link).  Returns ``None`` when the pattern is not recognised.
+    """
+    if not sig:
+        return None
+    m = _FIELD_SIG_TYPE_RE.match(sig.strip())
+    if m:
+        t = m.group(1).strip()
+        return t if t else None
+    return None
+
 
 # ── edge-kind taxonomy (§3) ──
 # CONTAINS is scaffolding, never a contract morphism (§6.1 tier-A); excluded.
@@ -296,6 +319,10 @@ def compute_interfaces(
             fname = nd(f).get("short_name") or (fqn.split("::")[-1] if fqn else None)
             ftype_id = field_type_of.get(f)
             ftype = qn(ftype_id) if ftype_id else None
+            # Scalar/primitive fields often lack a TYPE_OF edge; fall back to
+            # the field node's ``signature`` attribute (best-effort).
+            if ftype is None:
+                ftype = _type_from_signature(nd(f).get("signature") or "")
             readers = field_readers.get(f, set())
             writers = field_writers.get(f, set())
             r_int = any(sym2sub.get(x) == sub for x in readers)
