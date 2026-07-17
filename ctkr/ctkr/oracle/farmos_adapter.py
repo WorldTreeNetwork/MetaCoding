@@ -284,9 +284,9 @@ class FarmOSAdapter(ImplementationAdapter):
 
     def archive_asset(self, asset_handle: Handle) -> None:
         _, bundle, uid = self._split(asset_handle)
-        # farmOS marks an asset inactive via the `archived` timestamp.
+        # farmOS marks an asset inactive via the boolean `archived` flag.
         doc = {"data": {"type": f"asset--{bundle}", "id": uid,
-                        "attributes": {"archived": _now_iso()}}}
+                        "attributes": {"archived": True}}}
         self.client.request("PATCH", f"/api/asset/{bundle}/{uid}", doc)
 
     # ---- then (reads) ------------------------------------------------------ #
@@ -335,7 +335,8 @@ class FarmOSAdapter(ImplementationAdapter):
     def asset_active(self, asset_handle: Handle) -> bool:
         _, bundle, uid = self._split(asset_handle)
         doc = self.client.request("GET", f"/api/asset/{bundle}/{uid}")
-        return doc["data"]["attributes"].get("archived") in (None, "")
+        # farmOS: `archived` is a boolean; an active asset is not archived.
+        return not doc["data"]["attributes"].get("archived")
 
     def group_member(self, asset_handle: Handle, group_handle: Handle) -> bool:
         _, abundle, aid = self._split(asset_handle)
@@ -402,7 +403,3 @@ def _quantity_value(value: Any) -> float:
     return float(value)
 
 
-def _now_iso() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()

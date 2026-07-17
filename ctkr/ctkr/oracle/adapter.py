@@ -43,10 +43,10 @@ class ImplementationAdapter(ABC):
     name: str = "abstract"
 
     # ---- lifecycle --------------------------------------------------------- #
-    def open(self) -> None:  # noqa: A003 — domain verb, not the builtin
+    def open(self) -> None:  # noqa: A003, B027 — optional hook, default no-op
         """Prepare the adapter (authenticate, warm caches). Default: no-op."""
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 — optional hook, default no-op
         """Release resources. Default: no-op."""
 
     # ---- given / when: mutate domain state --------------------------------- #

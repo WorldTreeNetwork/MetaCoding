@@ -21,13 +21,12 @@ expected value. No expected values are hand-authored — they are all observed.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from blake3 import blake3
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ctkr.oracle.adapter import Handle
 from ctkr.oracle.farmos_adapter import FarmOSAdapter, FarmOSClient
@@ -296,7 +295,7 @@ def record_flow(
             source_system="farmOS",
             source_version=source_version,
             flow=flow.key,
-            recorded_at=datetime.now(timezone.utc).isoformat(),
+            recorded_at=datetime.now(UTC).isoformat(),
             observation_refs=[o.obs_id for o in observations],
         ),
     ).with_id()
