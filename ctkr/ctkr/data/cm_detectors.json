@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "description": "Consistency-model-sensitivity detector table (port-loop-plan.md Phase 3; decomposition-schema.md §6.2). Curated, versioned, per-language/framework DATA — the sibling of conflict_detectors.json for the intent-CM tag. Each entry is a cheap, deterministic regex over source that FLAGS a place where the source silently assumes a central authority: ACID transactions, unique constraints, autoincrement/sequential ids, server-side access checks, or revision/locking. Every hit is a candidate for the LM adjudicator (intent_cm.py) to classify {hard | soft | none} — the table proposes a `cm_seed` prior, the strong model disposes. `cm_seed` is the mechanical prior severity; adjudication may downgrade a false positive to `none`. Adding a language/framework pattern is a table edit; adding a new detection engine is code (there is one engine: `regex`).",
+  "seed_note": "CM-hard = cannot hold under eventual consistency without a chosen resolution strategy (unique/monotonic ids, single-writer locks). CM-soft = holds eventually, transient violation tolerable (access snapshots, revision history, conservation sums). CM-none = independent of consistency model. Seeds are priors: the mechanical layer over-flags (high recall), adjudication is the precision gate.",
+  "categories": {
+    "transaction": "ACID transaction boundary — a set of writes assumed atomic + isolated by a central store.",
+    "unique-constraint": "a uniqueness invariant enforced by the store at write time.",
+    "autoincrement-id": "reliance on a server-assigned sequential / monotonic id.",
+    "access-check": "a server-side access/permission check evaluated against authoritative central state.",
+    "revision-lock": "revisioning or explicit locking assuming a single serialized write history."
+  },
+  "detectors": [
+    {
+      "id": "php-drupal-transaction",
+      "check": "regex",
+      "category": "transaction",
+      "languages": ["php"],
+      "pattern": "->startTransaction\\s*\\(|\\bdb_transaction\\s*\\(|->transaction\\s*\\(",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "php-function",
+      "message": "explicit ACID transaction boundary: a group of writes assumed atomic + isolated. Under eventual consistency there is no such boundary — the port must either move this to a coordination layer or make each write independently convergent."
+    },
+    {
+      "id": "generic-sql-begin-transaction",
+      "check": "regex",
+      "category": "transaction",
+      "languages": ["php", "python", "ts", "js", "sql"],
+      "pattern": "\\bBEGIN\\s+TRANSACTION\\b|\\bSTART\\s+TRANSACTION\\b|beginTransaction\\s*\\(|\\bwith\\s+transaction\\b|@transaction\\b|@Transactional\\b",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "function",
+      "message": "transaction boundary — atomicity + isolation assumed. No central authority in the target: re-answer as a convergence rule or a coordination step."
+    },
+    {
+      "id": "php-drupal-unique-constraint",
+      "check": "regex",
+      "category": "unique-constraint",
+      "languages": ["php"],
+      "pattern": "addConstraint\\s*\\(\\s*['\"]Unique|UniqueField|new\\s+UniqueField|['\"]UniqueFieldConstraint['\"]|->addUniqueKey\\s*\\(",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "php-class",
+      "message": "field/entity uniqueness enforced by the store at write time. Two disconnected replicas can each satisfy it locally yet collide on merge — the port must choose a convergence rule (namespaced/UUID keys, or a coordination check)."
+    },
+    {
+      "id": "config-schema-unique-key",
+      "check": "regex",
+      "category": "unique-constraint",
+      "languages": ["yaml"],
+      "file_globs": ["**/config/schema/*.yml", "**/config/install/*.yml"],
+      "pattern": "^\\s*unique\\s*:\\s*true\\b|^\\s*unique_keys\\s*:",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "config",
+      "message": "declarative uniqueness key in config schema. A write-time invariant with no distributed analogue — re-answer on merge."
+    },
+    {
+      "id": "generic-unique-constraint",
+      "check": "regex",
+      "category": "unique-constraint",
+      "languages": ["python", "ts", "js"],
+      "pattern": "unique\\s*=\\s*True|@Unique\\b|@Column\\([^)]*unique:\\s*true|UNIQUE\\s*\\(|\\.unique\\s*\\(\\s*\\)",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "class",
+      "message": "uniqueness constraint. Central store enforces at write; a distributed target must converge or coordinate."
+    },
+    {
+      "id": "php-drupal-serial-id",
+      "check": "regex",
+      "category": "autoincrement-id",
+      "languages": ["php"],
+      "pattern": "BaseFieldDefinition::create\\s*\\(\\s*['\"]integer['\"][^;]*['\"]id['\"]|->setSetting\\s*\\(\\s*['\"]unsigned['\"]|entity_keys[^;]*['\"]id['\"]\\s*=>\\s*['\"]id['\"]|['\"]id['\"]\\s*=\\s*['\"]id['\"]",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "php-class",
+      "message": "reliance on a server-assigned sequential integer id (the entity's `id` key). Monotonic autoincrement is unavailable offline-first — the port must key on UUIDs (farmOS already carries a uuid entity key) and treat the serial id as a local, non-portable ordinal."
+    },
+    {
+      "id": "generic-autoincrement-id",
+      "check": "regex",
+      "category": "autoincrement-id",
+      "languages": ["python", "ts", "js", "sql"],
+      "pattern": "AUTO_INCREMENT|\\bSERIAL\\b|\\bBIGSERIAL\\b|AutoField\\b|autoincrement\\s*[:=]\\s*[Tt]rue|@GeneratedValue",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "class",
+      "message": "server-assigned sequential id. No monotonic authority in the target — key on a client-generated UUID."
+    },
+    {
+      "id": "php-entity-access-method",
+      "check": "regex",
+      "category": "access-check",
+      "languages": ["php"],
+      "pattern": "->access\\s*\\(\\s*['\"](view|update|delete|create)['\"]|AccessResult::(allowed|forbidden|neutral)|->hasPermission\\s*\\(",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "php-function",
+      "message": "server-side access check against authoritative central state (roles/permissions/grants). Offline-first, the deciding state may be stale — the port re-answers 'who may see what' in the selective-disclosure / sync layer, not as a synchronous central gate."
+    },
+    {
+      "id": "php-hook-access",
+      "check": "regex",
+      "category": "access-check",
+      "languages": ["php"],
+      "pattern": "function\\s+[a-z0-9_]+_(entity_access|[a-z0-9_]+_access)\\s*\\(",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "php-function",
+      "message": "access hook — server-evaluated authorization. Re-express in the disclosure layer; a replica cannot assume the central grant table is current."
+    },
+    {
+      "id": "config-route-permission",
+      "check": "regex",
+      "category": "access-check",
+      "languages": ["yaml"],
+      "file_globs": ["**/*.routing.yml", "**/*.permissions.yml"],
+      "pattern": "^\\s*_permission\\s*:|^\\s*_entity_access\\s*:|^\\s*_role\\s*:",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "route",
+      "message": "declarative access requirement on a route/permission. The source's answer to selective disclosure; the port re-answers it in the sync/disclosure layer rather than as a central request-time gate."
+    },
+    {
+      "id": "generic-access-guard",
+      "check": "regex",
+      "category": "access-check",
+      "languages": ["python", "ts", "js"],
+      "pattern": "@login_required|permission_classes\\s*=|IsAuthenticated|@PreAuthorize|canActivate|@UseGuards|hasRole\\s*\\(",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "function",
+      "message": "server-side authorization guard. In a local-first target, authorization state may be stale — move the decision into the disclosure/sync layer."
+    },
+    {
+      "id": "php-revisionable-entity",
+      "check": "regex",
+      "category": "revision-lock",
+      "languages": ["php"],
+      "pattern": "->setRevisionable\\s*\\(\\s*TRUE|['\"]revisionable['\"]\\s*=\\s*(TRUE|true)|['\"]revision['\"]\\s*=>\\s*['\"]revision_id['\"]|->setNewRevision\\s*\\(|['\"]new_revision['\"]",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "php-class",
+      "message": "revisionable entity — a single serialized revision history with a server-assigned revision id. A distributed target has concurrent histories; preserve revisions as an eventual, merge-aware event log rather than a linear revision_id sequence."
+    },
+    {
+      "id": "php-drupal-lock-service",
+      "check": "regex",
+      "category": "revision-lock",
+      "languages": ["php"],
+      "pattern": "->lock\\s*\\(\\s*\\)->acquire\\s*\\(|\\\\Drupal::lock\\s*\\(|lockService|->acquire\\s*\\(\\s*['\"]",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "php-function",
+      "message": "explicit lock acquisition — assumes a single central lock manager serializing writers. No such manager exists across replicas; the port must make the guarded operation convergent or route it through a coordination layer."
+    },
+    {
+      "id": "php-optimistic-lock-changed",
+      "check": "regex",
+      "category": "revision-lock",
+      "languages": ["php"],
+      "pattern": "EntityChangedConstraint|EntityChangedInterface|->getChangedTime\\s*\\(|['\"]changed['\"]\\s*=>",
+      "cm_seed": "CM-soft",
+      "element_kind_hint": "php-class",
+      "message": "changed-timestamp / optimistic-concurrency signal — the store rejects a write against a stale `changed` value. Under eventual consistency this becomes a merge decision (last-writer-wins or field-level CRDT), not a rejected write."
+    },
+    {
+      "id": "generic-select-for-update",
+      "check": "regex",
+      "category": "revision-lock",
+      "languages": ["python", "ts", "js", "sql"],
+      "pattern": "FOR\\s+UPDATE\\b|select_for_update\\s*\\(|\\.forUpdate\\s*\\(|pessimistic_lock",
+      "cm_seed": "CM-hard",
+      "element_kind_hint": "function",
+      "message": "pessimistic row lock — a single-writer assumption. Re-answer as a convergence rule or coordination step."
+    }
+  ]
+}
