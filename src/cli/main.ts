@@ -235,7 +235,7 @@ async function indexOneRepo(
 
   if (opts.wantScip) {
     const scipLangs = detectScipLanguages(targetAbs);
-    const accum = { documents: 0, symbolsUpserted: 0, edgesAdded: 0, externalRefsSkipped: 0, indexerDurationMs: 0 };
+    const accum = { documents: 0, symbolsUpserted: 0, edgesAdded: 0, externalRefsSkipped: 0, externalBoundaryEdges: 0, indexerDurationMs: 0 };
     for (const lang of scipLangs) {
       try {
         const { scipPath, durationMs } = await runScip({
@@ -257,6 +257,7 @@ async function indexOneRepo(
         accum.symbolsUpserted += stats.symbolsUpserted;
         accum.edgesAdded += stats.edgesAdded;
         accum.externalRefsSkipped += stats.externalRefsSkipped;
+        accum.externalBoundaryEdges += stats.externalBoundaryEdges;
         accum.indexerDurationMs += durationMs;
       } catch (e) {
         console.error(`scip-${lang} failed: ${(e as Error).message.slice(0, 200)}`);

@@ -101,7 +101,7 @@ function buildScipBytes(occurrences: OccSpec[], symInfos: SymInfoSpec[] = []): U
 // because loadScip() calls readFileSync internally.  We intercept at the
 // Store level rather than mocking the file system.
 // ---------------------------------------------------------------------------
-import { loadScip } from "./loader.ts";
+import { loadScip, type LoadScipStats } from "./loader.ts";
 import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -529,6 +529,94 @@ describe("PHP scip-php reconciliation", () => {
     // src should be go(), dst should be run().
     // (We can't see qns here, but distinct ids prove attribution happened.)
     expect(refs[0]!.src_id).not.toBe(refs[0]!.dst_id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pass-2b external boundary edges (bead MetaCoding-i00)
+//
+// When the full farmOS+Drupal site index resolves a farmOS reference into a
+// Drupal-core symbol that is NOT itself defined in this .scip (core internals
+// are indexed as boundary targets, not real nodes), the loader keeps the edge
+// by pointing at a name-keyed `external::<Class>` boundary node — the SAME key
+// the Tree-sitter EXTENDS/IMPLEMENTS lane uses, so the two lanes merge. Gated to
+// the Drupal\ namespace; symfony / PHP-stdlib externals stay skipped.
+// ---------------------------------------------------------------------------
+describe("Pass-2b external boundary edges (Drupal\\ gate)", () => {
+  // farmOS package defs (in-index) + a core package ref (out-of-index).
+  const FARM = "scip-php composer drupal/farm 1.0.0";
+  const CORE = "scip-php composer drupal/core 11.0.0";
+  const CORE_ENTITY_BASE = "external::ContentEntityBase";
+
+  test("farmOS method referencing an out-of-index Drupal-core method emits REFERENCES + CALLS to a boundary node", async () => {
+    const { edges, symbols, store } = makeStubStore();
+    // Asset class + save() method are defined; save()'s body references
+    // Drupal\Core\Entity\ContentEntityBase::save(), which is NOT defined here.
+    const bytes = buildPhpScipBytes("modules/asset/src/Entity/Asset.php", [
+      { symbol: `${FARM} Drupal/farm_asset/Entity/Asset#`, range: [1, 6, 1, 11], symbol_roles: DEF },
+      { symbol: `${FARM} Drupal/farm_asset/Entity/Asset#save().`, range: [5, 10, 5, 14], symbol_roles: DEF },
+      // Out-of-index Drupal-core method reference inside save()'s body.
+      { symbol: `${CORE} Drupal/Core/Entity/ContentEntityBase#save().`, range: [6, 8, 6, 12], symbol_roles: 0 },
+    ]);
+
+    let stats: LoadScipStats | undefined;
+    await withTmpScip(bytes, async (p) => { stats = await loadScip(store, p, PHP_OPTS); });
+
+    // Boundary node id matches the Tree-sitter lane's external::<ShortName> key.
+    const boundaryId = symbolId("external", "test-repo", `external::${"ContentEntityBase"}`);
+    expect(symbols).toContain(boundaryId);
+
+    const refs = edges.filter((e) => e.kind === "REFERENCES" && e.dst_id === boundaryId);
+    const calls = edges.filter((e) => e.kind === "CALLS" && e.dst_id === boundaryId);
+    expect(refs.length).toBe(1);
+    expect(calls.length).toBe(1);
+    // Source is the in-index caller (save()), not the boundary node.
+    expect(refs[0]!.src_id).not.toBe(boundaryId);
+    expect(stats?.externalBoundaryEdges).toBe(1);
+    expect(stats?.externalRefsSkipped).toBe(0);
+  });
+
+  test("non-Drupal external target (symfony) is skipped, not routed to a boundary node", async () => {
+    const { edges, symbols, store } = makeStubStore();
+    const SYMFONY = "scip-php composer symfony/http-foundation 6.0.0";
+    const bytes = buildPhpScipBytes("modules/asset/src/Controller/AssetController.php", [
+      { symbol: `${FARM} Drupal/farm_asset/Controller/AssetController#`, range: [1, 6, 1, 21], symbol_roles: DEF },
+      { symbol: `${FARM} Drupal/farm_asset/Controller/AssetController#build().`, range: [5, 10, 5, 15], symbol_roles: DEF },
+      // Out-of-index Symfony method — must NOT become a boundary edge.
+      { symbol: `${SYMFONY} Symfony/Component/HttpFoundation/Request#getMethod().`, range: [6, 8, 6, 17], symbol_roles: 0 },
+    ]);
+
+    let stats: LoadScipStats | undefined;
+    await withTmpScip(bytes, async (p) => { stats = await loadScip(store, p, PHP_OPTS); });
+
+    // No boundary node upserted, no REFERENCES/CALLS to any external:: node.
+    expect(symbols.some((s) => s.includes("Request"))).toBe(false);
+    expect(edges.filter((e) => e.kind === "CALLS").length).toBe(0);
+    expect(stats?.externalBoundaryEdges).toBe(0);
+    expect(stats?.externalRefsSkipped).toBe(1);
+  });
+
+  test("references to the same core class from two callers collapse onto one boundary node", async () => {
+    const { edges, symbols, store } = makeStubStore();
+    const bytes = buildPhpScipBytes("modules/asset/src/Entity/Asset.php", [
+      { symbol: `${FARM} Drupal/farm_asset/Entity/Asset#`, range: [1, 6, 1, 11], symbol_roles: DEF },
+      { symbol: `${FARM} Drupal/farm_asset/Entity/Asset#save().`, range: [5, 10, 5, 14], symbol_roles: DEF },
+      { symbol: `${FARM} Drupal/farm_asset/Entity/Asset#delete().`, range: [10, 10, 10, 16], symbol_roles: DEF },
+      // Two different callers reference the SAME out-of-index core class type.
+      { symbol: `${CORE} Drupal/Core/Entity/ContentEntityBase#`, range: [6, 8, 6, 12], symbol_roles: 0 },
+      { symbol: `${CORE} Drupal/Core/Entity/ContentEntityBase#`, range: [11, 8, 11, 12], symbol_roles: 0 },
+    ]);
+
+    await withTmpScip(bytes, (p) => loadScip(store, p, PHP_OPTS));
+
+    const boundaryId = symbolId("external", "test-repo", `external::${"ContentEntityBase"}`);
+    // One boundary node, two REFERENCES from distinct callers, zero CALLS (type
+    // reference, not a method target).
+    expect(symbols.filter((s) => s === boundaryId).length).toBeGreaterThan(0);
+    const refs = edges.filter((e) => e.kind === "REFERENCES" && e.dst_id === boundaryId);
+    expect(refs.length).toBe(2);
+    expect(new Set(refs.map((r) => r.src_id)).size).toBe(2);
+    expect(edges.filter((e) => e.kind === "CALLS" && e.dst_id === boundaryId).length).toBe(0);
   });
 });
 
