@@ -54,7 +54,8 @@
       "**/test_*.py", "**/*_test.py", "**/tests/**", "**/test/**",
       "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.spec.ts",
       "**/*.spec.js", "**/__tests__/**", "**/*_test.go", "**/*Test.java",
-      "**/*Tests.cs", "**/spec/**"
+      "**/*Tests.cs", "**/spec/**", "**/smoke-*.ts", "**/smoke-*.js",
+      "**/smoke_*.py", "**/conftest.py"
     ],
     "import_markers": ["pytest", "unittest", "bun:test", "vitest", "jest", "@jest", "mocha", "chai", "testing", "assert"],
     "name_prefixes": ["test_", "test", "it_", "should_", "spec_"],

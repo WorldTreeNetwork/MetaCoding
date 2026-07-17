@@ -457,6 +457,96 @@ class OperadRow(BaseModel):
     schema_version: int = SCHEMA_VERSION
 
 
+class IntentionSignalRow(BaseModel):
+    """One harvested intention indicator (ct-intention-extraction.md §9.1, T5a).
+
+    The mechanical harvest's ground truth: one row per ``(element_id,
+    indicator_kind, content, file, line_range)``. Everything downstream (T5b
+    synthesis, the port brief) cites ``signal_id``. Produced deterministically
+    from the exported graph + source-text slices + FTS — no LM (§8 "harvest
+    free"). ``indicator_kind`` is the §1 catalog code (S1–S4, A1–A6, B1/B3);
+    ``tier`` is its rank (S/A/B/C); ``portability_tier`` is the §7.2 intent tag
+    (``I`` universal, ``N`` convention-encoded, ``A`` idiom-specific).
+
+    ``element_kind`` says which frozen structural element (§2) the signal
+    attaches to (``interface-export`` | ``role-class`` | ``data-shape`` |
+    ``subsystem`` | ``symbol``); ``element_id`` is that element's id (a
+    symbol_id, role_id, or subsystem_id). ``file``/``line_range`` point at the
+    signal's *source* provenance, which may differ from the element (a test that
+    links an export lives in the test file). ``line_range`` is ``""`` |
+    ``"L"`` | ``"L1-L2"``. ``signal_id`` is content-addressed (blake3 of
+    element_id + indicator_kind + content + file + line_range) so re-runs over
+    the same inputs are byte-identical and ``generated_at`` never enters a row.
+    """
+
+    signal_id: str  # blake3(element_id + indicator_kind + content + file + line_range)
+    element_id: str
+    element_kind: str  # interface-export | role-class | data-shape | subsystem | symbol
+    indicator_kind: str  # §1 catalog code: S1..S4 | A1..A6 | B1 | B3
+    tier: str  # S | A | B | C (the §1 rank of indicator_kind)
+    content: str  # the harvested text (name, docstring, error string, marker, …)
+    file: str  # repo-relative source of the signal (provenance)
+    line_range: str  # "" | "L" | "L1-L2"
+    portability_tier: str  # §7.2 intent tag: I (universal) | N (convention) | A (idiom)
+    schema_version: int = SCHEMA_VERSION
+
+
+class IntentionLoadRow(BaseModel):
+    """The §5 intention-load indicator for one structural element (T5a).
+
+    Where does structure alone underdetermine the spec? Two orthogonal,
+    mechanical, dial-parameterized scores (§5.2): ``structural_determinacy`` D ∈
+    [0,1] (how much the shape pins the behavior) and ``intention_richness`` R ∈
+    [0,1] (how much tier-weighted signal the harvest found). ``load_class`` is
+    the §5.1 triage: ``structure-clear`` (implement the shape, skim the intent),
+    ``intention-critical`` (the names/tests ARE the spec — read the evidence), or
+    ``ambiguous`` (flag for human review). One override (§5.2): an unresolved
+    port-critical conflict forces the element out of ``structure-clear``.
+
+    ``drivers`` lists the sub-signals that produced the scores (§5.3 — ship the
+    drivers so the number is auditable; D/R are triage heuristics calibrated by
+    ports, not theorems). ``port_critical_conflict`` records whether the override
+    fired. Deterministic; no ``generated_at`` in the row.
+    """
+
+    element_id: str
+    element_kind: str  # interface-export | role-class
+    structural_determinacy: float = Field(ge=0.0, le=1.0)
+    intention_richness: float = Field(ge=0.0, le=1.0)
+    load_class: Literal["structure-clear", "intention-critical", "ambiguous"]
+    port_critical_conflict: bool
+    drivers: list[str]
+    schema_version: int = SCHEMA_VERSION
+
+
+class IntentionConflictRow(BaseModel):
+    """One mechanical structure↔intention conflict candidate (§6.1 stage 1, T5a).
+
+    A curated, high-precision detector (``data/conflict_detectors.json``) found a
+    strong intention signal (a name, docstring claim, or decorator) contradicting
+    a tier-I structural fact (crossing edges, field-flow, caller counts).
+    ``severity`` is ``port-critical`` (the claim contradicts observed behavior an
+    external caller depends on — the port must keep the ugly truth, §6.2) or
+    ``advisory`` (softer: deprecated-but-used, stale docs). These are
+    *candidates* for T5b's LM adjudication (§6.1 stage 2) to confirm — the table
+    proposes, the strong model disposes; the mechanical layer never emits a final
+    verdict. ``claim`` is what the intention asserts; ``structural_fact`` is what
+    the graph observes. ``conflict_id`` is content-addressed for byte-identical
+    re-runs.
+    """
+
+    conflict_id: str  # blake3(element_id + detector_id + claim + structural_fact)
+    element_id: str
+    element_kind: str
+    detector_id: str  # FK → conflict_detectors.json entry id
+    severity: Literal["port-critical", "advisory"]
+    claim: str  # what the name/doc/decorator asserts
+    structural_fact: str  # what the graph observes
+    file: str
+    line_range: str
+    schema_version: int = SCHEMA_VERSION
+
+
 class SpectralClusterRow(BaseModel):
     """Per-symbol cluster assignment produced by L1/S2.
 
@@ -616,6 +706,12 @@ class ArtifactManifest(BaseModel):
     # from the Parquet artifacts above + an L3 labeler run); this flag records
     # that a deck was generated for this data dir.
     subsystem_cards: bool = False
+    # Intention-extraction Stage T5a — the LM-free mechanical harvest
+    # (ct-intention-extraction.md §9.2): the harvested signals, the §5 load
+    # scores, and the §6.1 mechanical conflict candidates.
+    intention_signals: bool = False
+    intention_load: bool = False
+    intention_conflicts: bool = False
     # Phase 2b functor-discovery artifacts (MetaCoding §6 Task 3).
     functors: bool = False
     functor_edges: bool = False
@@ -640,6 +736,11 @@ class ArtifactManifest(BaseModel):
     n_subsystems: NonNegativeInt = 0
     n_interfaces: NonNegativeInt = 0
     n_data_shapes: NonNegativeInt = 0
+    # Intention-harvest row counts (T5a). Per-indicator / per-portability splits
+    # live in the run's stderr/JSON summary, not the manifest.
+    n_intention_signals: NonNegativeInt = 0
+    n_intention_load: NonNegativeInt = 0
+    n_intention_conflicts: NonNegativeInt = 0
     # Role-inventory row count (both views summed; §4.1 T3). Per-view split +
     # compression ratio live in the run's stderr/JSON summary, not the manifest.
     n_presentations: NonNegativeInt = 0
@@ -802,6 +903,43 @@ OPERADS_COLUMNS: tuple[str, ...] = (
     "schema_version",
 )
 
+INTENTION_SIGNALS_COLUMNS: tuple[str, ...] = (
+    "signal_id",
+    "element_id",
+    "element_kind",
+    "indicator_kind",
+    "tier",
+    "content",
+    "file",
+    "line_range",
+    "portability_tier",
+    "schema_version",
+)
+
+INTENTION_LOAD_COLUMNS: tuple[str, ...] = (
+    "element_id",
+    "element_kind",
+    "structural_determinacy",
+    "intention_richness",
+    "load_class",
+    "port_critical_conflict",
+    "drivers",
+    "schema_version",
+)
+
+INTENTION_CONFLICTS_COLUMNS: tuple[str, ...] = (
+    "conflict_id",
+    "element_id",
+    "element_kind",
+    "detector_id",
+    "severity",
+    "claim",
+    "structural_fact",
+    "file",
+    "line_range",
+    "schema_version",
+)
+
 SPECTRAL_CLUSTERS_COLUMNS: tuple[str, ...] = (
     "symbol_id",
     "repo",
@@ -876,6 +1014,9 @@ __all__ = [
     "SubsystemMemberRow",
     "InterfaceRow",
     "DataShapeRow",
+    "IntentionSignalRow",
+    "IntentionLoadRow",
+    "IntentionConflictRow",
     "PresentationRow",
     "OperadRow",
     "HomProfileRow",
@@ -894,6 +1035,9 @@ __all__ = [
     "SUBSYSTEM_MEMBERS_COLUMNS",
     "INTERFACES_COLUMNS",
     "DATA_SHAPES_COLUMNS",
+    "INTENTION_SIGNALS_COLUMNS",
+    "INTENTION_LOAD_COLUMNS",
+    "INTENTION_CONFLICTS_COLUMNS",
     "PRESENTATIONS_COLUMNS",
     "OPERADS_COLUMNS",
     "HOM_PROFILES_COLUMNS",
