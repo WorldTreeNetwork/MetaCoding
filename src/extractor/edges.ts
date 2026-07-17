@@ -530,7 +530,10 @@ function tsHandleDecorator(node: Node, scopes: ScopeIndex, out: EdgeCandidate[])
     // decorated → decorator. Semantics: "symbol is annotated by decorator".
     // Both directions carry entropy; this is consistent with how SCIP would
     // surface it (the decoration is a reference from the decorated site).
-    target: { kinds: ["function", "class"], shortName },
+    // externalFallback: imported/framework decorators (@Component, @Injectable)
+    // won't resolve to repo-local symbols — emit a boundary node so the edge
+    // is preserved. bead MetaCoding-mhv.
+    target: { kinds: ["function", "class"], shortName, externalFallback: true },
   });
 }
 
@@ -795,7 +798,10 @@ function pyHandleDecorators(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]
     out.push({
       kind: "ANNOTATES",
       src_id: decorated.id,
-      target: { kinds: ["function", "class"], shortName },
+      // externalFallback: imported/framework decorators (@dataclass,
+      // @pytest.fixture, @app.route) won't resolve to repo-local symbols —
+      // emit a boundary node so the edge is preserved. bead MetaCoding-mhv.
+      target: { kinds: ["function", "class"], shortName, externalFallback: true },
     });
   }
 }

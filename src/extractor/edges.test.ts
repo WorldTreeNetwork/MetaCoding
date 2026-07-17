@@ -738,6 +738,37 @@ class Service {
     const ann = edges.filter((e) => e.kind === "ANNOTATES" && e.dst_qn.includes("::Log"));
     expect(ann.length).toBeGreaterThan(0);
   });
+
+  // bead MetaCoding-mhv: imported/framework decorators must emit ANNOTATES via
+  // externalFallback so the edge is preserved even when the decorator symbol is
+  // not repo-local (@Component, @Injectable, @Controller, etc.).
+  test("@Component (imported, not repo-local) emits ANNOTATES candidate with externalFallback", () => {
+    const src = `
+import { Component } from "@angular/core";
+
+@Component({ selector: "app-root" })
+class AppComponent {}`;
+    const r = runTs(src);
+    const ann = r.candidates.filter(
+      (c) => c.kind === "ANNOTATES" && c.target.shortName === "Component",
+    );
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.target.externalFallback).toBe(true);
+  });
+
+  test("@Injectable() call form (imported) emits ANNOTATES candidate with externalFallback", () => {
+    const src = `
+import { Injectable } from "@angular/core";
+
+@Injectable()
+class MyService {}`;
+    const r = runTs(src);
+    const ann = r.candidates.filter(
+      (c) => c.kind === "ANNOTATES" && c.target.shortName === "Injectable",
+    );
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.target.externalFallback).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -775,6 +806,56 @@ class MyClass:
     const ann = edges.filter((e) => e.kind === "ANNOTATES" && e.dst_qn.includes("::register"));
     expect(ann.length).toBeGreaterThan(0);
     expect(ann[0]!.src_qn).toContain("MyClass");
+  });
+
+  // bead MetaCoding-mhv: imported/framework decorators must emit ANNOTATES via
+  // externalFallback so the edge is preserved even when the decorator symbol is
+  // not repo-local (@dataclass, @pytest.fixture, @app.route, etc.).
+  test("@dataclass (imported, not repo-local) emits ANNOTATES candidate with externalFallback", () => {
+    const src = `from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: float
+    y: float
+`;
+    const r = runPy(src);
+    const ann = r.candidates.filter(
+      (c) => c.kind === "ANNOTATES" && c.target.shortName === "dataclass",
+    );
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.target.externalFallback).toBe(true);
+  });
+
+  test("@pytest.fixture (attribute form, imported) emits ANNOTATES candidate with externalFallback", () => {
+    const src = `import pytest
+
+@pytest.fixture
+def my_fixture():
+    return 42
+`;
+    const r = runPy(src);
+    const ann = r.candidates.filter(
+      (c) => c.kind === "ANNOTATES" && c.target.shortName === "fixture",
+    );
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.target.externalFallback).toBe(true);
+  });
+
+  test("@app.route() call form (imported) emits ANNOTATES candidate with externalFallback", () => {
+    const src = `from flask import Flask
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "hello"
+`;
+    const r = runPy(src);
+    const ann = r.candidates.filter(
+      (c) => c.kind === "ANNOTATES" && c.target.shortName === "route",
+    );
+    expect(ann.length).toBeGreaterThan(0);
+    expect(ann[0]!.target.externalFallback).toBe(true);
   });
 });
 
