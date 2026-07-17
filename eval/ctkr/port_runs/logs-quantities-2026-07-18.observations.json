@@ -1,0 +1,16 @@
+{
+  "_comment": "Observer judgments for the logs+quantities port run (MetaCoding-0p7). Per intention_load element: did the blind builder need to CONSULT its harvested evidence, and what load class did the port run REVEAL it to have. Distilled from the port's source, tests, PORT_DECISIONS.md, and README. Elements absent default to consulted=false (built from shape).",
+  "observations": {
+    "f58e24f7cb2f9f2d": {"consulted": false, "observed_class": "structure-clear", "note": "FarmLogType interface-export; port realized generic log recording from the shape (recordLog), no evidence needed."},
+    "role:3b5724c1a2a7c9d03ad96e38": {"consulted": false, "observed_class": "structure-clear", "note": "FarmLogType base role ('tid' tension warning); port needed no evidence — superseded to string-tagged events (PD-002), built from shape."},
+    "role:4bd886ce5c852772efea8cb6": {"consulted": false, "observed_class": "structure-clear", "note": "FarmLabTestTypeInterface; out of value slice (PD-005); no evidence consulted."},
+    "role:70108211922ec388c82a9098": {"consulted": true, "observed_class": "intention-critical", "note": "UniqueBirthLog constraint attachment. Predicted structure-clear (D=0.75) but porting it REQUIRED reading the consistency-model intention (CM-hard note) to choose weaken-to-eventual (PD-001). Real classifier miss: D-score underweighted the CM intention."},
+    "role:752cb704c83993c71bb4c6c2": {"consulted": false, "note": "LogQuantityMaterialType Views filter. Predicted intention-critical; a same-paradigm port would need the subquery/array evidence, but this is source-idiom outside value-equivalence — the value port did not implement it, so the flag did not pay off here."},
+    "role:7ae99936dac636c3e6b8ce94": {"consulted": false, "note": "Maintenance log-type (ambiguous). Handled as a generic kind string; no disambiguation needed to port — the ambiguity was source-idiom, not value-bearing."},
+    "role:81d68dbc024e348fdf3c8e1a": {"consulted": false, "observed_class": "structure-clear", "note": "Birth log-type plugin; birth is just another kind value in the port, built from shape."},
+    "role:939b42a8bf5674a253a047ca": {"consulted": false, "observed_class": "structure-clear", "note": "Interface-participating structure-clear role; realized generically, no evidence needed."},
+    "role:fdc4e39e2854d93b56c6f3f4": {"consulted": false, "observed_class": "structure-clear", "note": "Interface-participating structure-clear role; realized generically, no evidence needed."},
+    "role:09ef429c98bc05ae3888ab36": {"consulted": false, "note": "Internal ambiguous role (low mass); not a distinct portable unit in the value slice; no evidence consulted."},
+    "role:5ad33da44abfd8e086b74879": {"consulted": false, "note": "Internal ambiguous role (low mass); not a distinct portable unit in the value slice; no evidence consulted."}
+  }
+}

@@ -1,0 +1,79 @@
+spec S = ss:761b7d53e7a231e2cf7a7782 (php, 126 seedable / 126 members, 108 internal edges, 6 roles, 1 provides, 2 ops)
+port S' = TS port (ts, 113 seedable / 113 members, 346 internal edges)
+decisions loaded: 8
+
+========== NORMALIZATION OFF ==========
+# Port verification — farmos / ss:761b7d53e7a231e2cf7a7782
+normalization: off   passedAtCeiling: false
+
+## Gates (raw)
+  ✗  role coverage                33.3%  (floor 0.9, ceiling 1)  — 2/6 tier-I role classes covered
+  ✗  interface preservation        0.0%  (floor 0.9, ceiling 1)  — 0/1 provided exports preserved
+  ✗  composition preservation      0.0%  (floor 0.8, ceiling 1)  — 0/2 composition ops realizable (0/2 protocol ops)
+  ✓✓ fidelity                    100.0%  (floor 0.8, ceiling 0.95)  — 5/5 internal edges preserved
+  ✗  cycle consistency            40.0%  (floor 0.8, ceiling 0.9)  — G(F(s))=s on 0.400 of mapped pairs
+
+## Gates (net of 8 waivers)
+  ✓  role coverage                33.3%  (floor 0.9, ceiling 1)  — 2/6 tier-I role classes covered
+  ✓  interface preservation        0.0%  (floor 0.9, ceiling 1)  — 0/1 provided exports preserved
+  ✓  composition preservation      0.0%  (floor 0.8, ceiling 1)  — 0/2 composition ops realizable (0/2 protocol ops)
+  ✓✓ fidelity                    100.0%  (floor 0.8, ceiling 0.95)  — 5/5 internal edges preserved
+  ✓  cycle consistency            40.0%  (floor 0.8, ceiling 0.9)  — G(F(s))=s on 0.400 of mapped pairs
+
+## Punch list (8 items, 8 waived)
+
+  --- waived ---
+  [waived:PD-002] role-coverage → roles[role_id=role:3b5724c1a2a7c9d03ad96e38]
+      role class "FarmLogType" (cardinality 2) has NO member mapped into the port — the port dropped this role
+  [waived:PD-005] role-coverage → roles[role_id=role:4bd886ce5c852772efea8cb6]
+      role class "FarmLabTestTypeInterface" (cardinality 1) has NO member mapped into the port — the port dropped this role
+  [waived:PD-004] role-coverage → roles[role_id=role:7ae99936dac636c3e6b8ce94]
+      role class "Maintenance" (cardinality 4) has NO member mapped into the port — the port dropped this role
+  [waived:PD-003] role-coverage → roles[role_id=role:81d68dbc024e348fdf3c8e1a]
+      role class "Birth" (cardinality 7) has NO member mapped into the port — the port dropped this role
+  [waived:PD-006] interface-preservation → interface.provides[symbol=modules/core/entity/src/Plugin/Log/LogType/FarmLogType.php::FarmLogType]
+      provided export "modules/core/entity/src/Plugin/Log/LogType/FarmLogType.php::FarmLogType" (modes EXTENDS) has no image in the port — the export was lost
+  [waived:PD-007] composition-preservation → composition_rules[operation_id=op:0914acefcad7515ea04e4435]
+      PROTOCOL op "op:0914acefcad7515ea04e4435" (path Maintenance ∘ FarmLogType, kinds EXTENDS) is not realizable in the port — an external-facing order-of-operations contract the port breaks silently
+  [waived:PD-008] composition-preservation → composition_rules[operation_id=op:81b161e8c80510f9c97c8441]
+      PROTOCOL op "op:81b161e8c80510f9c97c8441" (path Birth ∘ FarmLogType, kinds EXTENDS) is not realizable in the port — an external-facing order-of-operations contract the port breaks silently
+  [waived:PD-009] cycle-consistency → functor.cycle_consistency
+      cycle consistency G(F(s))=s is 0.400 < floor 0.8 — the forward and reverse maps disagree, a sign the match is displaced onto the wrong region
+
+========== NORMALIZATION ON (§6.2) ==========
+# Port verification — farmos / ss:761b7d53e7a231e2cf7a7782
+normalization: on (v1)   passedAtCeiling: false
+
+## Gates (raw)
+  ✗  role coverage                33.3%  (floor 0.9, ceiling 1)  — 2/6 tier-I role classes covered
+  ✗  interface preservation        0.0%  (floor 0.9, ceiling 1)  — 0/1 provided exports preserved
+  ✗  composition preservation      0.0%  (floor 0.8, ceiling 1)  — 0/2 composition ops realizable (0/2 protocol ops)
+  ✓✓ fidelity                    100.0%  (floor 0.8, ceiling 0.95)  — 1/1 internal edges preserved
+  ✗  cycle consistency            50.0%  (floor 0.8, ceiling 0.9)  — G(F(s))=s on 0.500 of mapped pairs
+
+## Gates (net of 8 waivers)
+  ✓  role coverage                33.3%  (floor 0.9, ceiling 1)  — 2/6 tier-I role classes covered
+  ✓  interface preservation        0.0%  (floor 0.9, ceiling 1)  — 0/1 provided exports preserved
+  ✓  composition preservation      0.0%  (floor 0.8, ceiling 1)  — 0/2 composition ops realizable (0/2 protocol ops)
+  ✓✓ fidelity                    100.0%  (floor 0.8, ceiling 0.95)  — 1/1 internal edges preserved
+  ✓  cycle consistency            50.0%  (floor 0.8, ceiling 0.9)  — G(F(s))=s on 0.500 of mapped pairs
+
+## Punch list (8 items, 8 waived)
+
+  --- waived ---
+  [waived:PD-002] role-coverage → roles[role_id=role:3b5724c1a2a7c9d03ad96e38]
+      role class "FarmLogType" (cardinality 2) has NO member mapped into the port — the port dropped this role
+  [waived:PD-005] role-coverage → roles[role_id=role:4bd886ce5c852772efea8cb6]
+      role class "FarmLabTestTypeInterface" (cardinality 1) has NO member mapped into the port — the port dropped this role
+  [waived:PD-004] role-coverage → roles[role_id=role:7ae99936dac636c3e6b8ce94]
+      role class "Maintenance" (cardinality 4) has NO member mapped into the port — the port dropped this role
+  [waived:PD-003] role-coverage → roles[role_id=role:81d68dbc024e348fdf3c8e1a]
+      role class "Birth" (cardinality 7) has NO member mapped into the port — the port dropped this role
+  [waived:PD-006] interface-preservation → interface.provides[symbol=modules/core/entity/src/Plugin/Log/LogType/FarmLogType.php::FarmLogType]
+      provided export "modules/core/entity/src/Plugin/Log/LogType/FarmLogType.php::FarmLogType" (modes EXTENDS) has no image in the port — the export was lost
+  [waived:PD-007] composition-preservation → composition_rules[operation_id=op:0914acefcad7515ea04e4435]
+      PROTOCOL op "op:0914acefcad7515ea04e4435" (path Maintenance ∘ FarmLogType, kinds EXTENDS) is not realizable in the port — an external-facing order-of-operations contract the port breaks silently
+  [waived:PD-008] composition-preservation → composition_rules[operation_id=op:81b161e8c80510f9c97c8441]
+      PROTOCOL op "op:81b161e8c80510f9c97c8441" (path Birth ∘ FarmLogType, kinds EXTENDS) is not realizable in the port — an external-facing order-of-operations contract the port breaks silently
+  [waived:PD-009] cycle-consistency → functor.cycle_consistency
+      cycle consistency G(F(s))=s is 0.500 < floor 0.8 — the forward and reverse maps disagree, a sign the match is displaced onto the wrong region
