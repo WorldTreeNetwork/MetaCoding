@@ -58,6 +58,12 @@ export interface LoadScipStats {
   symbolsUpserted: number;
   edgesAdded: number;
   externalRefsSkipped: number;
+  /** Pass-2b edges emitted to a synthesized external boundary node for a
+   *  reference whose target is out-of-index but resolves to a Drupal\ symbol
+   *  (bead MetaCoding-i00). These are counted here and NOT in
+   *  externalRefsSkipped — a Drupal ref becomes a boundary edge, while
+   *  everything else external (symfony / PHP stdlib / etc.) is still skipped. */
+  externalBoundaryEdges: number;
   durationMs: number;
 }
 
@@ -148,6 +154,7 @@ export async function loadScip(
   const edgePairs = new Set<string>();   // de-dup (kind|src|dst)
   const edgesQueued: Edge[] = [];
   let externalRefsSkipped = 0;
+  let externalBoundaryEdges = 0;
 
   const enqueue = (kind: EdgeKind, srcId: string, dstId: string): void => {
     if (srcId === dstId) return;
@@ -155,6 +162,42 @@ export async function loadScip(
     if (edgePairs.has(k)) return;
     edgePairs.add(k);
     edgesQueued.push({ kind, src_id: srcId, dst_id: dstId });
+  };
+
+  // Boundary nodes for out-of-index external targets (bead MetaCoding-i00).
+  // Keyed on the SAME `external::<ShortName>` scheme the Tree-sitter lane uses
+  // (src/extractor/walker.ts ensureBoundaryNode) so scip-php REFERENCES/CALLS
+  // and tree-sitter EXTENDS/IMPLEMENTS/USES_TRAIT collapse onto ONE node per
+  // Drupal-core class — the role-cluster signal (ContentEntityBase, FormBase,
+  // ControllerBase, …). Idempotent within this load via `boundaryUpserted`;
+  // upsertSymbol is itself a MERGE so cross-load repeats are harmless.
+  const boundaryUpserted = new Set<string>();
+  const ensureExternalBoundary = async (shortName: string): Promise<string> => {
+    const qn = `external::${shortName}`;
+    const bid = symbolId("external", opts.repo, qn);
+    if (boundaryUpserted.has(bid)) return bid;
+    boundaryUpserted.add(bid);
+    const sym: Symbol = {
+      id: bid,
+      kind: "class",
+      language: "external",
+      repo: opts.repo,
+      qualified_name: qn,
+      short_name: shortName,
+      file: "",
+      line: 0, col: 0, end_line: 0, end_col: 0,
+      signature: null,
+      visibility: null,
+      is_abstract: false,
+      is_static: false,
+      ast_hash: null,
+      branch: "",
+      source: "scip",
+      repo_commit_sha: null,
+      indexed_at: null,
+    };
+    await store.upsertSymbol(sym, { preserveStructural: true });
+    return bid;
   };
 
   // Build a kind-lookup map so pass-2b can check field/type kinds without
@@ -267,7 +310,35 @@ export async function loadScip(
       if (occ.symbol_roles & scip.SymbolRole.Definition) continue;
       const targetDef = defByScip.get(occ.symbol);
       if (!targetDef) {
-        externalRefsSkipped++;
+        // Out-of-index target (a symbol not defined anywhere in this .scip).
+        // For Drupal\ targets — e.g. a farmOS class referencing / calling into
+        // Drupal core (ContentEntityBase, FormBase, ControllerBase) once the
+        // full-site index resolves them — keep the edge by pointing at a
+        // name-keyed boundary node. Gated to the Drupal\ namespace so we don't
+        // flood the graph with symfony / PHP-stdlib boundary noise. Everything
+        // else stays counted as skipped. bead MetaCoding-i00.
+        const boundaryClass = drupalBoundaryClass(occ.symbol);
+        if (!boundaryClass) {
+          externalRefsSkipped++;
+          continue;
+        }
+        const extCaller = findCaller(occ.range);
+        if (!extCaller) {
+          externalRefsSkipped++;
+          continue;
+        }
+        const boundaryId = await ensureExternalBoundary(boundaryClass);
+        // Edge kind from the external target's descriptor shape. We emit
+        // REFERENCES for every kept occurrence and additionally CALLS when the
+        // target is a method — the clean incremental signal (a farmOS method
+        // invoking a resolved Drupal-core method). We deliberately do NOT guess
+        // CONSTRUCTS here: a bare type reference is indistinguishable from an
+        // extends/implements clause or a type-hint at the symbol level, and the
+        // Tree-sitter lane already carries typed EXTENDS/IMPLEMENTS/USES_TRAIT
+        // edges to this same boundary node.
+        enqueue("REFERENCES", extCaller.ourId, boundaryId);
+        if (isMethodSymbol(occ.symbol)) enqueue("CALLS", extCaller.ourId, boundaryId);
+        externalBoundaryEdges++;
         continue;
       }
       const caller = findCaller(occ.range);
@@ -313,6 +384,7 @@ export async function loadScip(
     symbolsUpserted,
     edgesAdded: edgesQueued.length,
     externalRefsSkipped,
+    externalBoundaryEdges,
     durationMs: performance.now() - t0,
   };
 }
@@ -347,6 +419,35 @@ function rangeContains(outer: number[], inner: number[]): boolean {
   if (i.el > o.el) return false;
   if (i.el === o.el && i.ec > o.ec) return false;
   return true;
+}
+
+// For an out-of-index SCIP symbol, return the short class name to key its
+// boundary node on IFF the symbol lives under the PHP `Drupal\` namespace root
+// (scip-php descriptors: namespace "Drupal", …, type "<Class>"). Returns null
+// for non-Drupal symbols (symfony, PHP stdlib, local, procedural) and for any
+// symbol with no enclosing type descriptor. The returned name matches the
+// Tree-sitter lane's `external::<ShortName>` boundary key so the two lanes
+// merge onto one node per Drupal-core class. bead MetaCoding-i00.
+function drupalBoundaryClass(scipSymbol: string): string | null {
+  const parsed = parseScipSymbol(scipSymbol);
+  if (!parsed || parsed.isLocal) return null;
+  const firstNs = parsed.descriptors.find((d) => d.suffix === "namespace");
+  if (!firstNs || firstNs.name !== "Drupal") return null;
+  // The class this symbol belongs to = the last `type`-suffix descriptor.
+  const types = parsed.descriptors.filter((d) => d.suffix === "type");
+  const cls = types[types.length - 1];
+  return cls ? cls.name : null;
+}
+
+// True when the SCIP symbol's last meaningful descriptor is a method — used to
+// add a CALLS edge alongside REFERENCES for a resolved external method target.
+function isMethodSymbol(scipSymbol: string): boolean {
+  const parsed = parseScipSymbol(scipSymbol);
+  if (!parsed || parsed.isLocal) return false;
+  const meaningful = parsed.descriptors.filter(
+    (d) => d.suffix !== "type_parameter" && d.suffix !== "parameter",
+  );
+  return meaningful[meaningful.length - 1]?.suffix === "method";
 }
 
 function externalQn(scipSymbol: string): string {
