@@ -1,0 +1,29 @@
+[project]
+name = "ctkr-calibration"
+version = "0.1.0"
+description = "Calibration pipeline for the CTKR intention-load classifier (eval/ctkr)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "polars>=1.10",
+    "pyarrow>=17",
+    "blake3>=0.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Make eval/ctkr/ importable so tests can do: from calibration_schema import ...
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

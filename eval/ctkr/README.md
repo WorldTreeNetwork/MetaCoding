@@ -1,6 +1,6 @@
 # eval/ctkr — CTKR eval harnesses
 
-This directory holds two eval harnesses:
+This directory holds eval harnesses and the calibration pipeline:
 
 - **`functor_eval.ts` / `run_functor_eval.ts` / `functor_eval.test.ts`** —
   Phase-2b functor-discovery eval (§5 + §8.2 of
@@ -8,6 +8,8 @@ This directory holds two eval harnesses:
   [Functor-discovery eval](#functor-discovery-eval-phase-2b) below.
 - **`run_role_equivalent_eval.ts`** — Phase-2a `ctkr.role_equivalent` retrieval
   eval (documented from [role_equivalent eval](#role_equivalent-eval-harness) on).
+- **`calibration_schema.py` / `calibration_ingest.py` / `calibration_report.py`** —
+  The port-loop calibration pipeline (see [Calibration](#calibration) below).
 
 ---
 
@@ -220,3 +222,110 @@ To activate it:
 
 The first non-zero run establishes the baseline.  Subsequent runs track
 regression and improvement as the hom-profile algorithm is refined.
+
+---
+
+## Calibration
+
+Implements cross-cutting #3 from `docs/design/port-loop-plan.md`: treat every
+port run as a training step. The pipeline tracks whether the intention-load
+classifier's predictions match what the builder actually did, and uses that
+signal to tune the D/R dials and prompt versions.
+
+### The loop
+
+```
+predict (intention_load.parquet)
+    → port (builder works from the brief)
+    → observe (record builder_consulted_evidence per element)
+    → ingest (calibration_ingest.py → calibration.parquet)
+    → report (calibration_report.py → precision/recall + dial sweep)
+    → tune (adjust d_hi, r_min in intention_normalization.json)
+    → version prompts
+    → re-run harvest → repeat
+```
+
+### Files
+
+| File | Purpose |
+|---|---|
+| `calibration_schema.py` | Schema, reader, writer, `append_calibration` |
+| `calibration_ingest.py` | CLI: port-run JSONL + `intention_load.parquet` → append to `calibration.parquet` |
+| `calibration_report.py` | CLI: per-class precision/recall + dial-sensitivity sweep |
+| `tests/test_calibration.py` | Hermetic pytest suite (synthetic fixtures) |
+
+### calibration.parquet schema
+
+One row per (port_run, element) observation.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `calibration_row_id` | str | Deterministic blake3 id |
+| `port_run_id` | str | Identifies the port-run batch |
+| `element_id` | str | FK → `intention_load.parquet` |
+| `predicted_load_class` | str | `structure-clear` \| `intention-critical` \| `ambiguous` |
+| `structural_determinacy` | float | D score from `intention_load` |
+| `intention_richness` | float | R score from `intention_load` |
+| `drivers` | list[str] | Driver explanations from `intention_load` |
+| `builder_consulted_evidence` | bool\|null | Did the builder read the evidence section? |
+| `miss_type` | str\|null | `none` \| `needed-evidence-not-given` \| `evidence-given-not-needed` \| `wrong-class` \| `builder-error` |
+| `source` | str | `port-run` \| `human-review` |
+| `recorded_at` | str | ISO-8601 |
+| `schema_version` | int | |
+
+### Observation JSONL format
+
+Each line is a JSON object emitted by the port runner (or entered manually
+during human review):
+
+```json
+{"element_id": "...", "builder_consulted_evidence": true, "miss_type": "needed-evidence-not-given", "source": "port-run"}
+```
+
+`miss_type` is derived automatically when absent:
+
+| predicted | builder_consulted_evidence | derived miss_type |
+|---|---|---|
+| `structure-clear` | `false` | `none` |
+| `structure-clear` | `true` | `needed-evidence-not-given` |
+| `intention-critical` | `true` | `none` |
+| `intention-critical` | `false` | `evidence-given-not-needed` |
+| `ambiguous` | `true` | `none` |
+| `ambiguous` | `false` | `evidence-given-not-needed` |
+| any | `null` | `null` (unknown) |
+
+### How to run
+
+```sh
+# From eval/ctkr/
+
+# Ingest a port run's observations:
+uv run python calibration_ingest.py \
+    --port-run-id run-2026-07-17-001 \
+    --observations path/to/obs.jsonl \
+    --load-parquet /path/to/.metacoding/ctkr/intention_load.parquet \
+    --out calibration.parquet
+
+# Generate the report:
+uv run python calibration_report.py \
+    --calibration calibration.parquet \
+    --load-parquet /path/to/.metacoding/ctkr/intention_load.parquet \
+    --out-json calibration_report.json
+
+# Run tests:
+uv run pytest tests/
+```
+
+### What the report shows
+
+- **Per-class precision** — fraction of predictions for each load class confirmed
+  correct by the builder's actual consultation behaviour (`miss_type == "none"`).
+  Recall is not directly computable without an explicit `observed_class` label;
+  add that field to the observation record when available.
+
+- **Dial-sensitivity sweep** — re-classifies all elements across a grid of
+  `(d_hi, r_min)` values. Shows how many elements fall into each class at each
+  setting, and (where calibration data exists) the precision the new thresholds
+  would have achieved. Use this to find the Pareto frontier of
+  ambiguity-rate vs precision before bumping the dials in
+  `ctkr/ctkr/data/intention_normalization.json`.
