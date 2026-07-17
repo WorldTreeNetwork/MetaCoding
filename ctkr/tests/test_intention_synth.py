@@ -496,3 +496,66 @@ def test_one_bad_response_degrades_element_not_batch() -> None:
     # the degraded element still has a valid, deterministic id + empty intent.
     degraded = [r for r in rows if not r.intent]
     assert len(degraded) == 1 and degraded[0].intention_id.startswith("intent:")
+
+
+class _EmptyThenStrongProvider(MockProvider):
+    """Returns empty intent on the cheap model, a filled intent on the strong
+    model — exercises the empty-intent fallback (retry once on the strong model)."""
+
+    def __init__(self, cheap: str, strong: str) -> None:
+        super().__init__()
+        self.cheap = cheap
+        self.strong = strong
+
+    def complete_structured(self, prompt, *, model, schema, temperature, max_tokens, system):  # noqa: ANN001
+        _, payload = super().complete_structured(
+            prompt,
+            model=model,
+            schema=schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+        )
+        payload = dict(payload)
+        if model == self.cheap:
+            payload["intent"] = []  # cheap model gives up
+        return _ProviderResponse(text=json.dumps(payload), input_tokens=5, output_tokens=5), payload
+
+
+def test_empty_intent_falls_back_to_strong_model() -> None:
+    signals_df, load_df, conf_df = _frames()
+    c = LLMClient()
+    c.register_provider(_EmptyThenStrongProvider("cheap-m", "strong-m"))  # type: ignore[arg-type]
+    rows, stats = synthesize_intention(
+        signals_df=signals_df,
+        load_df=load_df,
+        conflicts_df=conf_df,
+        members_df=None,
+        client=c,
+        model="cheap-m",
+        adjudication_model="strong-m",
+    )
+    # both elements had empty cheap intent → both refilled by the strong model.
+    assert stats.n_intent_fallbacks == 2
+    assert all(r.intent for r in rows)  # no element left empty
+    # ids still keyed on the cheap model, so they do not move under fallback.
+    assert all(r.intention_id.startswith("intent:") for r in rows)
+
+
+def test_no_fallback_when_single_model() -> None:
+    """With adjudication_model == model there is no stronger tier to retry on, so
+    an empty cheap intent stays empty (no infinite/again call)."""
+    signals_df, load_df, conf_df = _frames()
+    c = LLMClient()
+    c.register_provider(_EmptyThenStrongProvider("m", "m"))  # type: ignore[arg-type]
+    rows, stats = synthesize_intention(
+        signals_df=signals_df,
+        load_df=load_df,
+        conflicts_df=conf_df,
+        members_df=None,
+        client=c,
+        model="m",
+        adjudication_model="m",
+    )
+    assert stats.n_intent_fallbacks == 0
+    assert all(not r.intent for r in rows)

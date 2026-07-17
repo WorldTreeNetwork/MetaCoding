@@ -99,6 +99,10 @@ class NormTables:
     string_classifiers: dict
     scoring: dict
     portability_defaults: dict
+    # Path prefixes/globs excluded from the harvest by default (§5.2 tension
+    # hygiene): harness / smoke / one-off spike files whose thin naming pollutes
+    # role-class A5 patterns. A versioned DATA dial, not code — widen it here.
+    harvest_exclusions: dict = field(default_factory=dict)
 
     @property
     def marker_canonical(self) -> dict[str, list[str]]:
@@ -117,6 +121,7 @@ def load_norm_tables(path: str | Path | None = None) -> NormTables:
         string_classifiers=raw["string_classifiers"],
         scoring=raw["scoring"],
         portability_defaults=raw["portability_defaults"],
+        harvest_exclusions=raw.get("harvest_exclusions", {}),
     )
 
 
@@ -300,7 +305,12 @@ class Harvester:
         self.repo_root = repo_root
         self.tables = tables
         self.detectors = detectors
-        self.exclude_prefixes = tuple(exclude_prefixes)
+        # Merge the CLI/caller prefixes with the versioned data-dial exclusions
+        # (harness/smoke/spike files, §5.2 tension hygiene) so both are honored by
+        # default; add globs for non-prefix patterns.
+        hx = tables.harvest_exclusions or {}
+        self.exclude_prefixes = tuple(exclude_prefixes) + tuple(hx.get("path_prefixes", []))
+        self._exclude_globs = [re.compile(_glob_to_re(g)) for g in hx.get("path_globs", [])]
         self.fts_path = Path(fts_path) if fts_path else None
         self.body_window = 50  # forward lines read when end_line is unreliable (dial)
         self.sym2sub: dict[str, str] = {}
@@ -322,9 +332,12 @@ class Harvester:
         self._test_symbols = self._collect_test_symbols()
 
     def excluded(self, sid: str) -> bool:
-        """True if a symbol lives under an excluded path prefix (e.g. worktree copies)."""
+        """True if a symbol lives under an excluded path prefix or glob (worktree
+        copies via ``.claude/``, plus the data-dial harness/smoke/spike files)."""
         f = self._nd(sid).get("file") or self._nd(sid).get("file_path") or ""
-        return any(f.startswith(p) for p in self.exclude_prefixes)
+        if any(f.startswith(p) for p in self.exclude_prefixes):
+            return True
+        return any(rx.search(f) for rx in self._exclude_globs)
 
     def _descendants(self, sid: str, limit: int = 2000) -> list[str]:
         out: list[str] = []
@@ -455,14 +468,18 @@ class Harvester:
             sigs.append(Sig(sid, element_kind, "S2", "S", short, file, line, line, pdef["S2"]))
             for pname in self._param_names(d.get("signature")):
                 sigs.append(
-                    Sig(sid, element_kind, "S2", "S", f"param:{pname}", file, line, line, pdef["S2"])
+                    Sig(
+                        sid, element_kind, "S2", "S", f"param:{pname}", file, line, line, pdef["S2"]
+                    )
                 )
 
         # A1 — decorator / annotation names (ANNOTATES out-edges)
         for _, dst, k in self.g.out_edges(sid, keys=True):
             if k == "ANNOTATES":
                 dqn = self._nd(dst).get("short_name") or self._nd(dst).get("qualified_name") or dst
-                sigs.append(Sig(sid, element_kind, "A1", "A", f"@{dqn}", file, line, line, pdef["A1"]))
+                sigs.append(
+                    Sig(sid, element_kind, "A1", "A", f"@{dqn}", file, line, line, pdef["A1"])
+                )
 
         # S3 — raised exception types (RAISES out-edges) + error strings near raises
         raised = [
@@ -471,27 +488,57 @@ class Harvester:
             if k == "RAISES"
         ]
         for rt in sorted(set(raised)):
-            sigs.append(Sig(sid, element_kind, "S3", "S", f"raises:{rt}", file, line, line, pdef["S3-type"]))
+            sigs.append(
+                Sig(sid, element_kind, "S3", "S", f"raises:{rt}", file, line, line, pdef["S3-type"])
+            )
 
         # A3 — const/enum policy value from the signature, if this is a constant
-        if d.get("kind") in ("const", "constant", "variable", "enum_member", "field") and d.get("signature"):
+        if d.get("kind") in ("const", "constant", "variable", "enum_member", "field") and d.get(
+            "signature"
+        ):
             val = _default_value(d.get("signature"))
             if val is not None:
-                sigs.append(Sig(sid, element_kind, "A3", "A", f"{short}={val}", file, line, line, pdef["A3"]))
+                sigs.append(
+                    Sig(
+                        sid, element_kind, "A3", "A", f"{short}={val}", file, line, line, pdef["A3"]
+                    )
+                )
 
         # B3 — import sources (IMPORTS out-edges to external packages)
         if element_kind in ("interface-export", "subsystem"):
             for _, dst, k in self.g.out_edges(sid, keys=True):
                 if k == "IMPORTS":
                     dqn = self._nd(dst).get("qualified_name") or dst
-                    sigs.append(Sig(sid, element_kind, "B3", "B", f"imports:{dqn}", file, line, line, pdef["B3"]))
+                    sigs.append(
+                        Sig(
+                            sid,
+                            element_kind,
+                            "B3",
+                            "B",
+                            f"imports:{dqn}",
+                            file,
+                            line,
+                            line,
+                            pdef["B3"],
+                        )
+                    )
 
         # B1 — path prose (directory + file name tokens)
         if element_kind == "interface-export" and file:
             path_toks = [t for t in tokenize_identifier(file) if t not in ("ts", "tsx", "js", "py")]
             if path_toks:
                 sigs.append(
-                    Sig(sid, element_kind, "B1", "B", " ".join(path_toks), file, line, line, pdef["B1"])
+                    Sig(
+                        sid,
+                        element_kind,
+                        "B1",
+                        "B",
+                        " ".join(path_toks),
+                        file,
+                        line,
+                        line,
+                        pdef["B1"],
+                    )
                 )
 
         # Source-derived: S4 docstring, A2 string literals, A6 comments/markers.
@@ -507,12 +554,32 @@ class Harvester:
             for cls, text, lno in self._classify_strings(lines, start):
                 port = "I"
                 sigs.append(
-                    Sig(sid, element_kind, "A2", "A", f"{cls}:{_clip(text, 200)}", file, lno, lno, port)
+                    Sig(
+                        sid,
+                        element_kind,
+                        "A2",
+                        "A",
+                        f"{cls}:{_clip(text, 200)}",
+                        file,
+                        lno,
+                        lno,
+                        port,
+                    )
                 )
             # S3 — error strings on lines mentioning raise/throw
             for text, lno in self._error_strings(lines, start):
                 sigs.append(
-                    Sig(sid, element_kind, "S3", "S", f"errmsg:{_clip(text, 200)}", file, lno, lno, pdef["S3-message"])
+                    Sig(
+                        sid,
+                        element_kind,
+                        "S3",
+                        "S",
+                        f"errmsg:{_clip(text, 200)}",
+                        file,
+                        lno,
+                        lno,
+                        pdef["S3-message"],
+                    )
                 )
             # A6 — WHY / marker comments
             for content, _marker, lno in self._comments(lines, start):
@@ -525,14 +592,34 @@ class Harvester:
                     tfile = tname.rsplit(":", 1)[0]
                     tline = _safe_int(tname.rsplit(":", 1)[1])
                     sigs.append(
-                        Sig(sid, element_kind, "S1", "S", f"test~{tname}", tfile, tline, tline, pdef["S1"])
+                        Sig(
+                            sid,
+                            element_kind,
+                            "S1",
+                            "S",
+                            f"test~{tname}",
+                            tfile,
+                            tline,
+                            tline,
+                            pdef["S1"],
+                        )
                     )
                 else:
                     td = self._nd(tkey)
                     tfile = td.get("file") or td.get("file_path") or ""
                     tline = td.get("line")
                     sigs.append(
-                        Sig(sid, element_kind, "S1", "S", f"test:{tname}", tfile, tline, tline, pdef["S1"])
+                        Sig(
+                            sid,
+                            element_kind,
+                            "S1",
+                            "S",
+                            f"test:{tname}",
+                            tfile,
+                            tline,
+                            tline,
+                            pdef["S1"],
+                        )
                     )
         return sigs
 
@@ -774,10 +861,14 @@ def _richness(
     if coherence_entropy is not None:
         if coherence_entropy <= sc["r_coherence_entropy_hi"]:
             r *= sc["r_coherence_hi"]
-            drivers.append(f"coherent naming (entropy {coherence_entropy:.2f}, ×{sc['r_coherence_hi']})")
+            drivers.append(
+                f"coherent naming (entropy {coherence_entropy:.2f}, ×{sc['r_coherence_hi']})"
+            )
         else:
             r *= sc["r_coherence_lo"]
-            drivers.append(f"incoherent naming (entropy {coherence_entropy:.2f}, ×{sc['r_coherence_lo']})")
+            drivers.append(
+                f"incoherent naming (entropy {coherence_entropy:.2f}, ×{sc['r_coherence_lo']})"
+            )
     # test-linkage floor-raiser
     if any(s.indicator_kind == "S1" for s in sigs):
         n_tests = sum(1 for s in sigs if s.indicator_kind == "S1")
@@ -847,7 +938,9 @@ def _detect_conflicts(
                 continue
             kinds = ",".join(sorted(writes))
             claim = f"read-implying name (tokens {read_toks})"
-            fact = f"{n} {kinds} edge(s)" + (" across boundary" if det.get("require_boundary") else "")
+            fact = f"{n} {kinds} edge(s)" + (
+                " across boundary" if det.get("require_boundary") else ""
+            )
             out.append(_conflict_row(sid, element_kind, det, claim, fact, file, line))
         elif check == "docstring_claims_pure_but_writes":
             claim_phrase = next(
@@ -865,8 +958,13 @@ def _detect_conflicts(
             kinds = ",".join(sorted(writes))
             out.append(
                 _conflict_row(
-                    sid, element_kind, det, f"docstring claims '{claim_phrase}'",
-                    f"{n} {kinds} write edge(s)", file, line,
+                    sid,
+                    element_kind,
+                    det,
+                    f"docstring claims '{claim_phrase}'",
+                    f"{n} {kinds} write edge(s)",
+                    file,
+                    line,
                 )
             )
         elif check == "deprecated_but_has_callers":
@@ -886,8 +984,13 @@ def _detect_conflicts(
             kinds = ",".join(sorted(callers))
             out.append(
                 _conflict_row(
-                    sid, element_kind, det, "marked @deprecated",
-                    f"{n} caller(s) via {kinds}", file, line,
+                    sid,
+                    element_kind,
+                    det,
+                    "marked @deprecated",
+                    f"{n} caller(s) via {kinds}",
+                    file,
+                    line,
                 )
             )
         elif check == "docstring_arity_vs_signature":
@@ -902,8 +1005,13 @@ def _detect_conflicts(
                 continue
             out.append(
                 _conflict_row(
-                    sid, element_kind, det, f"docstring documents {doc_params} param(s)",
-                    f"signature declares {len(sig_params)}", file, line,
+                    sid,
+                    element_kind,
+                    det,
+                    f"docstring documents {doc_params} param(s)",
+                    f"signature declares {len(sig_params)}",
+                    file,
+                    line,
                 )
             )
     return out
@@ -1036,12 +1144,23 @@ def compute_intention(
             for m in members:
                 nd = h._nd(m)
                 lang = lang or (nd.get("language") or "")
-                names.append(nd.get("short_name") or (nd.get("qualified_name") or m).split("::")[-1])
+                names.append(
+                    nd.get("short_name") or (nd.get("qualified_name") or m).split("::")[-1]
+                )
             content, ent = naming_pattern(names, tables, lang)
             file0 = h._nd(members[0]).get("file") if members else ""
             role_sigs: list[Sig] = [
-                Sig(role_id, "role-class", "A5", "A", content, file0 or "", None, None,
-                    tables.portability_defaults["A5"])
+                Sig(
+                    role_id,
+                    "role-class",
+                    "A5",
+                    "A",
+                    content,
+                    file0 or "",
+                    None,
+                    None,
+                    tables.portability_defaults["A5"],
+                )
             ]
             # member docstrings + test linkage (capped) → richness
             for m in sorted(members)[:max_role_members]:
@@ -1053,15 +1172,34 @@ def compute_intention(
                     doc = _extract_docstring("\n".join(lines), md.get("language") or "")
                     if doc:
                         role_sigs.append(
-                            Sig(role_id, "role-class", "S4", "S", _clip(doc, 300), mfile, mline, md.get("end_line") or mline, tables.portability_defaults["S4"])
+                            Sig(
+                                role_id,
+                                "role-class",
+                                "S4",
+                                "S",
+                                _clip(doc, 300),
+                                mfile,
+                                mline,
+                                md.get("end_line") or mline,
+                                tables.portability_defaults["S4"],
+                            )
                         )
                 for tkey, tname in h._tests_linking(m):
                     if tkey.startswith("fts:"):
                         continue  # FTS complement is export-scoped; skip for role members
                     td = h._nd(tkey)
                     role_sigs.append(
-                        Sig(role_id, "role-class", "S1", "S", f"test:{tname}",
-                            td.get("file") or "", td.get("line"), td.get("line"), tables.portability_defaults["S1"])
+                        Sig(
+                            role_id,
+                            "role-class",
+                            "S1",
+                            "S",
+                            f"test:{tname}",
+                            td.get("file") or "",
+                            td.get("line"),
+                            td.get("line"),
+                            tables.portability_defaults["S1"],
+                        )
                     )
             all_sigs.extend(role_sigs)
             d, d_drv = _determinacy_role(r, tables)
@@ -1095,25 +1233,56 @@ def compute_intention(
             if tid not in seen_types:
                 seen_types.add(tid)
                 all_sigs.append(
-                    Sig(tid, "data-shape", "A4", "A", f"type:{tqn.split('::')[-1]}", file, line, line,
-                        tables.portability_defaults["A4"])
+                    Sig(
+                        tid,
+                        "data-shape",
+                        "A4",
+                        "A",
+                        f"type:{tqn.split('::')[-1]}",
+                        file,
+                        line,
+                        line,
+                        tables.portability_defaults["A4"],
+                    )
                 )
             fn = r.get("field_name")
             if fn:
                 all_sigs.append(
-                    Sig(tid, "data-shape", "A4", "A", f"field:{fn}", file, line, line,
-                        tables.portability_defaults["A4"])
+                    Sig(
+                        tid,
+                        "data-shape",
+                        "A4",
+                        "A",
+                        f"field:{fn}",
+                        file,
+                        line,
+                        line,
+                        tables.portability_defaults["A4"],
+                    )
                 )
 
     # ── deterministic sort + frames ──
     sig_dicts = [s.row() for s in all_sigs]
-    sig_dicts.sort(key=lambda d: (d["element_kind"], d["element_id"], d["indicator_kind"], d["content"], d["file"], d["line_range"]))
+    sig_dicts.sort(
+        key=lambda d: (
+            d["element_kind"],
+            d["element_id"],
+            d["indicator_kind"],
+            d["content"],
+            d["file"],
+            d["line_range"],
+        )
+    )
     load_rows.sort(key=lambda d: (d["element_kind"], d["element_id"]))
-    conflict_rows.sort(key=lambda d: (d["element_id"], d["detector_id"], d["claim"], d["structural_fact"]))
+    conflict_rows.sort(
+        key=lambda d: (d["element_id"], d["detector_id"], d["claim"], d["structural_fact"])
+    )
 
     signals_df = pl.DataFrame(sig_dicts, schema=_signals_schema()).select(INTENTION_SIGNALS_COLUMNS)
     load_df = pl.DataFrame(load_rows, schema=_load_schema()).select(INTENTION_LOAD_COLUMNS)
-    conflicts_df = pl.DataFrame(conflict_rows, schema=_conflicts_schema()).select(INTENTION_CONFLICTS_COLUMNS)
+    conflicts_df = pl.DataFrame(conflict_rows, schema=_conflicts_schema()).select(
+        INTENTION_CONFLICTS_COLUMNS
+    )
 
     stats = HarvestStats(
         n_signals=signals_df.height,
@@ -1136,27 +1305,43 @@ def compute_intention(
 
 def _signals_schema() -> dict:
     return {
-        "signal_id": pl.Utf8, "element_id": pl.Utf8, "element_kind": pl.Utf8,
-        "indicator_kind": pl.Utf8, "tier": pl.Utf8, "content": pl.Utf8,
-        "file": pl.Utf8, "line_range": pl.Utf8, "portability_tier": pl.Utf8,
+        "signal_id": pl.Utf8,
+        "element_id": pl.Utf8,
+        "element_kind": pl.Utf8,
+        "indicator_kind": pl.Utf8,
+        "tier": pl.Utf8,
+        "content": pl.Utf8,
+        "file": pl.Utf8,
+        "line_range": pl.Utf8,
+        "portability_tier": pl.Utf8,
         "schema_version": pl.Int64,
     }
 
 
 def _load_schema() -> dict:
     return {
-        "element_id": pl.Utf8, "element_kind": pl.Utf8,
-        "structural_determinacy": pl.Float64, "intention_richness": pl.Float64,
-        "load_class": pl.Utf8, "port_critical_conflict": pl.Boolean,
-        "drivers": pl.List(pl.Utf8), "schema_version": pl.Int64,
+        "element_id": pl.Utf8,
+        "element_kind": pl.Utf8,
+        "structural_determinacy": pl.Float64,
+        "intention_richness": pl.Float64,
+        "load_class": pl.Utf8,
+        "port_critical_conflict": pl.Boolean,
+        "drivers": pl.List(pl.Utf8),
+        "schema_version": pl.Int64,
     }
 
 
 def _conflicts_schema() -> dict:
     return {
-        "conflict_id": pl.Utf8, "element_id": pl.Utf8, "element_kind": pl.Utf8,
-        "detector_id": pl.Utf8, "severity": pl.Utf8, "claim": pl.Utf8,
-        "structural_fact": pl.Utf8, "file": pl.Utf8, "line_range": pl.Utf8,
+        "conflict_id": pl.Utf8,
+        "element_id": pl.Utf8,
+        "element_kind": pl.Utf8,
+        "detector_id": pl.Utf8,
+        "severity": pl.Utf8,
+        "claim": pl.Utf8,
+        "structural_fact": pl.Utf8,
+        "file": pl.Utf8,
+        "line_range": pl.Utf8,
         "schema_version": pl.Int64,
     }
 

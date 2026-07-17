@@ -634,6 +634,9 @@ class SynthStats:
     agreement_counts: dict[str, int] = field(default_factory=dict)
     n_confirmed_contradictions: int = 0
     by_element_kind: dict[str, int] = field(default_factory=dict)
+    n_intent_fallbacks: int = (
+        0  # elements where empty cheap intent was refilled by the strong model
+    )
     n_failed_calls: int = 0  # LLM calls whose response didn't parse (degraded, not fatal)
     total_cost_usd: float = 0.0
     cache_hits: int = 0
@@ -702,6 +705,26 @@ class _Synthesizer:
         stats.n_intent_calls += 1
         stats.total_cost_usd += icost
         stats.cache_hits += 1 if ihit else 0
+
+        # Empty-intent fallback: when the cheap model produces no intent statement
+        # for an element that *does* carry evidence, retry once on the strong model
+        # (thin/ambiguous signal is where cheap models give up but a stronger reader
+        # can still extract purpose). Deterministic + cached (distinct model key);
+        # the intention_id stays keyed on ``self.model`` so ids do not move.
+        strong = self.adjudication_model or self.model
+        if not iout.intent and tagged and strong != self.model:
+            fparsed, fcost, fhit = self._call(
+                intent_prompt,
+                schema=ElementIntentOut,
+                system=_SYS_INTENT,
+                model=strong,
+                stats=stats,
+            )
+            stats.total_cost_usd += fcost
+            stats.cache_hits += 1 if fhit else 0
+            if fparsed is not None and fparsed.intent:  # type: ignore[attr-defined]
+                iout = fparsed  # type: ignore[assignment]
+                stats.n_intent_fallbacks += 1
 
         intent: list[IntentTriple] = []
         for st in iout.intent:

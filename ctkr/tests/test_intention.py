@@ -68,13 +68,60 @@ def test_marker_canonicalization() -> None:
 
 def test_naming_pattern_coherent_is_low_entropy() -> None:
     """A coherent role (all *Validator) has ~0 entropy; a mixed one is higher."""
-    content, ent = naming_pattern(
-        ["RateValidator", "NameValidator", "SizeValidator"], TABLES, "py"
-    )
+    content, ent = naming_pattern(["RateValidator", "NameValidator", "SizeValidator"], TABLES, "py")
     assert "validator" in content
     assert ent == 0.0
     _, ent_mixed = naming_pattern(["Loader", "Parser", "Sink"], TABLES, "py")
     assert ent_mixed > ent
+
+
+def test_harvest_exclusions_data_dial_excludes_harness_files() -> None:
+    """The versioned data dial drops harness/smoke/spike files from the harvest but
+    keeps product source and real test files (§5.2 tension hygiene)."""
+    import networkx as nx
+    import polars as pl
+
+    from ctkr.intention import Harvester, load_conflict_detectors
+    from ctkr.schema import SUBSYSTEM_MEMBERS_COLUMNS
+
+    assert TABLES.harvest_exclusions  # loaded from the data file
+    g = nx.MultiDiGraph()
+    cases = {
+        "smoke": "scripts/smoke-graph-diff.ts",
+        "spike": "docs/notes/functor-spike/harness.ts",
+        "product": "src/store/index.ts",
+        "realtest": "src/scip/loader.test.ts",
+    }
+    for nid, f in cases.items():
+        g.add_node(nid, repo="R", file=f, file_path=f, qualified_name=f, kind="function")
+    mem = pl.DataFrame(
+        [
+            {
+                "subsystem_id": "s",
+                "symbol_id": n,
+                "repo": "R",
+                "qualified_name": n,
+                "boundary_confidence": 1.0,
+                "placement": "structural",
+                "schema_version": 1,
+            }
+            for n in cases
+        ]
+    ).select(SUBSYSTEM_MEMBERS_COLUMNS)
+    h = Harvester(
+        g,
+        members_df=mem,
+        interfaces_df=None,
+        data_shapes_df=None,
+        presentations_df=None,
+        repo_root=".",
+        tables=TABLES,
+        detectors=load_conflict_detectors(),
+    )
+    assert h.excluded("smoke") is True
+    assert h.excluded("spike") is True
+    assert h.excluded("product") is False
+    assert h.excluded("realtest") is False  # real tests keep their S1 signal
 
 
 # ───────────────────────── synthetic corpus ─────────────────────────
@@ -120,8 +167,16 @@ class NameValidator:
 
     def add(nid, qn, kind, line, end, sig=None, file="svc.py", lang="py", short=None):
         g.add_node(
-            nid, repo="R", qualified_name=qn, file=file, file_path=file, kind=kind,
-            line=line, end_line=end, signature=sig, language=lang,
+            nid,
+            repo="R",
+            qualified_name=qn,
+            file=file,
+            file_path=file,
+            kind=kind,
+            line=line,
+            end_line=end,
+            signature=sig,
+            language=lang,
             short_name=short or qn.split("::")[-1],
         )
 
@@ -135,8 +190,14 @@ class NameValidator:
     add("NameValidator", "svc.py::NameValidator", "class", 13, 15)
     # test file symbols
     add("testF", "test_svc.py", "file", 1, 4, file="test_svc.py")
-    add("test_get", "test_svc.py::test_get_session_raises_on_unknown_key", "function",
-        3, 4, file="test_svc.py")
+    add(
+        "test_get",
+        "test_svc.py::test_get_session_raises_on_unknown_key",
+        "function",
+        3,
+        4,
+        file="test_svc.py",
+    )
 
     for child in ("get_session", "Session", "RateValidator", "NameValidator"):
         g.add_edge("svcF", child, key="CONTAINS", kind="CONTAINS")
@@ -148,50 +209,89 @@ class NameValidator:
     g.add_edge("get_session", "sess_last", key="WRITES_FIELD", kind="WRITES_FIELD")
     g.add_edge("get_session", "Session", key="CONSTRUCTS", kind="CONSTRUCTS")
     g.add_edge("get_session", "Verr", key="RAISES", kind="RAISES")
-    g.add_node("Verr", repo="R", qualified_name="builtins::ValueError", kind="class",
-               short_name="ValueError", file="", line=None)
+    g.add_node(
+        "Verr",
+        repo="R",
+        qualified_name="builtins::ValueError",
+        kind="class",
+        short_name="ValueError",
+        file="",
+        line=None,
+    )
     # the test CALLS the export (reverse-edge test linkage)
     g.add_edge("test_get", "get_session", key="CALLS", kind="CALLS")
     # an external caller in another subsystem references get_session (makes it a
     # boundary export + gives Session a cross-subsystem write target)
-    g.add_node("ext", repo="R", qualified_name="app.py::main", kind="function",
-               file="app.py", file_path="app.py", line=1, end_line=2, short_name="main")
+    g.add_node(
+        "ext",
+        repo="R",
+        qualified_name="app.py::main",
+        kind="function",
+        file="app.py",
+        file_path="app.py",
+        line=1,
+        end_line=2,
+        short_name="main",
+    )
     g.add_edge("ext", "get_session", key="REFERENCES", kind="REFERENCES")
 
     members = []
     for n, d in g.nodes(data=True):
         sub = "ss:svc" if (d.get("file") or "").startswith(("svc", "test")) else "ss:app"
         members.append(
-            {"subsystem_id": sub, "symbol_id": n, "repo": "R",
-             "qualified_name": d.get("qualified_name") or n, "boundary_confidence": 1.0,
-             "placement": "structural", "schema_version": 1}
+            {
+                "subsystem_id": sub,
+                "symbol_id": n,
+                "repo": "R",
+                "qualified_name": d.get("qualified_name") or n,
+                "boundary_confidence": 1.0,
+                "placement": "structural",
+                "schema_version": 1,
+            }
         )
     mem = pl.DataFrame(members).select(SUBSYSTEM_MEMBERS_COLUMNS)
 
     # interfaces: get_session is provided (external ext references it)
     iface = pl.DataFrame(
-        [{
-            "subsystem_id": "ss:svc", "repo": "R", "direction": "provides",
-            "edge_kind": "REFERENCES", "edge_count": 1,
-            "internal_symbol_id": "get_session",
-            "internal_qualified_name": "svc.py::get_session",
-            "internal_export_symbol_id": "get_session",
-            "internal_export_qualified_name": "svc.py::get_session",
-            "external_symbol_id": "ext", "external_qualified_name": "app.py::main",
-            "external_subsystem_id": "ss:app", "schema_version": 1,
-        }]
+        [
+            {
+                "subsystem_id": "ss:svc",
+                "repo": "R",
+                "direction": "provides",
+                "edge_kind": "REFERENCES",
+                "edge_count": 1,
+                "internal_symbol_id": "get_session",
+                "internal_qualified_name": "svc.py::get_session",
+                "internal_export_symbol_id": "get_session",
+                "internal_export_qualified_name": "svc.py::get_session",
+                "external_symbol_id": "ext",
+                "external_qualified_name": "app.py::main",
+                "external_subsystem_id": "ss:app",
+                "schema_version": 1,
+            }
+        ]
     )
     presentations = pl.DataFrame(
-        [{
-            "subsystem_id": "ss:svc", "repo": "R", "role_id": "role:validator",
-            "view": "similarity", "granularity": "0.8", "cardinality": 2,
-            "members": ["RateValidator", "NameValidator"],
-            "exemplar_symbol_id": "RateValidator",
-            "exemplar_qualified_name": "svc.py::RateValidator",
-            "profile_centroid": [1.0, 2.0], "profile_depth": 1,
-            "interface_participation": [], "persistence": 1.0, "config": "{}",
-            "generated_at": "t", "schema_version": 1,
-        }]
+        [
+            {
+                "subsystem_id": "ss:svc",
+                "repo": "R",
+                "role_id": "role:validator",
+                "view": "similarity",
+                "granularity": "0.8",
+                "cardinality": 2,
+                "members": ["RateValidator", "NameValidator"],
+                "exemplar_symbol_id": "RateValidator",
+                "exemplar_qualified_name": "svc.py::RateValidator",
+                "profile_centroid": [1.0, 2.0],
+                "profile_depth": 1,
+                "interface_participation": [],
+                "persistence": 1.0,
+                "config": "{}",
+                "generated_at": "t",
+                "schema_version": 1,
+            }
+        ]
     )
     return g, {"mem": mem, "iface": iface, "pres": presentations}, tmp_path
 
@@ -199,8 +299,12 @@ class NameValidator:
 def test_harvest_shapes_and_schema(tmp_path: Path) -> None:
     g, dfs, root = _corpus(tmp_path)
     sig, load, conf, stats = compute_intention(
-        g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-        data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+        g,
+        members_df=dfs["mem"],
+        interfaces_df=dfs["iface"],
+        data_shapes_df=None,
+        presentations_df=dfs["pres"],
+        repo_root=root,
     )
     assert list(sig.columns) == list(INTENTION_SIGNALS_COLUMNS)
     assert list(load.columns) == list(INTENTION_LOAD_COLUMNS)
@@ -218,8 +322,12 @@ def test_harvest_indicators_present(tmp_path: Path) -> None:
     and S1 (the test that calls it)."""
     g, dfs, root = _corpus(tmp_path)
     sig, _, _, _ = compute_intention(
-        g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-        data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+        g,
+        members_df=dfs["mem"],
+        interfaces_df=dfs["iface"],
+        data_shapes_df=None,
+        presentations_df=dfs["pres"],
+        repo_root=root,
     )
     exp = sig.filter(pl.col("element_id") == "get_session")
     kinds = set(exp["indicator_kind"].to_list())
@@ -238,8 +346,12 @@ def test_harvest_indicators_present(tmp_path: Path) -> None:
 def test_portability_tiers_assigned(tmp_path: Path) -> None:
     g, dfs, root = _corpus(tmp_path)
     sig, _, _, _ = compute_intention(
-        g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-        data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+        g,
+        members_df=dfs["mem"],
+        interfaces_df=dfs["iface"],
+        data_shapes_df=None,
+        presentations_df=dfs["pres"],
+        repo_root=root,
     )
     tiers = set(sig["portability_tier"].to_list())
     assert tiers <= {"I", "N", "A"}
@@ -255,8 +367,12 @@ def test_port_critical_conflict_surfaced(tmp_path: Path) -> None:
     conflict and is forced out of structure-clear (§5.2 override, §6.1)."""
     g, dfs, root = _corpus(tmp_path)
     _, load, conf, stats = compute_intention(
-        g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-        data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+        g,
+        members_df=dfs["mem"],
+        interfaces_df=dfs["iface"],
+        data_shapes_df=None,
+        presentations_df=dfs["pres"],
+        repo_root=root,
     )
     assert stats.n_port_critical >= 1
     pc = conf.filter(pl.col("severity") == "port-critical")
@@ -271,8 +387,12 @@ def test_port_critical_conflict_surfaced(tmp_path: Path) -> None:
 def test_load_scores_have_drivers(tmp_path: Path) -> None:
     g, dfs, root = _corpus(tmp_path)
     _, load, _, _ = compute_intention(
-        g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-        data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+        g,
+        members_df=dfs["mem"],
+        interfaces_df=dfs["iface"],
+        data_shapes_df=None,
+        presentations_df=dfs["pres"],
+        repo_root=root,
     )
     for row in load.to_dicts():
         assert 0.0 <= row["structural_determinacy"] <= 1.0
@@ -285,8 +405,12 @@ def test_harvest_deterministic_byte_identical(tmp_path: Path) -> None:
     out = tmp_path / "out"
     for tag in ("run1", "run2"):
         sig, _, _, _ = compute_intention(
-            g, members_df=dfs["mem"], interfaces_df=dfs["iface"],
-            data_shapes_df=None, presentations_df=dfs["pres"], repo_root=root,
+            g,
+            members_df=dfs["mem"],
+            interfaces_df=dfs["iface"],
+            data_shapes_df=None,
+            presentations_df=dfs["pres"],
+            repo_root=root,
         )
         write_intention_signals(sig, out / f"sig_{tag}.parquet")
     assert (out / "sig_run1.parquet").read_bytes() == (out / "sig_run2.parquet").read_bytes()

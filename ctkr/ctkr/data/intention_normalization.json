@@ -2,6 +2,19 @@
   "version": 1,
   "description": "Intention-lane normalization tables for the mechanical harvest (ct-intention-extraction.md §7.1). The text-lane sibling of src/ctkr/normalization.json: that file folds STRUCTURAL idioms before the name-blind math; this one folds NAMING/COMMENT idioms after the structure is frozen, so the intention channel compares token sequences and semantics rather than raw source strings. All entries are DATA (versioned) — adding a language or an affix is a table edit, not code. Raw text is always retained alongside the normalized form (§7.1 'raw text always retained').",
 
+  "harvest_exclusions": {
+    "note": "Path prefixes/globs dropped from the intention harvest by default (in ADDITION to the CLI --exclude-prefix). These are harness, smoke-test, and one-off spike files: not product code, and their thin single-token naming pollutes role-class A5 patterns, producing spurious structure-vs-intention 'tension' verdicts in T5b adjudication (§5.2/§6.1). A versioned DATA dial — widen it here, never in code. Matched on the symbol's repo-relative file: `path_prefixes` by startswith, `path_globs` by the same minimal glob grammar as test_conventions. Real test files (*.test.ts etc.) are deliberately NOT excluded — they carry the S1 behavioral signal.",
+    "path_prefixes": [
+      "scripts/smoke-",
+      "docs/notes/functor-spike/",
+      "ctkr/scripts/"
+    ],
+    "path_globs": [
+      "**/scripts/smoke-*",
+      "**/functor-spike/**"
+    ]
+  },
+
   "convention_affixes": {
     "note": "§7.1(2) — per-language/framework affixes that carry CONVENTION rather than DOMAIN. Folded out of identifier token sequences before A5 naming-pattern extraction and before cross-stack comparison. `where` = prefix|suffix|token (matched on the tokenized, lowercased sequence). `portability` tags what survives a port: 'N' = convention-encoded (restate, e.g. an interface's I-prefix), 'A' = idiom-specific (drop, e.g. a Python dunder). Domain tokens (no entry) default to intent-I.",
     "common": [
