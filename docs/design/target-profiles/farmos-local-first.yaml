@@ -1,0 +1,74 @@
+# The farmOS local-first port target profile — the port-loop Phase 3 worked example.
+#
+# The re-implementation target for farmOS (Drupal/PHP, a central-authority app) is a
+# LOCAL-FIRST system: offline-first replicas whose state is an append-only event log,
+# whose reads are materialized views projected from it, and which sync by exchanging
+# events with selective disclosure. This profile tells a port brief how to re-answer
+# each of farmOS's central-authority assumptions (the intent-CM grades).
+#
+# OPTIONAL input: the intent-CM grades exist without it. This file only conditions the
+# brief's "Target adaptation notes" section. Consumed by `ctkr intent-cm --target-profile`
+# and the port-brief renderer. Format spec: ../target-profile.md.
+
+target_profile:
+  id: farmos-local-first
+  name: farmOS local-first port
+  consistency_model: eventual
+  architecture:
+    - event-log            # append-only log is the source of truth
+    - materialized-views   # reads are projections over the log
+  sync: selective-disclosure
+  summary: >
+    Offline-first single-operator replicas of a farm's records. State is an
+    append-only event log; every read (asset lists, log timelines, quantity
+    totals) is a materialized view projected from that log. Replicas exchange
+    events peer-to-peer with selective disclosure — a replica shares only the
+    events it chooses, so "who may see what" is re-answered at the disclosure
+    boundary rather than by a central request-time access check. No central
+    server is required for a replica to be fully usable; convergence happens
+    when replicas next exchange events.
+
+  capabilities:
+    convergence_rules:
+      - crdt               # field-level CRDTs for concurrently-edited records
+      - lww                # last-writer-wins (timestamp/hybrid-logical-clock) for scalar fields
+    coordination_layer: false   # no always-on authority; a "hard" invariant cannot escalate to a central lock
+    disclosure_layer: true      # the sync layer re-answers access/visibility
+
+  # sensitivity class → the ordered options a port MUST choose from. Because this
+  # target has NO coordination layer (coordination_layer: false), the honest menu for
+  # a hard invariant is "converge or weaken" — escalating to a central authority is
+  # off the table by construction (that is what makes this port local-first).
+  decision_menu:
+    hard:
+      - preserve-via-convergence-rule    # e.g. UUID-key instead of autoincrement; CRDT set for uniqueness
+      - weaken-to-eventual               # accept a transient violation reconciled on sync
+      - move-to-disclosure-layer         # (access-flavored hard cases) re-answer at the sync boundary
+    soft:
+      - preserve-as-eventual-invariant   # holds after events replay; note the convergence window
+      - move-to-disclosure-layer         # (access snapshots) re-answer at the disclosure boundary
+    none:
+      - port-verbatim                    # independent of consistency model — copy as-is
+
+  # Non-normative guidance the brief may quote per category (the port author still
+  # chooses from the menu; these are the target's known-good answers).
+  category_hints:
+    autoincrement-id: >
+      farmOS entities already carry a `uuid` entity key. Key the port on the UUID
+      (client-generated, collision-free offline); treat the serial `id` as a local,
+      non-portable ordinal that never crosses the sync boundary.
+    unique-constraint: >
+      Enforce uniqueness within a replica only; on merge, resolve collisions with a
+      deterministic rule (UUID tiebreak) or surface a merge conflict — never assume a
+      global write-time gate.
+    access-check: >
+      Move the decision to the disclosure layer: a replica shares an event only if the
+      recipient is entitled to it. Request-time `->access()` becomes projection-time
+      filtering, not a central gate.
+    revision-lock: >
+      Preserve revisions as an eventual, merge-aware event log; concurrent histories are
+      expected. Replace optimistic `changed`-timestamp rejection with a CRDT/LWW merge.
+    transaction: >
+      There is no atomic multi-write boundary. Either make each write independently
+      convergent, or model the group as a single composite event that a projection
+      applies atomically on replay.
