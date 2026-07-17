@@ -156,7 +156,7 @@ def run(args: argparse.Namespace) -> int:
         f"  load summary        : {summary}\n"
         f"  LLM calls           : intent {stats.n_intent_calls} + scenario "
         f"{stats.n_scenario_calls} + adjudication {stats.n_adjudications} "
-        f"(cache hits {stats.cache_hits})\n"
+        f"(cache hits {stats.cache_hits}, failed/degraded {stats.n_failed_calls})\n"
         f"  cost                : ${stats.total_cost_usd:.4f}\n"
         f"  model / prompt      : {model} / {pv}\n"
         f"  intention.jsonl     : {out_path}\n"
@@ -180,6 +180,7 @@ def run(args: argparse.Namespace) -> int:
                     "n_confirmed_contradictions": stats.n_confirmed_contradictions,
                     "n_citations_resolved": stats.n_citations_resolved,
                     "n_citations_dropped": stats.n_citations_dropped,
+                    "n_failed_calls": stats.n_failed_calls,
                     "intention_load_summary": summary,
                     "total_cost_usd": stats.total_cost_usd,
                     "cache_hits": stats.cache_hits,
