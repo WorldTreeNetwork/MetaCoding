@@ -20,7 +20,6 @@ import {
   orbitSignatures,
   toFunctorObjects,
   degreeMatchedRewire,
-  type SynthGraph,
 } from "../../eval/ctkr/functor_eval.ts";
 import { functorSearch, type FunctorObject, type FunctorEdge } from "./functorSearch.ts";
 import {
@@ -38,7 +37,6 @@ import {
   type SpecProvide,
   type SpecOp,
   type SideGraph,
-  type NormalizationSpec,
   type TargetProfile,
   type SourceParadigm,
 } from "./verifyPort.ts";
@@ -213,7 +211,7 @@ describe("rewired fork — punch list localizes failures (not a boolean)", () =>
     const { fork } = renameFork(base);
     const rewired = degreeMatchedRewire(fork, 0x5eed);
     const rewiredP = computeDepth2Profiles(rewired);
-    const dstMembers = new Set(rewired.objects.map((o) => o.id).filter((id) => spec.provides.length >= 0 && /^fk::(C[0-3]($|[.])|I[01]$)/.test(id)));
+    const dstMembers = new Set(rewired.objects.map((o) => o.id).filter((id) => /^fk::(C[0-3]($|[.])|I[01]$)/.test(id)));
     const port: SideGraph = {
       objects: toFunctorObjects(rewired, rewiredP),
       edges: rewired.edges,

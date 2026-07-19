@@ -34,16 +34,16 @@ the parsed payload through ``schema.model_validate`` before returning.
 
 from __future__ import annotations
 
-import blake3
 import json
 import logging
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, TypeVar
 
+import blake3
 from pydantic import BaseModel
 
 logger = logging.getLogger("ctkr.llm")
@@ -207,7 +207,8 @@ class AnthropicProvider:
     ) -> _ProviderResponse:
         if reasoning_effort is not None:
             raise LLMError(
-                "reasoning_effort is an OpenAI GPT-5.x parameter; not supported by the anthropic provider"
+                "reasoning_effort is an OpenAI GPT-5.x parameter; "
+                "not supported by the anthropic provider"
             )
         kwargs: dict[str, Any] = {
             "model": model,
@@ -238,14 +239,16 @@ class AnthropicProvider:
     ) -> tuple[_ProviderResponse, dict[str, Any]]:
         if reasoning_effort is not None:
             raise LLMError(
-                "reasoning_effort is an OpenAI GPT-5.x parameter; not supported by the anthropic provider"
+                "reasoning_effort is an OpenAI GPT-5.x parameter; "
+                "not supported by the anthropic provider"
             )
         tool_name = "emit_" + schema.__name__.lower()
         json_schema = schema.model_json_schema()
         # Anthropic requires the top-level schema to be type=object.
         if json_schema.get("type") != "object":
             raise StructuredOutputError(
-                f"{schema.__name__} must serialize to a JSON object schema; got {json_schema.get('type')}"
+                f"{schema.__name__} must serialize to a JSON object schema; "
+                f"got {json_schema.get('type')}"
             )
         kwargs: dict[str, Any] = {
             "model": model,
@@ -767,7 +770,7 @@ def _hash_prompt(
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def _retry(

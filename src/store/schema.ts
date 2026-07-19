@@ -126,8 +126,8 @@ async function execIgnoreExists(conn: Connection, ddl: string): Promise<void> {
 }
 
 export function ensureFtsSchema(fts: SqliteDb): void {
-  fts.exec(`PRAGMA journal_mode=WAL;`);
-  fts.exec(`PRAGMA synchronous=NORMAL;`);
+  fts.run(`PRAGMA journal_mode=WAL;`);
+  fts.run(`PRAGMA synchronous=NORMAL;`);
 
   // FTS5 cannot ALTER ADD COLUMN, so when the existing table is missing the
   // repo_commit_sha column (bead MetaCoding-pon), drop and recreate it.
@@ -139,11 +139,11 @@ export function ensureFtsSchema(fts: SqliteDb): void {
   if (cols.length > 0) {
     const hasSha = cols.some((c) => c.name === "repo_commit_sha");
     if (!hasSha) {
-      fts.exec(`DROP TABLE tokens`);
+      fts.run(`DROP TABLE tokens`);
     }
   }
 
-  fts.exec(`
+  fts.run(`
     CREATE VIRTUAL TABLE IF NOT EXISTS tokens USING fts5(
       text,
       kind UNINDEXED,
