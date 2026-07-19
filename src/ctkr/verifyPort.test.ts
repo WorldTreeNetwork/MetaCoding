@@ -25,9 +25,13 @@ import {
 import { functorSearch, type FunctorObject, type FunctorEdge } from "./functorSearch.ts";
 import {
   verifyPort,
+  formatReport,
   normalizeSide,
   collapsedAlphabet,
   loadNormalization,
+  computeParadigmDivergence,
+  predictNonInformativeGates,
+  CENTRAL_AUTHORITY_PARADIGM,
   BASE_EDGE_KINDS,
   type SubsystemSpec,
   type SpecRole,
@@ -35,6 +39,8 @@ import {
   type SpecOp,
   type SideGraph,
   type NormalizationSpec,
+  type TargetProfile,
+  type SourceParadigm,
 } from "./verifyPort.ts";
 import { type PortDecision } from "./portDecisions.ts";
 
@@ -498,5 +504,179 @@ describe("port decisions waivers", () => {
     expect(r.staleWaivers).toHaveLength(0);
     // gatesNet should not be present since no relevant decisions were found.
     expect(r.gatesNet).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Meta-structural pre-build pass — advisory paradigm divergence (MetaCoding-9h5.1)
+// ---------------------------------------------------------------------------
+
+const LOCAL_FIRST: TargetProfile = {
+  id: "farmos-local-first",
+  consistencyModel: "eventual",
+  coordinationLayer: false,
+  deployment: "local-first",
+};
+
+describe("computeParadigmDivergence / predictNonInformativeGates (pure)", () => {
+  test("no divergence when both axes match → nothing predicted non-informative", () => {
+    const same: SourceParadigm = { consistencyModel: "eventual", coordinationLayer: false };
+    const pd = computeParadigmDivergence(same, LOCAL_FIRST, false);
+    expect(pd.diverges).toBe(false);
+    expect(pd.predictedNonInformative).toHaveLength(0);
+    expect(pd.binding).toEqual([
+      "role-coverage",
+      "interface-preservation",
+      "composition-preservation",
+      "fidelity",
+      "cycle-consistency",
+    ]);
+  });
+
+  test("central-authority → local-first diverges on both axes; fidelity stays binding", () => {
+    const pd = computeParadigmDivergence(CENTRAL_AUTHORITY_PARADIGM, LOCAL_FIRST, true);
+    expect(pd.diverges).toBe(true);
+    expect(pd.consistencyModel.diverges).toBe(true);
+    expect(pd.coordinationLayer.diverges).toBe(true);
+    expect(pd.sourceParadigmAssumed).toBe(true);
+    expect(pd.predictedNonInformative).toEqual([
+      "role-coverage",
+      "interface-preservation",
+      "composition-preservation",
+      "cycle-consistency",
+    ]);
+    expect(pd.binding).toEqual(["fidelity"]);
+  });
+
+  test("coordination_layer alone diverging is enough to trigger advisory", () => {
+    const src: SourceParadigm = { consistencyModel: "eventual", coordinationLayer: true };
+    const pd = computeParadigmDivergence(src, LOCAL_FIRST, false);
+    expect(pd.consistencyModel.diverges).toBe(false);
+    expect(pd.coordinationLayer.diverges).toBe(true);
+    expect(pd.diverges).toBe(true);
+    expect(pd.predictedNonInformative).toContain("role-coverage");
+  });
+
+  test("language/deployment diverge only when both sides are known and differ", () => {
+    const src: SourceParadigm = { consistencyModel: "eventual", coordinationLayer: false, language: "php" };
+    const pd = computeParadigmDivergence(src, LOCAL_FIRST, false);
+    // target has no language → not a divergence (can't assert)
+    expect(pd.language.diverges).toBe(false);
+    // both know deployment and they differ → informative divergence, not verdict-driving
+    expect(pd.deployment.diverges).toBe(false); // src deployment undefined
+    expect(pd.diverges).toBe(false);
+  });
+
+  test("predictNonInformativeGates is empty iff neither axis diverges", () => {
+    expect(predictNonInformativeGates({ consistencyDiverges: false, coordinationDiverges: false })).toEqual([]);
+    expect(
+      predictNonInformativeGates({ consistencyDiverges: true, coordinationDiverges: false }),
+    ).toContain("cycle-consistency");
+  });
+});
+
+describe("verifyPort — advisory verdict under paradigm divergence", () => {
+  test("no targetProfile → verdict binding, no divergence object", () => {
+    const { spec, source, port } = buildForkFixture();
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL });
+    expect(r.verdict).toBe("binding");
+    expect(r.paradigmDivergence).toBeUndefined();
+    expect(r.unpredictedWaiverCount).toBe(0);
+    expect(r.staleWaiverCount).toBe(0);
+  });
+
+  test("matching paradigms keep the binding verdict", () => {
+    const { spec, source, port } = buildForkFixture();
+    const src: SourceParadigm = { consistencyModel: "eventual", coordinationLayer: false };
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST, sourceParadigm: src });
+    expect(r.paradigmDivergence).toBeDefined();
+    expect(r.paradigmDivergence!.diverges).toBe(false);
+    expect(r.verdict).toBe("binding");
+  });
+
+  test("diverging paradigms downgrade the verdict to advisory (report still rendered)", () => {
+    const { spec, source, port } = buildForkFixture();
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST });
+    expect(r.verdict).toBe("advisory");
+    expect(r.paradigmDivergence!.diverges).toBe(true);
+    expect(r.paradigmDivergence!.sourceParadigmAssumed).toBe(true); // no sourceParadigm supplied
+    // the report is still fully rendered — gates untouched.
+    expect(r.gates.roleCoverage.score).toBe(1.0);
+    expect(r.gates.fidelity.score).toBeGreaterThanOrEqual(0.95);
+  });
+
+  test("explicit sourceParadigm sets sourceParadigmAssumed=false", () => {
+    const { spec, source, port } = buildForkFixture();
+    const src: SourceParadigm = { consistencyModel: "strong", coordinationLayer: true, language: "php" };
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST, sourceParadigm: src });
+    expect(r.verdict).toBe("advisory");
+    expect(r.paradigmDivergence!.sourceParadigmAssumed).toBe(false);
+  });
+
+  test("gate SCORES are byte-for-byte identical whether or not a profile is supplied", () => {
+    const { spec, source, port } = buildForkFixture();
+    const bare = verifyPort({ spec, source, port, config: HIGH_SIGNAL });
+    const withProfile = verifyPort({ spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST });
+    expect(JSON.stringify(withProfile.gates)).toBe(JSON.stringify(bare.gates));
+    expect(withProfile.passedAtCeiling).toBe(bare.passedAtCeiling);
+  });
+
+  test("waiver on a BINDING gate (fidelity) is an unpredicted waiver; predicted-gate waiver is not", () => {
+    const { spec, source, port } = buildRewiredReport();
+    // Confirm the rewired port fails fidelity (a binding gate under divergence).
+    const base = verifyPort({ spec, source, port, config: HIGH_SIGNAL });
+    const fidItem = base.punchList.find((p) => p.gate === "fidelity");
+    expect(fidItem).toBeDefined();
+    const roleItem = base.punchList.find((p) => p.gate === "role-coverage");
+
+    // Waive the fidelity (binding) item → counts as unpredicted.
+    const waiveFidelity = verifyPort({
+      spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST,
+      decisions: [{
+        id: "PD-fid", date: "2026-07-19", subsystem: spec.subsystemId,
+        targetElement: fidItem!.cardSection, decision: "supersede",
+        supersededSourceIntention: "fidelity waiver", rationale: "test", author: "test",
+      }],
+    });
+    expect(waiveFidelity.verdict).toBe("advisory");
+    expect(waiveFidelity.unpredictedWaiverCount).toBeGreaterThanOrEqual(1);
+
+    // Waive only a predicted (role-coverage) item → NOT unpredicted.
+    if (roleItem) {
+      const waiveRole = verifyPort({
+        spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST,
+        decisions: [{
+          id: "PD-role", date: "2026-07-19", subsystem: spec.subsystemId,
+          targetElement: roleItem.cardSection, decision: "supersede",
+          supersededSourceIntention: "role waiver", rationale: "test", author: "test",
+        }],
+      });
+      expect(waiveRole.unpredictedWaiverCount).toBe(0);
+    }
+  });
+
+  test("staleWaiverCount mirrors staleWaivers.length under advisory mode", () => {
+    const { spec, source, port } = buildRewiredReport();
+    const r = verifyPort({
+      spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST,
+      decisions: [{
+        id: "PD-stale", date: "2026-07-19", subsystem: spec.subsystemId,
+        targetElement: "roles[role_id=DOES_NOT_EXIST]", decision: "supersede",
+        supersededSourceIntention: "x", rationale: "y", author: "test",
+      }],
+    });
+    expect(r.staleWaiverCount).toBe(r.staleWaivers.length);
+    expect(r.staleWaiverCount).toBe(1);
+  });
+
+  test("formatReport renders the ADVISORY banner with the pre-registered gates", () => {
+    const { spec, source, port } = buildForkFixture();
+    const r = verifyPort({ spec, source, port, config: HIGH_SIGNAL, targetProfile: LOCAL_FIRST });
+    const txt = formatReport(r);
+    expect(txt).toContain("verdict: ADVISORY");
+    expect(txt).toContain("PARADIGM DIVERGENCE");
+    expect(txt).toContain("predicted NON-INFORMATIVE");
+    expect(txt).toContain("remain BINDING: fidelity");
+    expect(txt).toContain("source paradigm ASSUMED");
   });
 });

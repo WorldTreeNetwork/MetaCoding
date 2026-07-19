@@ -144,8 +144,78 @@ export interface SideGraph {
 }
 
 // ---------------------------------------------------------------------------
+// Meta-structural pre-build pass — paradigm descriptors (MetaCoding-9h5.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * The consistency baseline of a system. Free string (forward-compatible) but the
+ * port-loop uses "strong" | "causal" | "eventual" (target-profile.md).
+ */
+export type ConsistencyModel = "strong" | "causal" | "eventual" | (string & {});
+
+/**
+ * The source system's paradigm — the two verdict-driving axes plus two
+ * informative axes. `verifyPort` compares this against the `TargetProfile` BEFORE
+ * scoring, so waivers become pre-registered hypotheses rather than post-hoc
+ * excuses (docs/design/meta-structural-pass.md §a).
+ */
+export interface SourceParadigm {
+  /** the source's consistency baseline (a Drupal/PHP app is "strong"). */
+  consistencyModel: ConsistencyModel;
+  /** does the source have an always-on authority a hard invariant escalates to? */
+  coordinationLayer: boolean;
+  /** dominant source language ("php" | "py" | "ts" | …) — informative only. */
+  language?: string;
+  /** deployment substrate ("central-server" | "local-first" | …) — informative. */
+  deployment?: string;
+}
+
+/**
+ * The re-implementation target's consistency profile — the subset of
+ * `target-profile.md` that conditions the structural verdict. Load from the
+ * `target_profile:` YAML block (consistency_model, capabilities.coordination_layer).
+ */
+export interface TargetProfile {
+  /** stable slug (target_profile.id) — for the banner + ledger cross-refs. */
+  id?: string;
+  consistencyModel: ConsistencyModel;
+  coordinationLayer: boolean;
+  language?: string;
+  deployment?: string;
+}
+
+/**
+ * The paradigm assumed for the SOURCE when a `targetProfile` is supplied without
+ * an explicit `sourceParadigm`: a central-authority app (the canonical
+ * Drupal/farmOS port-loop baseline — strong consistency, an authority a hard
+ * invariant can escalate to). Recorded as `sourceParadigmAssumed: true` so the
+ * assumption is never silent.
+ */
+export const CENTRAL_AUTHORITY_PARADIGM: SourceParadigm = {
+  consistencyModel: "strong",
+  coordinationLayer: true,
+  deployment: "central-server",
+};
+
+// ---------------------------------------------------------------------------
 // Output — the §7 punch list + gate scores
 // ---------------------------------------------------------------------------
+
+/** The five §7 gates, as their punch-list / report addresses. */
+export type GateName =
+  | "role-coverage"
+  | "interface-preservation"
+  | "composition-preservation"
+  | "fidelity"
+  | "cycle-consistency";
+
+export const ALL_GATES: readonly GateName[] = [
+  "role-coverage",
+  "interface-preservation",
+  "composition-preservation",
+  "fidelity",
+  "cycle-consistency",
+] as const;
 
 export interface GateResult {
   name: string;
@@ -164,12 +234,7 @@ export interface ExemplarSlice {
 }
 
 export interface PunchListItem {
-  gate:
-    | "role-coverage"
-    | "interface-preservation"
-    | "composition-preservation"
-    | "fidelity"
-    | "cycle-consistency";
+  gate: GateName;
   severity: "blocker" | "warning";
   /** the card section this failure localizes to (§7: not a boolean). */
   cardSection: string;
@@ -192,12 +257,69 @@ export interface GatesShape {
   cycleConsistency: GateResult;
 }
 
+/** One paradigm axis compared source-vs-target. */
+export interface DimensionDivergence<T> {
+  source: T;
+  target: T;
+  diverges: boolean;
+}
+
+/**
+ * The meta-structural PRE-BUILD declaration (docs/design/meta-structural-pass.md §a).
+ * Computed BEFORE gate scoring by comparing the source paradigm to the target
+ * profile. `diverges` (verdict-driving) is true iff consistency_model OR
+ * coordination_layer differ. The declaration pre-registers which gates are
+ * predicted non-informative — so a waiver on a predicted gate is an expected
+ * delta, while a waiver on a `binding` gate is an UNPREDICTED waiver (a signal
+ * the pass missed a divergence or the builder drifted).
+ */
+export interface ParadigmDivergence {
+  /** true iff the consistency_model OR coordination_layer axes differ. */
+  diverges: boolean;
+  consistencyModel: DimensionDivergence<string>;
+  coordinationLayer: DimensionDivergence<boolean>;
+  /** informative only (handled by §6.2 normalization, not verdict-driving). */
+  language: DimensionDivergence<string | null>;
+  /** informative only. */
+  deployment: DimensionDivergence<string | null>;
+  /** gates the pass predicts are non-informative under this divergence. */
+  predictedNonInformative: GateName[];
+  /** gates that remain binding despite the divergence (fidelity, by default). */
+  binding: GateName[];
+  /** true when the source paradigm was defaulted, not explicitly supplied. */
+  sourceParadigmAssumed: boolean;
+  /** human-readable summary for the banner. */
+  rationale: string;
+}
+
 export interface PortVerificationReport {
   subsystemId: string;
   repo: string;
   portRepo: string;
   normalizationApplied: boolean;
   normalizationVersion: number | null;
+  /**
+   * "binding" (classic gating) or "advisory" — downgraded when a material
+   * paradigm divergence is declared. The report is fully rendered either way;
+   * only the pass/fail verdict's authority changes. Acceptance then rests on the
+   * value-equivalence oracle, and this report becomes the divergence ledger
+   * (docs/design/meta-structural-pass.md §c).
+   */
+  verdict: "binding" | "advisory";
+  /**
+   * The meta-structural pre-build declaration. Present only when a `targetProfile`
+   * was supplied. When `paradigmDivergence.diverges` is true, `verdict` is
+   * "advisory".
+   */
+  paradigmDivergence?: ParadigmDivergence;
+  /**
+   * First-class structural failure signal under advisory mode: waived punch items
+   * on a gate that was NOT predicted non-informative — a post-hoc waiver the
+   * pre-build pass did not anticipate. 0 when paradigms match or no divergence.
+   */
+  unpredictedWaiverCount: number;
+  /** convenience mirror of `staleWaivers.length` — the other first-class signal. */
+  staleWaiverCount: number;
   /** Raw gate scores — unaffected by any decisions/waivers. */
   gates: GatesShape;
   /**
@@ -259,6 +381,21 @@ export interface VerifyPortOptions {
    * Load from `port_decisions/<subsystem_id>.jsonl` via `loadPortDecisions()`.
    */
   decisions?: PortDecision[];
+  /**
+   * Meta-structural pre-build pass input (MetaCoding-9h5.1). When supplied and its
+   * consistency_model / coordination_layer differ from the source paradigm, the
+   * verdict is downgraded to "advisory" (the report is still fully rendered), the
+   * predicted-non-informative gates are pre-registered, and unpredicted-/stale-
+   * waiver counts become first-class signals. Omit to keep classic binding gating —
+   * gate scoring itself is byte-for-byte unchanged.
+   */
+  targetProfile?: TargetProfile | null;
+  /**
+   * The source system's paradigm. Defaults to `CENTRAL_AUTHORITY_PARADIGM` when a
+   * `targetProfile` is supplied without one (the port-loop's Drupal/farmOS
+   * baseline); the default is recorded as `sourceParadigmAssumed: true`.
+   */
+  sourceParadigm?: SourceParadigm | null;
 }
 
 export interface GateThresholds {
@@ -512,6 +649,81 @@ function mkGate(
     passed: score >= floor - 1e-9,
     passedAtCeiling: score >= ceiling - 1e-9,
     detail,
+  };
+}
+
+/**
+ * Predict which structural gates become non-informative when a port crosses a
+ * consistency-model / coordination-layer paradigm boundary. Grounded in the
+ * 2026-07-18 logs+quantities run (vertical-slice-logs-quantities.md §3b): a
+ * central-authority plugin registry → local-first event log divergence dissolves
+ * the source's SHAPE idioms — class/plugin role hierarchies (role coverage),
+ * request-time export usage modes (interface preservation), subtype protocol ops
+ * (composition preservation), and whole-region matches (cycle consistency) — all
+ * eight punch items that run produced were on these four gates. Functor FIDELITY
+ * over the pairs that DO map stays a real structure-preservation signal (it hit
+ * ceiling that run), so it remains binding. When neither verdict axis diverges,
+ * nothing is predicted non-informative and gating is fully binding.
+ */
+export function predictNonInformativeGates(d: {
+  consistencyDiverges: boolean;
+  coordinationDiverges: boolean;
+}): GateName[] {
+  if (!d.consistencyDiverges && !d.coordinationDiverges) return [];
+  return [
+    "role-coverage",
+    "interface-preservation",
+    "composition-preservation",
+    "cycle-consistency",
+  ];
+}
+
+/**
+ * The meta-structural PRE-BUILD comparison: source paradigm vs target profile.
+ * `diverges` (verdict-driving) is true iff consistency_model OR coordination_layer
+ * differ; language/deployment are recorded as informative-only (they diverge only
+ * when both sides are known and differ). Pre-registers the predicted-non-
+ * informative gates so post-run waivers can be classified as expected vs
+ * unpredicted.
+ */
+export function computeParadigmDivergence(
+  source: SourceParadigm,
+  target: TargetProfile,
+  sourceParadigmAssumed: boolean,
+): ParadigmDivergence {
+  const cmDiverges = source.consistencyModel !== target.consistencyModel;
+  const clDiverges = source.coordinationLayer !== target.coordinationLayer;
+  const srcLang = source.language ?? null;
+  const tgtLang = target.language ?? null;
+  const langDiverges = srcLang !== null && tgtLang !== null && srcLang !== tgtLang;
+  const srcDep = source.deployment ?? null;
+  const tgtDep = target.deployment ?? null;
+  const depDiverges = srcDep !== null && tgtDep !== null && srcDep !== tgtDep;
+
+  const diverges = cmDiverges || clDiverges;
+  const predictedNonInformative = predictNonInformativeGates({
+    consistencyDiverges: cmDiverges,
+    coordinationDiverges: clDiverges,
+  });
+  const binding = ALL_GATES.filter((g) => !predictedNonInformative.includes(g));
+
+  const axes: string[] = [];
+  if (cmDiverges) axes.push(`consistency ${source.consistencyModel}→${target.consistencyModel}`);
+  if (clDiverges) axes.push(`coordination-layer ${source.coordinationLayer}→${target.coordinationLayer}`);
+  const rationale = diverges
+    ? `Paradigm divergence on ${axes.join(" & ")}. The source's central-authority shape idioms are expected to dissolve; structural gates ${predictedNonInformative.join("/")} are predicted non-informative and their waivers are pre-registered. Fidelity remains binding.`
+    : "No material paradigm divergence — structural gating is binding.";
+
+  return {
+    diverges,
+    consistencyModel: { source: source.consistencyModel, target: target.consistencyModel, diverges: cmDiverges },
+    coordinationLayer: { source: source.coordinationLayer, target: target.coordinationLayer, diverges: clDiverges },
+    language: { source: srcLang, target: tgtLang, diverges: langDiverges },
+    deployment: { source: srcDep, target: tgtDep, diverges: depDiverges },
+    predictedNonInformative,
+    binding,
+    sourceParadigmAssumed,
+    rationale,
   };
 }
 
@@ -838,12 +1050,38 @@ export function verifyPort(opts: VerifyPortOptions): PortVerificationReport {
     };
   }
 
+  // ---- Meta-structural pre-build pass: paradigm-divergence (MetaCoding-9h5.1) ----
+  // When a target profile is supplied, compare it against the source paradigm
+  // (defaulting to central-authority when none was given). A material divergence
+  // downgrades the verdict to advisory and turns unpredicted / stale waivers into
+  // the first-class structural failure signals.
+  let paradigmDivergence: ParadigmDivergence | undefined;
+  let verdict: "binding" | "advisory" = "binding";
+  let unpredictedWaiverCount = 0;
+
+  if (opts.targetProfile) {
+    const sourceParadigmAssumed = opts.sourceParadigm == null;
+    const src = opts.sourceParadigm ?? CENTRAL_AUTHORITY_PARADIGM;
+    paradigmDivergence = computeParadigmDivergence(src, opts.targetProfile, sourceParadigmAssumed);
+    if (paradigmDivergence.diverges) {
+      verdict = "advisory";
+      const predicted = new Set(paradigmDivergence.predictedNonInformative);
+      for (const item of punch) {
+        if (item.waivedBy !== undefined && !predicted.has(item.gate)) unpredictedWaiverCount++;
+      }
+    }
+  }
+
   return {
     subsystemId: opts.spec.subsystemId,
     repo: opts.spec.repo,
     portRepo: opts.port.language ?? "port",
     normalizationApplied: applyNorm,
     normalizationVersion: norm ? norm.version : null,
+    verdict,
+    ...(paradigmDivergence !== undefined ? { paradigmDivergence } : {}),
+    unpredictedWaiverCount,
+    staleWaiverCount: staleWaivers.length,
     gates,
     ...(gatesNet !== undefined ? { gatesNet } : {}),
     passedAtCeiling,
@@ -866,7 +1104,27 @@ export function formatReport(r: PortVerificationReport): string {
   const lines: string[] = [];
   const pct = (x: number) => (x * 100).toFixed(1) + "%";
   lines.push(`# Port verification — ${r.repo} / ${r.subsystemId}`);
-  lines.push(`normalization: ${r.normalizationApplied ? `on (v${r.normalizationVersion})` : "off"}   passedAtCeiling: ${r.passedAtCeiling}`);
+  lines.push(`normalization: ${r.normalizationApplied ? `on (v${r.normalizationVersion})` : "off"}   passedAtCeiling: ${r.passedAtCeiling}   verdict: ${r.verdict.toUpperCase()}`);
+  if (r.verdict === "advisory" && r.paradigmDivergence) {
+    const pd = r.paradigmDivergence;
+    lines.push("");
+    lines.push("┌─ PARADIGM DIVERGENCE — verdict ADVISORY ─────────────────────────");
+    lines.push(`│ ${pd.rationale}`);
+    if (pd.sourceParadigmAssumed) {
+      lines.push("│ source paradigm ASSUMED (central-authority default — no explicit sourceParadigm supplied)");
+    }
+    const mark = (d: boolean) => (d ? "✗ diverges" : "= same");
+    lines.push(`│ consistency_model : ${pd.consistencyModel.source} → ${pd.consistencyModel.target}   ${mark(pd.consistencyModel.diverges)}`);
+    lines.push(`│ coordination_layer: ${pd.coordinationLayer.source} → ${pd.coordinationLayer.target}   ${mark(pd.coordinationLayer.diverges)}`);
+    if (pd.language.diverges) lines.push(`│ language          : ${pd.language.source} → ${pd.language.target}   (informative)`);
+    if (pd.deployment.diverges) lines.push(`│ deployment        : ${pd.deployment.source} → ${pd.deployment.target}   (informative)`);
+    lines.push(`│ predicted NON-INFORMATIVE (pre-registered): ${pd.predictedNonInformative.join(", ") || "(none)"}`);
+    lines.push(`│ remain BINDING: ${pd.binding.join(", ")}`);
+    lines.push("│ ── structural failure signals (advisory mode) ──");
+    lines.push(`│ unpredicted waivers: ${r.unpredictedWaiverCount}   stale waivers: ${r.staleWaiverCount}`);
+    lines.push("│ acceptance rests on the value-equivalence oracle; this report is the divergence ledger.");
+    lines.push("└──────────────────────────────────────────────────────────────────");
+  }
   lines.push("");
   lines.push("## Gates (raw)");
   for (const g of Object.values(r.gates)) {
