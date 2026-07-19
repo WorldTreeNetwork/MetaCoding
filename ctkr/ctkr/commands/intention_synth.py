@@ -47,6 +47,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     add_common_flags(p)
     p.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider for every call: 'anthropic' (default) or 'openai' "
+        "(GPT-5.x tiers — pass the tier via --model/--adjudication-model).",
+    )
+    p.add_argument(
         "--model",
         default=None,
         help="Cheap model for per-element intent + scenarios (default: haiku-class).",
@@ -110,6 +116,7 @@ def run(args: argparse.Namespace) -> int:
     client = LLMClient(
         cache_dir=ctkr_dir / "llm_cache",
         cost_log=ctkr_dir / "llm_cost.jsonl",
+        default_provider=args.provider or "anthropic",
     )
 
     kwargs: dict = {

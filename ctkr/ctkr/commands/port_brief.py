@@ -55,6 +55,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "(most load-scored + conflict-bearing elements).",
     )
     p.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider for brief fusion: 'anthropic' (default) or 'openai' "
+        "(GPT-5.x tiers — pass the tier via --fusion-model).",
+    )
+    p.add_argument(
         "--fusion-model", default=None, help="Strong model for brief fusion (sonnet default)."
     )
     p.add_argument("--prompt-version", default=None, help="Override prompt_version.")
@@ -165,7 +171,11 @@ def run(args: argparse.Namespace) -> int:
         prompt_version=args.prompt_version or DEFAULT_PROMPT_VERSION,
     )
 
-    client = LLMClient(cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl")
+    client = LLMClient(
+        cache_dir=ctkr_dir / "llm_cache",
+        cost_log=ctkr_dir / "llm_cost.jsonl",
+        default_provider=args.provider or "anthropic",
+    )
     out_dir = ctkr_dir / "port_briefs"
 
     # ── OPTIONAL intent-CM target-adaptation notes (port-loop Phase 3) ──
