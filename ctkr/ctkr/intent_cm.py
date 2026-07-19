@@ -792,7 +792,7 @@ def adjudicate_cm(
     max_elements: int | None = None,
     only_seeds: Sequence[str] = ("CM-hard", "CM-soft"),
     max_tokens: int = 900,
-    use_heuristic_filter: bool = True,
+    use_heuristic_filter: bool = False,
     shallow_detectors: frozenset[str] | None = None,
 ) -> tuple[list[AdjudicatedCM], AdjudicateStats]:
     """Adjudicate the seeded CM candidates with the strong model (§8 pattern).
@@ -809,8 +809,11 @@ def adjudicate_cm(
 
     **Heuristic pre-screen** (``use_heuristic_filter=True``): single-seed soft
     elements from shallow detectors are predicted 'none' before the LM call;
-    ``adjudication_source='heuristic-prescreen'`` is set. Disable with
-    ``use_heuristic_filter=False``.
+    ``adjudication_source='heuristic-prescreen'`` is set. Off by default since
+    2026-07-19: the first human calibration confirmed both of its farmOS false
+    negatives were real CM signal (MetaCoding-9h5.14), and Luna-priced
+    adjudication (~$0.001/element) no longer justifies any FN rate. Re-enable
+    with ``use_heuristic_filter=True`` only for token-starved bulk scans.
     """
     start = time.perf_counter()
     stats = AdjudicateStats()
