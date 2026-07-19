@@ -26,6 +26,7 @@ dependency hygiene; the test suite mocks the transport, so no Docker in tests).
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -131,6 +132,13 @@ class FarmOSAdapter(ImplementationAdapter):
         self.client = client
         self._unit_cache: dict[str, str] = {}  # unit name -> term uuid
         self._type_term_cache: dict[tuple[str, str], str] = {}  # (vocab, name) -> uuid
+        # Group membership is read as the LATEST done group-assignment log
+        # (sort=-timestamp). farmOS timestamps are integer unix seconds, so two
+        # assignments minted in the same second tie and the "latest" is
+        # nondeterministic. We stamp each assignment with a strictly increasing
+        # timestamp per adapter instance so latest-wins is well-defined (and the
+        # reassignment fixture reproduces deterministically on self-verify).
+        self._last_assign_ts: int = 0
 
     # ---- lifecycle --------------------------------------------------------- #
     def open(self) -> None:
@@ -266,6 +274,12 @@ class FarmOSAdapter(ImplementationAdapter):
     def assign_to_group(self, asset_handle: Handle, group_handle: Handle) -> None:
         _, abundle, aid = self._split(asset_handle)
         _, _, gid = self._split(group_handle)
+        # Strictly increasing timestamp so successive assignments order
+        # deterministically under the sort=-timestamp membership read.
+        ts = int(time.time())
+        if ts <= self._last_assign_ts:
+            ts = self._last_assign_ts + 1
+        self._last_assign_ts = ts
         doc = {
             "data": {
                 "type": "log--activity",
@@ -273,6 +287,7 @@ class FarmOSAdapter(ImplementationAdapter):
                     "name": "group assignment",
                     "status": "done",
                     "is_group_assignment": True,
+                    "timestamp": ts,
                 },
                 "relationships": {
                     "asset": {"data": [{"type": f"asset--{abundle}", "id": aid}]},
