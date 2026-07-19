@@ -198,12 +198,13 @@ export class LspClient {
   }
 }
 
-function detectLanguageId(absPath: string): string {
+export function detectLanguageId(absPath: string): string {
   if (absPath.endsWith(".tsx")) return "typescriptreact";
   if (absPath.endsWith(".ts") || absPath.endsWith(".mts") || absPath.endsWith(".cts"))
     return "typescript";
   if (absPath.endsWith(".jsx")) return "javascriptreact";
   if (absPath.endsWith(".js") || absPath.endsWith(".mjs") || absPath.endsWith(".cjs"))
     return "javascript";
+  if (absPath.endsWith(".php")) return "php";
   return "plaintext";
 }
