@@ -1,0 +1,189 @@
+"""``ctkr propose-adapter`` — propose a port adapter CONTRACT for a scoped feature.
+
+Second-opinion T1 (bead MetaCoding-9h5.15): can the pipeline PROPOSE the hand-authored
+adapter signature surface every prior port experiment presupposed? Given a scoped
+feature's pipeline artifacts (subsystem members/roles from the graph + mined fixture
+candidates + target profile) and the scoped source, synthesize a typed mutator +
+projection contract with a strong model (default gpt-5.6-terra), structured + repair.
+
+Emits ``adapter_contract.json`` (the structured contract) and ``adapter_contract.md``
+(an ADAPTER_SIGNATURES-style doc a blind builder can port against).
+
+Blindness: this command reads pipeline artifacts + the scoped source only. Do NOT point
+``--glossary`` (or any input) at a reference signature surface, a fixtures pack, or a
+prior builder's output — that would defeat the experiment.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from ctkr.commands._common import (
+    DEFAULT_LLM_PROVIDER,
+    GPT56_STRONG_MODEL,
+    require_provider_key,
+    resolve_data_dir,
+)
+
+
+def register(subparsers: argparse._SubParsersAction) -> None:
+    p = subparsers.add_parser(
+        "propose-adapter",
+        help="Propose a typed port adapter contract (mutators + projections) for a feature.",
+        description=(
+            "Signature-generation pass (MetaCoding-9h5.15): synthesize the adapter "
+            "signature surface a port needs — mutators (log events) + projections (as-of "
+            "reads) — from pipeline artifacts (graph subsystem members + mined fixture "
+            "candidates) + the target profile, using a strong model. Structured output, "
+            "one repair retry. Emits adapter_contract.{json,md}."
+        ),
+    )
+    p.add_argument("--data-dir", default=None, help="Path to .metacoding/ (graph export).")
+    p.add_argument(
+        "--subsystem", action="append", default=None, metavar="PATH_SUBSTR", required=True,
+        help="Graph scope: a file-path substring selecting the feature's members "
+        "(repeatable). E.g. --subsystem /location/.",
+    )
+    p.add_argument("--feature-name", required=True, help="Human name of the feature to port.")
+    p.add_argument(
+        "--fixture-candidates", default=None,
+        help="Path to a mine-fixtures fixture_candidates.jsonl (the mined non-obvious "
+        "semantics). Default <data-dir>/ctkr/fixture_candidates.jsonl if present.",
+    )
+    p.add_argument(
+        "--target-profile", required=True,
+        help="Path to the target profile (YAML/markdown) describing the local-first target.",
+    )
+    p.add_argument(
+        "--glossary", default=None,
+        help="Optional glossary / intent text file (domain framing). Must NOT contain a "
+        "reference adapter surface.",
+    )
+    p.add_argument("--target-language", default="TypeScript")
+    p.add_argument("--out-json", default=None, help="Output contract JSON path.")
+    p.add_argument("--out-md", default=None, help="Output contract markdown path.")
+    p.add_argument("--provider", default=None, help="LLM provider (default openai).")
+    p.add_argument("--model", default=None, help="Synthesis model (default gpt-5.6-terra).")
+    p.add_argument("--reasoning-effort", default=None, help="GPT-5.x reasoning effort.")
+    p.add_argument("--json", dest="as_json", action="store_true", help="Emit summary as JSON.")
+    p.set_defaults(func=run)
+
+
+def run(args: argparse.Namespace) -> int:
+    from ctkr.graph_loader import load_graph
+    from ctkr.llm import LLMClient
+    from ctkr.propose_adapter import (
+        build_contract_prompt,
+        extract_subsystem_members,
+        load_fixture_candidates,
+        render_contract_markdown,
+        synthesize_contract,
+    )
+
+    data_dir = resolve_data_dir(args.data_dir)
+    ctkr_dir = Path(data_dir) / "ctkr"
+    ctkr_dir.mkdir(parents=True, exist_ok=True)
+
+    target_profile_path = Path(args.target_profile).expanduser().resolve()
+    if not target_profile_path.exists():
+        sys.stderr.write(f"ERROR: --target-profile {target_profile_path} does not exist.\n")
+        return 2
+    target_profile_text = target_profile_path.read_text(encoding="utf-8")
+
+    glossary_text = ""
+    if args.glossary:
+        gp = Path(args.glossary).expanduser().resolve()
+        if not gp.exists():
+            sys.stderr.write(f"ERROR: --glossary {gp} does not exist.\n")
+            return 2
+        glossary_text = gp.read_text(encoding="utf-8")
+
+    # Fixture candidates (mine-fixtures output) — the mined non-obvious semantics.
+    fc_path = (
+        Path(args.fixture_candidates)
+        if args.fixture_candidates
+        else ctkr_dir / "fixture_candidates.jsonl"
+    )
+    fixture_candidates: list[dict] = []
+    if fc_path.exists():
+        fixture_candidates = load_fixture_candidates(fc_path)
+        sys.stderr.write(f"loaded {len(fixture_candidates)} fixture candidate(s) from {fc_path}\n")
+    else:
+        sys.stderr.write(
+            f"WARNING: no fixture_candidates at {fc_path}; proposing from members only.\n"
+        )
+
+    # Subsystem members / roles (deterministic, from the graph).
+    sys.stderr.write(f"loading graph from {data_dir} …\n")
+    g = load_graph(data_dir)
+    members = extract_subsystem_members(g, scope_prefixes=args.subsystem)
+    sys.stderr.write(
+        f"extracted {len(members)} subsystem member(s) over scope {args.subsystem}\n"
+    )
+    if not members:
+        sys.stderr.write("ERROR: no members in scope; check --subsystem prefixes.\n")
+        return 2
+
+    prompt = build_contract_prompt(
+        feature_name=args.feature_name,
+        members=members,
+        fixture_candidates=fixture_candidates,
+        target_profile_text=target_profile_text,
+        glossary_text=glossary_text,
+        target_language=args.target_language,
+    )
+
+    provider = args.provider or DEFAULT_LLM_PROVIDER
+    model = args.model or GPT56_STRONG_MODEL
+    rc = require_provider_key(provider, stage="propose-adapter synthesis",
+                              default_hint=f"OpenAI {model}")
+    if rc is not None:
+        return rc
+
+    client = LLMClient(
+        cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl",
+        default_provider=provider,
+    )
+    sys.stderr.write(f"synthesizing adapter contract with {model} …\n")
+    contract, cost = synthesize_contract(
+        prompt, client, model=model, provider=provider,
+        reasoning_effort=args.reasoning_effort,
+    )
+
+    out_json = Path(args.out_json) if args.out_json else ctkr_dir / "adapter_contract.json"
+    out_md = Path(args.out_md) if args.out_md else ctkr_dir / "adapter_contract.md"
+    out_json.write_text(json.dumps(contract.model_dump(), indent=2) + "\n", encoding="utf-8")
+    out_md.write_text(
+        render_contract_markdown(contract, feature_name=args.feature_name), encoding="utf-8"
+    )
+
+    n_mut, n_proj = len(contract.mutators), len(contract.projections)
+    n_inv = sum(
+        1 for m in [*contract.mutators, *contract.projections]
+        if m.derived_from.strip().lower().startswith("invented")
+    )
+    sys.stderr.write(
+        f"\n  contract written : {out_json}\n"
+        f"                     {out_md}\n"
+        f"  mutators         : {n_mut}\n"
+        f"  projections      : {n_proj}\n"
+        f"  invented methods : {n_inv}\n"
+        f"  synthesis spend  : ${cost:.4f}\n"
+    )
+
+    if args.as_json:
+        sys.stdout.write(json.dumps({
+            "out_json": str(out_json), "out_md": str(out_md),
+            "adapter_name": contract.adapter_name,
+            "mutators": n_mut, "projections": n_proj, "invented": n_inv,
+            "cost_usd": round(cost, 6),
+        }, indent=2) + "\n")
+    else:
+        sys.stdout.write(f"\n{contract.adapter_name}  ({n_mut} mutators, {n_proj} projections)\n")
+        for m in [*contract.mutators, *contract.projections]:
+            aot = " @t" if m.as_of_time else ""
+            sys.stdout.write(f"  [{m.kind[:4]}] {m.name}{aot}  <- {m.derived_from[:50]}\n")
+    return 0
