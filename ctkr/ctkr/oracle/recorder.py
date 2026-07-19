@@ -220,6 +220,267 @@ def core_flows() -> list[FlowSpec]:
     ]
 
 
+def hardening_flows() -> list[FlowSpec]:
+    """Discriminating value-flows (bead MetaCoding-9h5.7).
+
+    The canonical :func:`core_flows` pack tests only semantics recoverable from
+    the adapter method names alone (ablation 9h5.4: both knockout cells passed
+    7/7 blind). These flows assert values a builder **cannot** infer from a
+    method name — they must be OBSERVED from the live source: pending logs count
+    toward yield, measure/unit mismatch is excluded, a shared quantity attributes
+    in full to every referenced asset, yield sums across *all* log kinds (not
+    just harvest), archiving retires an asset without dropping its history,
+    identical logs are not de-duplicated, and group membership is latest-wins.
+    Every expected value is filled by observation in :func:`record_flow`; nothing
+    here is hand-authored.
+    """
+    return [
+        # 1. A pending harvest still contributes to yield total. The name
+        #    "yield_total" does not tell you whether pending logs are included.
+        FlowSpec(
+            key="pending-contributes-to-yield",
+            title="A pending harvest still contributes to the yield total",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "yield_total",
+                            "log_status", "record_log", "pending"],
+            given=[GivenStep(entity="land", alias="A", name="Pending Yield Field")],
+            when=[
+                WhenStep(action="record_log", alias="L", kind="harvest",
+                         status="pending", name="Planned harvest", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+            ],
+            probes=[
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="log_status", subject="L"),
+            ],
+        ),
+        # 2. Yield total filters by BOTH measure and unit: a different measure or
+        #    a different unit is excluded. Names cannot telegraph the filter.
+        FlowSpec(
+            key="measure-unit-mismatch-excluded",
+            title="Yield total excludes quantities of a different measure or unit",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "volume", "yield_total",
+                            "record_log"],
+            given=[GivenStep(entity="land", alias="A", name="Mismatch Field")],
+            when=[
+                WhenStep(action="record_log", alias="L", kind="harvest",
+                         status="done", name="Weighed harvest", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+            ],
+            probes=[
+                # matching measure+unit — the control
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                # same measure, different unit — excluded
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="pound"),
+                # different measure — excluded
+                Probe(assert_="yield_total", subject="A", measure="volume",
+                      unit="liter"),
+            ],
+        ),
+        # 3. One log against two assets attributes the quantity IN FULL to each
+        #    asset (it is not split between them).
+        FlowSpec(
+            key="multi-asset-full-attribution",
+            title="A harvest against two assets attributes its full quantity to each",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "yield_total",
+                            "log_count", "record_log"],
+            given=[
+                GivenStep(entity="land", alias="A", name="Shared Bed A"),
+                GivenStep(entity="land", alias="B", name="Shared Bed B"),
+            ],
+            when=[
+                WhenStep(action="record_log", alias="L", kind="harvest",
+                         status="done", name="Shared harvest", against=["A", "B"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+            ],
+            probes=[
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="yield_total", subject="B", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+                Probe(assert_="log_count", subject="B", kind="harvest"),
+            ],
+        ),
+        # 4. Log count and yield both include pending logs: neither filters by
+        #    status. A builder might assume "count" means "completed count".
+        FlowSpec(
+            key="logcount-ignores-status",
+            title="Log count and yield include both pending and done harvests",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "yield_total",
+                            "log_count", "log_status", "record_log", "pending",
+                            "done"],
+            given=[GivenStep(entity="land", alias="A", name="Mixed Status Field")],
+            when=[
+                WhenStep(action="record_log", alias="L1", kind="harvest",
+                         status="pending", name="Pending harvest", against=["A"],
+                         quantities=[_q("weight", 2, "kilogram", "yield")]),
+                WhenStep(action="record_log", alias="L2", kind="harvest",
+                         status="done", name="Done harvest", against=["A"],
+                         quantities=[_q("weight", 4, "kilogram", "yield")]),
+            ],
+            probes=[
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+            ],
+        ),
+        # 5. Log count isolates by kind: a mixed set of kinds counts separately,
+        #    and a kind with no logs is zero.
+        FlowSpec(
+            key="logcount-isolated-by-kind",
+            title="Log count is isolated per kind across a mixed set of logs",
+            feature="log-lifecycle",
+            glossary_terms=["land", "harvest", "input", "observation", "seeding",
+                            "log_count", "record_log"],
+            given=[GivenStep(entity="land", alias="A", name="Mixed Kinds Field")],
+            when=[
+                WhenStep(action="record_log", alias="L1", kind="harvest",
+                         status="done", name="A harvest", against=["A"],
+                         quantities=[_q("weight", 1, "kilogram", "yield")]),
+                WhenStep(action="record_log", alias="L2", kind="observation",
+                         status="done", name="An observation", against=["A"]),
+                WhenStep(action="record_log", alias="L3", kind="input",
+                         status="done", name="An input", against=["A"],
+                         quantities=[_q("weight", 3, "kilogram", "")]),
+            ],
+            probes=[
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+                Probe(assert_="log_count", subject="A", kind="observation"),
+                Probe(assert_="log_count", subject="A", kind="input"),
+                Probe(assert_="log_count", subject="A", kind="seeding"),
+            ],
+        ),
+        # 6. Yield total sums a measure across ALL log kinds, not just harvest.
+        #    The name "yield" strongly implies harvest-only; it is not.
+        FlowSpec(
+            key="yield-aggregates-across-kinds",
+            title="Yield total sums a measure across all log kinds, not just harvest",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "input", "weight", "yield_total",
+                            "log_count", "record_log"],
+            given=[GivenStep(entity="land", alias="A", name="Cross Kind Field")],
+            when=[
+                WhenStep(action="record_log", alias="L1", kind="harvest",
+                         status="done", name="Harvest weight", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+                WhenStep(action="record_log", alias="L2", kind="input",
+                         status="done", name="Input weight", against=["A"],
+                         quantities=[_q("weight", 3, "kilogram", "")]),
+            ],
+            probes=[
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+                Probe(assert_="log_count", subject="A", kind="input"),
+            ],
+        ),
+        # 7. Archiving an asset retires it from the active set but does NOT drop
+        #    its recorded history — yield and log count survive.
+        FlowSpec(
+            key="archived-asset-retains-history",
+            title="An archived asset is inactive but keeps its yield and log history",
+            feature="asset-lifecycle",
+            glossary_terms=["land", "harvest", "weight", "yield_total",
+                            "log_count", "asset_active", "record_log",
+                            "archive_asset"],
+            given=[GivenStep(entity="land", alias="A", name="Retired Field")],
+            when=[
+                WhenStep(action="record_log", alias="L", kind="harvest",
+                         status="done", name="Final harvest", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+                WhenStep(action="archive_asset", ref="A"),
+            ],
+            probes=[
+                Probe(assert_="asset_active", subject="A"),
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+            ],
+        ),
+        # 8. Group membership is latest-wins: a second assignment revokes the
+        #    first. Requires distinct assignment order to observe.
+        FlowSpec(
+            key="group-reassignment-latest-wins",
+            title="Reassigning an animal to a new group revokes the prior membership",
+            feature="group-membership",
+            glossary_terms=["animal", "group", "group_member", "assign_to_group"],
+            given=[
+                GivenStep(entity="animal", alias="A", name="Roamer",
+                          descriptor="Cattle"),
+                GivenStep(entity="group", alias="G1", name="First Herd"),
+                GivenStep(entity="group", alias="G2", name="Second Herd"),
+            ],
+            when=[
+                WhenStep(action="assign_to_group", ref="A", group="G1"),
+                WhenStep(action="assign_to_group", ref="A", group="G2"),
+            ],
+            probes=[
+                Probe(assert_="group_member", subject="A", group="G2"),
+                Probe(assert_="group_member", subject="A", group="G1"),
+            ],
+        ),
+        # 9. Identical logs are NOT de-duplicated — an append-only history keeps
+        #    both. (The birth-log uniqueness scenario, generalized: the live
+        #    farmOS bare install has no farm_birth module, so the duplicate
+        #    semantic is exercised on a harvest kind that IS present.)
+        FlowSpec(
+            key="duplicate-logs-not-deduplicated",
+            title="Two identical harvests are both recorded, not de-duplicated",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "yield_total",
+                            "log_count", "record_log"],
+            given=[GivenStep(entity="land", alias="A", name="Duplicate Field")],
+            when=[
+                WhenStep(action="record_log", alias="L1", kind="harvest",
+                         status="done", name="Harvest", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+                WhenStep(action="record_log", alias="L2", kind="harvest",
+                         status="done", name="Harvest", against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield")]),
+            ],
+            probes=[
+                Probe(assert_="log_count", subject="A", kind="harvest"),
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+            ],
+        ),
+        # 10. Two measures on ONE log are tracked independently; yield and the
+        #     recorded-quantity read each resolve per (measure, unit).
+        FlowSpec(
+            key="multi-measure-on-one-log",
+            title="Two measures on one harvest are tracked independently",
+            feature="harvest-logging",
+            glossary_terms=["land", "harvest", "weight", "count", "yield_total",
+                            "quantity_recorded", "record_log"],
+            given=[GivenStep(entity="land", alias="A", name="Two Measure Field")],
+            when=[
+                WhenStep(action="record_log", alias="L", kind="harvest",
+                         status="done", name="Weighed and counted harvest",
+                         against=["A"],
+                         quantities=[_q("weight", 5, "kilogram", "yield"),
+                                     _q("count", 12, "head", "yield")]),
+            ],
+            probes=[
+                Probe(assert_="quantity_recorded", subject="L", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="quantity_recorded", subject="L", measure="count",
+                      unit="head"),
+                Probe(assert_="yield_total", subject="A", measure="weight",
+                      unit="kilogram"),
+                Probe(assert_="yield_total", subject="A", measure="count",
+                      unit="head"),
+            ],
+        ),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Recording + distillation                                                    #
 # --------------------------------------------------------------------------- #
