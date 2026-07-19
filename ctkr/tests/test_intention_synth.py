@@ -14,12 +14,17 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+import pytest
+from pydantic import ValidationError
 
 from ctkr.intention_synth import (
     IntentionRow,
+    ScenarioDistillOut,
+    _canonicalize_scenario,
     _coerce_int_tags,
     _order_signals,
     _resolve_citations,
+    _ScenarioItemOut,
     evidence_digest,
     intention_id,
     intention_load_summary,
@@ -559,3 +564,94 @@ def test_no_fallback_when_single_model() -> None:
     )
     assert stats.n_intent_fallbacks == 0
     assert all(not r.intent for r in rows)
+
+
+# ───────────────────── scenario schema hardening (9h5.9) ─────────────────────
+
+
+def test_scenario_alias_outcome_maps_to_then() -> None:
+    """An unambiguous synonym (`outcome`) for the missing `then` field is
+    relabeled — the value the model produced, not an invented one."""
+    item = _ScenarioItemOut.model_validate(
+        {
+            "behavior": "birth log uniqueness",
+            "given": "an asset with a birth log",
+            "when": "a second birth log is created",
+            "outcome": "the constraint rejects it",
+        }
+    )
+    assert item.then == "the constraint rejects it"
+    assert item.behavior == "birth log uniqueness"
+
+
+def test_scenario_alias_other_then_synonyms_map() -> None:
+    for alias in ("result", "expected", "expected_result", "assertion", "ensure"):
+        item = _ScenarioItemOut.model_validate(
+            {"behavior": "b", "given": "g", "when": "w", alias: "the outcome"}
+        )
+        assert item.then == "the outcome", alias
+
+
+def test_scenario_alias_given_when_synonyms_map() -> None:
+    item = _ScenarioItemOut.model_validate(
+        {
+            "behavior": "b",
+            "precondition": "a precondition",
+            "action": "an action",
+            "then": "an outcome",
+        }
+    )
+    assert item.given == "a precondition"
+    assert item.when == "an action"
+
+
+def test_scenario_nested_behavior_object_is_lifted() -> None:
+    """`{"behavior": {given, when, then}}` — the whole triple nested under the
+    behavior key — is lifted to the top level without loss."""
+    item = _ScenarioItemOut.model_validate(
+        {
+            "behavior": {
+                "name": "uniqueness",
+                "given": "an asset",
+                "when": "a duplicate log",
+                "then": "rejected",
+                "citations": [1, 2],
+            }
+        }
+    )
+    assert item.behavior == "uniqueness"
+    assert (item.given, item.when, item.then) == ("an asset", "a duplicate log", "rejected")
+    assert item.citations == [1, 2]
+
+
+def test_scenario_bare_behavior_prose_is_NOT_salvaged() -> None:
+    """The exact GPT-5.6 failure shape — a lone `behavior` prose string with no
+    given/when/then and no synonyms — must still fail validation. Salvaging it
+    would require inventing content; that is the repair retry's job, not the
+    alias mapper's."""
+    with pytest.raises(ValidationError):
+        _ScenarioItemOut.model_validate(
+            {"behavior": "Log type test asserting the type plugin contract."}
+        )
+
+
+def test_canonicalize_does_not_overwrite_present_then() -> None:
+    """A canonical field already present is never clobbered by a synonym."""
+    d = _canonicalize_scenario(
+        {"behavior": "b", "given": "g", "when": "w", "then": "real", "outcome": "decoy"}
+    )
+    assert d["then"] == "real"
+
+
+def test_scenario_distill_out_tolerates_alias_within_list() -> None:
+    """End to end: a ScenarioDistillOut whose one scenario uses `outcome` parses,
+    where before the whole distillation degraded to zero scenarios."""
+    out = ScenarioDistillOut.model_validate(
+        {
+            "scenarios": [
+                {"behavior": "b", "given": "g", "when": "w", "outcome": "o", "citations": [1]}
+            ]
+        }
+    )
+    assert len(out.scenarios) == 1
+    assert out.scenarios[0].then == "o"

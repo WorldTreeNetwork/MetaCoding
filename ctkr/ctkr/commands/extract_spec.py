@@ -31,7 +31,14 @@ import json
 import sys
 from pathlib import Path
 
-from ctkr.commands._common import add_common_flags, resolve_data_dir
+from ctkr.commands._common import (
+    DEFAULT_LLM_PROVIDER,
+    GPT56_CHEAP_MODEL,
+    GPT56_STRONG_MODEL,
+    add_common_flags,
+    require_provider_key,
+    resolve_data_dir,
+)
 
 # (manifest flag, subcommand, human label) for the structural prerequisites.
 _STRUCTURAL_STAGES = [
@@ -125,6 +132,7 @@ def _load_manifest(ctkr_dir: Path) -> dict:
 
 
 def run(args: argparse.Namespace) -> int:
+    from ctkr.cards import write_cards
     from ctkr.cli import main as cli_main
     from ctkr.llm import LLMClient
     from ctkr.spec_cards import (
@@ -135,7 +143,6 @@ def run(args: argparse.Namespace) -> int:
         merge_patterns_jsonl,
         write_deck_manifest,
     )
-    from ctkr.cards import write_cards
 
     data_dir = resolve_data_dir(args.data_dir)
     ctkr_dir = Path(data_dir) / "ctkr"
@@ -162,10 +169,23 @@ def run(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo_root).expanduser().resolve() if args.repo_root else Path.cwd().parent
 
     # ---- LLM client (cache + cost log alongside the artifacts) ----
+    provider = args.provider or DEFAULT_LLM_PROVIDER
+    # Adopted defaults (9h5.9): cheap per-element labeler → gpt-5.6-luna (re-test
+    # 3/3 produced valid scenarios with the schema hardening); strong subsystem
+    # name+intent pass → gpt-5.6-terra (reproduced baseline verdicts at ~parity cost).
+    cheap_model = args.model or (GPT56_CHEAP_MODEL if provider == "openai" else DEFAULT_MODEL)
+    strong_model = args.subsystem_model or (GPT56_STRONG_MODEL if provider == "openai" else None)
+    rc = require_provider_key(
+        provider,
+        stage="extract-spec",
+        default_hint=f"OpenAI {cheap_model} (cheap) / {strong_model} (strong)",
+    )
+    if rc is not None:
+        return rc
     client = LLMClient(
         cache_dir=ctkr_dir / "llm_cache",
         cost_log=ctkr_dir / "llm_cost.jsonl",
-        default_provider=args.provider or "anthropic",
+        default_provider=provider,
     )
 
     kwargs: dict = {
@@ -177,10 +197,9 @@ def run(args: argparse.Namespace) -> int:
         "max_subsystems": args.max_subsystems,
         "generated_at": args.generated_at,
     }
-    if args.model:
-        kwargs["model"] = args.model
-    if args.subsystem_model:
-        kwargs["subsystem_model"] = args.subsystem_model
+    kwargs["model"] = cheap_model
+    if strong_model is not None:
+        kwargs["subsystem_model"] = strong_model
     if args.prompt_version:
         kwargs["prompt_version"] = args.prompt_version
     for cap_arg, cap_kw in (
@@ -205,7 +224,7 @@ def run(args: argparse.Namespace) -> int:
         data_dir, n_cards=len(cards), generated_at=args.generated_at
     )
 
-    model = args.model or DEFAULT_MODEL
+    model = cheap_model
     pv = args.prompt_version or DEFAULT_PROMPT_VERSION
     sys.stderr.write(
         "\n"

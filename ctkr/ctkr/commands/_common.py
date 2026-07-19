@@ -4,10 +4,46 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
+
+# Per-stage adopted routing (MetaCoding-9h5.9, Duke-approved 2026-07-19). The
+# gpt56-tier comparison (results/gpt56-tier-comparison-2026-07-19.md) chose
+# gpt-5.6-luna for the cheap/high-stakes labeler roles and gpt-5.6-terra for the
+# strong (sonnet-class) fusion/adjudication roles. These are DEFAULTS only — the
+# --provider / --model / --*-model flags stay as full overrides, and passing
+# --provider anthropic restores the prior haiku/sonnet mix.
+DEFAULT_LLM_PROVIDER = "openai"
+GPT56_CHEAP_MODEL = "gpt-5.6-luna"
+GPT56_STRONG_MODEL = "gpt-5.6-terra"
+
+_ENV_VAR_FOR_PROVIDER = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+
+
+def require_provider_key(provider: str, *, stage: str, default_hint: str) -> int | None:
+    """Fail closed with a clear one-line message (not a deep stack trace) when the
+    stage's effective provider has no API key set. Returns an exit code (2) to
+    return from ``run`` when the key is missing, or ``None`` when it is present.
+
+    ``stage`` names the command for the message; ``default_hint`` describes the
+    OpenAI default so the user knows what to pass to opt back out (e.g. a
+    ``--provider anthropic`` fallback invocation).
+    """
+    env_var = _ENV_VAR_FOR_PROVIDER.get(provider)
+    if env_var and not os.environ.get(env_var):
+        sys.stderr.write(
+            f"ERROR: {stage} now defaults to {default_hint}, but {env_var} is not "
+            f"set. Export {env_var}, or pass `--provider anthropic` to use the "
+            f"prior Claude default.\n"
+        )
+        return 2
+    return None
 
 
 def detect_metacoding_root() -> Path | None:

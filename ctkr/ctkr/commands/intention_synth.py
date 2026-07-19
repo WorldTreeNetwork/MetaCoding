@@ -28,7 +28,14 @@ from pathlib import Path
 
 import polars as pl
 
-from ctkr.commands._common import add_common_flags, resolve_data_dir
+from ctkr.commands._common import (
+    DEFAULT_LLM_PROVIDER,
+    GPT56_CHEAP_MODEL,
+    GPT56_STRONG_MODEL,
+    add_common_flags,
+    require_provider_key,
+    resolve_data_dir,
+)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -113,10 +120,24 @@ def run(args: argparse.Namespace) -> int:
     members_path = ctkr_dir / "subsystem_members.parquet"
     members_df = pl.read_parquet(members_path) if members_path.exists() else None
 
+    provider = args.provider or DEFAULT_LLM_PROVIDER
+    # Adopted defaults (9h5.9): cheap intent+scenario labeler → gpt-5.6-luna
+    # (re-test 3/3 produced ≥1 valid scenario with the ScenarioDistillOut
+    # hardening); strong adjudication → gpt-5.6-terra (baseline-equivalent verdicts
+    # at ~parity cost).
+    cheap_model = args.model or (GPT56_CHEAP_MODEL if provider == "openai" else DEFAULT_MODEL)
+    strong_model = args.adjudication_model or (GPT56_STRONG_MODEL if provider == "openai" else None)
+    rc = require_provider_key(
+        provider,
+        stage="intention-synthesis",
+        default_hint=f"OpenAI {cheap_model} (cheap) / {strong_model} (strong)",
+    )
+    if rc is not None:
+        return rc
     client = LLMClient(
         cache_dir=ctkr_dir / "llm_cache",
         cost_log=ctkr_dir / "llm_cost.jsonl",
-        default_provider=args.provider or "anthropic",
+        default_provider=provider,
     )
 
     kwargs: dict = {
@@ -126,11 +147,10 @@ def run(args: argparse.Namespace) -> int:
         "members_df": members_df,
         "client": client,
         "max_elements": args.max_elements,
+        "model": cheap_model,
     }
-    if args.model:
-        kwargs["model"] = args.model
-    if args.adjudication_model:
-        kwargs["adjudication_model"] = args.adjudication_model
+    if strong_model is not None:
+        kwargs["adjudication_model"] = strong_model
     if args.prompt_version:
         kwargs["prompt_version"] = args.prompt_version
     if args.low_confidence is not None:
@@ -146,7 +166,7 @@ def run(args: argparse.Namespace) -> int:
     summary = intention_load_summary(load_df)
     manifest_path = _merge_manifest(data_dir, n_intention=len(rows), summary=summary)
 
-    model = args.model or DEFAULT_MODEL
+    model = cheap_model
     pv = args.prompt_version or DEFAULT_PROMPT_VERSION
     sys.stderr.write(
         "\n"

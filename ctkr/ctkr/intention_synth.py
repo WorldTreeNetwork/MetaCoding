@@ -57,7 +57,7 @@ from typing import Literal
 
 import blake3
 import polars as pl
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ctkr.llm import LLMClient
 from ctkr.schema_l3 import SCHEMA_VERSION
@@ -317,6 +317,75 @@ class ElementIntentOut(BaseModel):
             return 1.0
 
 
+# Unambiguous synonyms a reasoning model emits for the given/when/then triple.
+# Only 1:1 renames — mapping one of these onto the canonical field never invents
+# content, it relabels a value the model already produced. Anything not on these
+# lists is left alone (the item then fails validation and the repair retry / drop
+# takes over) so we never guess.
+_GIVEN_ALIASES = ("precondition", "preconditions", "context", "setup", "background", "arrange")
+_WHEN_ALIASES = ("action", "act", "event", "trigger", "stimulus")
+_THEN_ALIASES = (
+    "outcome",
+    "result",
+    "expected",
+    "expected_outcome",
+    "expected_result",
+    "expect",
+    "assertion",
+    "ensure",
+)
+
+
+def _canonicalize_scenario(v: object) -> object:
+    """Map known near-miss GPT-5.6 scenario shapes onto the canonical
+    given/when/then object. Two shapes are handled, both loss-free:
+
+    * a nested triple emitted under ``behavior`` (``{"behavior": {"given": …,
+      "when": …, "then": …}}``) is lifted to the top level, keeping any nested
+      name; and
+    * an unambiguous synonym for a *missing* canonical field (``outcome`` /
+      ``result`` → ``then``, etc.) is copied onto it.
+
+    A canonical field already present and non-empty is never overwritten, and a
+    missing field with no known synonym is left missing — so a bare
+    ``{"behavior": "…"}`` (no given/when/then, no synonyms) is deliberately NOT
+    salvaged. That case is the repair retry's job; guessing it here would invent
+    content.
+    """
+    if not isinstance(v, dict):
+        return v
+    d = dict(v)
+
+    # Shape 1: a whole given/when/then object nested under "behavior".
+    beh = d.get("behavior")
+    if isinstance(beh, dict):
+        nested = {str(k).lower(): val for k, val in beh.items()}
+        if {"given", "when", "then"} & set(nested):
+            name = nested.pop("behavior", None) or nested.pop("name", None) or nested.pop(
+                "title", None
+            )
+            for key in ("given", "when", "then", "citations"):
+                if key in nested and not d.get(key):
+                    d[key] = nested[key]
+            d["behavior"] = name if isinstance(name, str) else ""
+
+    # Shape 2: an unambiguous synonym for a missing canonical field.
+    lower = {str(k).lower(): k for k in d}
+    for canon, aliases in (
+        ("given", _GIVEN_ALIASES),
+        ("when", _WHEN_ALIASES),
+        ("then", _THEN_ALIASES),
+    ):
+        if d.get(canon):
+            continue
+        for alias in aliases:
+            src = lower.get(alias)
+            if src is not None and d.get(src) not in (None, ""):
+                d[canon] = d[src]
+                break
+    return d
+
+
 class _ScenarioItemOut(BaseModel):
     behavior: str = Field(description="A short name for the behavior this test pins.")
     given: str = Field(description="Preconditions / context.")
@@ -325,6 +394,11 @@ class _ScenarioItemOut(BaseModel):
     citations: list[int] = Field(
         default_factory=list, description="Tag numbers of the source test signals."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize(cls, v: object) -> object:
+        return _canonicalize_scenario(v)
 
     @field_validator("citations", mode="before")
     @classmethod
@@ -668,6 +742,10 @@ class _Synthesizer:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 system=system,
+                # One-shot repair: reasoning models trip the nested ScenarioDistillOut
+                # required-field validation stochastically (MetaCoding-9h5.9). Re-prompt
+                # once with the error rather than degrade the element to 0 scenarios.
+                repair=True,
             )
             return res.parsed, res.cost_estimate_usd, res.cache_hit
         except Exception as e:  # noqa: BLE001 — provider/validation errors vary
