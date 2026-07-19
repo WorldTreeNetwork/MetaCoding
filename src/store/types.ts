@@ -80,11 +80,29 @@ export const EDGE_KIND_VALUES = [
   "RAISES", "USES_TRAIT",
 ] as const satisfies readonly EdgeKind[];
 
+/**
+ * Provenance of a field-access edge (READS_FIELD / WRITES_FIELD), so downstream
+ * consumers can distinguish edges recovered directly from a SCIP index's
+ * access-role occurrences from edges *synthesized* by a Tree-sitter heuristic
+ * lane. Motivating case: scip-php emits neither ReadAccess nor WriteAccess on
+ * any occurrence (bead MetaCoding-vju), so every PHP field-access edge is
+ * heuristic. Only READS_FIELD / WRITES_FIELD REL tables carry this column;
+ * when unset the edge is written without a provenance (NULL = unmarked).
+ */
+export type EdgeProvenance = "scip" | "tree_sitter_heuristic";
+
 export interface Edge {
   src_id: string;
   dst_id: string;
   kind: EdgeKind;
   count?: number;
+  /**
+   * Only meaningful on READS_FIELD / WRITES_FIELD edges. When set, addEdge
+   * stores it on the relationship so consumers can filter heuristic vs
+   * SCIP-derived field flow. Never set it on other edge kinds — their REL
+   * tables have no provenance column and the CREATE would fail.
+   */
+  provenance?: EdgeProvenance;
 }
 
 export type TokenKind =

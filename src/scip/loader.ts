@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 
 import type { Store } from "../store";
-import type { Edge, EdgeKind, Symbol } from "../store/types";
+import type { Edge, EdgeKind, EdgeProvenance, Symbol } from "../store/types";
 import { symbolId } from "../extractor/identity";
 import {
   parseScipSymbol,
@@ -156,12 +156,17 @@ export async function loadScip(
   let externalRefsSkipped = 0;
   let externalBoundaryEdges = 0;
 
-  const enqueue = (kind: EdgeKind, srcId: string, dstId: string): void => {
+  const enqueue = (
+    kind: EdgeKind,
+    srcId: string,
+    dstId: string,
+    provenance?: EdgeProvenance,
+  ): void => {
     if (srcId === dstId) return;
     const k = `${kind}|${srcId}|${dstId}`;
     if (edgePairs.has(k)) return;
     edgePairs.add(k);
-    edgesQueued.push({ kind, src_id: srcId, dst_id: dstId });
+    edgesQueued.push({ kind, src_id: srcId, dst_id: dstId, provenance });
   };
 
   // Boundary nodes for out-of-index external targets (bead MetaCoding-i00).
@@ -349,9 +354,9 @@ export async function loadScip(
       const isRead  = !!(occ.symbol_roles & scip.SymbolRole.ReadAccess);
 
       if (targetKind === "field" && isWrite) {
-        enqueue("WRITES_FIELD", caller.ourId, targetDef.ourId);
+        enqueue("WRITES_FIELD", caller.ourId, targetDef.ourId, "scip");
       } else if (targetKind === "field" && isRead) {
-        enqueue("READS_FIELD", caller.ourId, targetDef.ourId);
+        enqueue("READS_FIELD", caller.ourId, targetDef.ourId, "scip");
       } else if (isConstructorSymbol(occ.symbol) && !isRead && !isWrite) {
         enqueue("CONSTRUCTS", caller.ourId, targetDef.ourId);
       } else {

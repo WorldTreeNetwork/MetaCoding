@@ -299,6 +299,16 @@ export class Store {
 
   async addEdge(e: Edge): Promise<void> {
     // Edge kind is interpolated; callers must pass an EdgeKind member, never user input.
+    // provenance is only carried by READS_FIELD / WRITES_FIELD tables (bead
+    // MetaCoding-vju); callers must not set it on other kinds or the CREATE fails.
+    if (e.provenance !== undefined) {
+      await this.query(
+        `MATCH (a:Symbol {id: $src}), (b:Symbol {id: $dst})
+         CREATE (a)-[:${e.kind} {provenance: $provenance}]->(b)`,
+        { src: e.src_id, dst: e.dst_id, provenance: e.provenance },
+      );
+      return;
+    }
     await this.query(
       `MATCH (a:Symbol {id: $src}), (b:Symbol {id: $dst})
        CREATE (a)-[:${e.kind}]->(b)`,

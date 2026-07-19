@@ -113,3 +113,50 @@ test("scoped hydrate matches indexDirectory for the same cross-file edge", async
   await indexFile(store, repoDir, join(repoDir, "user.ts"), { repo, branch });
   expect(await constructsCount(repo, branch)).toBe(1);
 });
+
+// ---------------------------------------------------------------------------
+// PHP field-access provenance (bead MetaCoding-vju). scip-php emits no
+// ReadAccess/WriteAccess roles, so the Tree-sitter heuristic lane is the ONLY
+// source of PHP READS_FIELD/WRITES_FIELD edges. They must persist with a
+// provenance marker so downstream consumers can tell them apart from
+// SCIP-derived field edges.
+// ---------------------------------------------------------------------------
+async function fieldEdgeProvenance(
+  kind: "READS_FIELD" | "WRITES_FIELD",
+  repo: string,
+): Promise<string[]> {
+  const rows = await store.query<{ p: string | null }>(
+    `MATCH (a:Symbol)-[e:${kind}]->(b:Symbol)
+     WHERE a.repo = $repo
+     RETURN e.provenance AS p`,
+    { repo },
+  );
+  return rows.map((r) => r.p ?? "NULL");
+}
+
+test("PHP $this->field writes/reads persist as heuristic-provenance field edges", async () => {
+  const repo = "vju";
+  const branch = "main";
+  write(
+    "Widget.php",
+    `<?php
+class Widget {
+  private $bar;
+  public function m() {
+    $this->bar = 1;
+    $x = $this->bar;
+    return $x;
+  }
+}
+`,
+  );
+  await indexDirectory(store, repoDir, { repo, branch });
+
+  const writes = await fieldEdgeProvenance("WRITES_FIELD", repo);
+  const reads = await fieldEdgeProvenance("READS_FIELD", repo);
+  expect(writes.length).toBe(1);
+  expect(reads.length).toBe(1);
+  // Every PHP field edge is heuristic — never SCIP-derived.
+  expect(writes.every((p) => p === "tree_sitter_heuristic")).toBe(true);
+  expect(reads.every((p) => p === "tree_sitter_heuristic")).toBe(true);
+});

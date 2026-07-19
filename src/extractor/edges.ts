@@ -1027,13 +1027,199 @@ function collectPyTypeReferences(node: Node): string[] {
 // ---------------------------------------------------------------------------
 const PHP_TYPE_KINDS: SymbolKind[] = ["class", "interface", "enum"];
 
+// Drupal / accessor field idioms recovered from method-call syntax
+// (bead MetaCoding-vju). scip-php never sets ReadAccess/WriteAccess, so these
+// string-keyed field accesses would otherwise vanish entirely. The field name
+// lives in the first string-literal argument; the target is a boundary node
+// keyed on that name (externalFallback) because config/entity fields are almost
+// never declared PHP properties — the role signal is the field NAME, mirroring
+// how EXTENDS clusters out-of-repo base classes (bead MetaCoding-1xd).
+const PHP_FIELD_WRITE_METHODS = new Set(["set", "setValue"]);
+const PHP_FIELD_READ_METHODS = new Set(["get", "getValue"]);
+
 function walkPhp(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
-  if (node.type === "class_declaration" || node.type === "interface_declaration") {
-    phpHandleInheritance(node, scopes, out);
+  switch (node.type) {
+    case "class_declaration":
+    case "interface_declaration":
+      phpHandleInheritance(node, scopes, out);
+      break;
+    case "assignment_expression":
+      // `$this->field = X` / `$obj->prop = X` → WRITES_FIELD on the LHS member.
+      phpHandleAssignment(node, scopes, out);
+      break;
+    case "augmented_assignment_expression":
+      // `$this->count += 1` — both a write and a read of the field.
+      phpHandleAssignment(node, scopes, out);
+      phpHandleReadsField(node, scopes, out, /* isAugmented */ true);
+      break;
+    case "member_access_expression":
+      // Every `$this->field` / `$obj->prop` read that is not the direct LHS of a
+      // plain assignment (augmented handled above) → READS_FIELD.
+      phpHandleReadsField(node, scopes, out, /* isAugmented */ false);
+      break;
+    case "member_call_expression":
+      // Drupal accessor idioms: `->set('field', …)` / `->get('field')`.
+      phpHandleAccessorCall(node, scopes, out);
+      break;
   }
   for (const child of node.namedChildren) {
     if (child) walkPhp(child, scopes, out);
   }
+}
+
+// True when a member-access name looks like a Drupal entity field
+// (`$entity->field_notes`). Such fields are dynamic (defined in config, not as
+// PHP properties), so we keep the edge via a name-keyed boundary node rather
+// than dropping it when no declared property matches.
+function isDrupalEntityField(shortName: string): boolean {
+  return shortName.startsWith("field_");
+}
+
+// Field name from a member_access_expression LHS/target. Returns null for
+// dynamic access (`$this->$name`) where the property is not a literal name.
+function phpMemberFieldName(member: Node): {
+  shortName: string;
+  isThis: boolean;
+} | null {
+  const object = member.childForFieldName("object");
+  const name = member.childForFieldName("name");
+  if (!object || !name) return null;
+  if (name.type !== "name") return null; // skip `$this->$dynamic`
+  const shortName = name.text;
+  if (!shortName) return null;
+  const isThis =
+    object.type === "variable_name" && object.text === "$this";
+  return { shortName, isThis };
+}
+
+function phpHandleAssignment(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  const left = node.childForFieldName("left");
+  if (!left || left.type !== "member_access_expression") return;
+  const field = phpMemberFieldName(left);
+  if (!field) return;
+
+  const src = findEnclosingScope(
+    scopes,
+    left.startPosition.row,
+    left.startPosition.column,
+    CALLABLE_KINDS,
+  );
+  if (!src) return;
+
+  // Scope hint: `$this->field` prefers a field in the enclosing class.
+  const cls = field.isThis
+    ? findEnclosingClass(scopes, left.startPosition.row, left.startPosition.column)
+    : null;
+  out.push({
+    kind: "WRITES_FIELD",
+    src_id: src.id,
+    target: {
+      kinds: ["field"],
+      shortName: field.shortName,
+      scopeQn: cls?.qualifiedName,
+      // Drupal entity fields aren't declared properties — keep via boundary node.
+      externalFallback: isDrupalEntityField(field.shortName),
+    },
+  });
+}
+
+function phpHandleReadsField(
+  node: Node,
+  scopes: ScopeIndex,
+  out: EdgeCandidate[],
+  isAugmented: boolean,
+): void {
+  let memberNode: Node;
+  if (isAugmented) {
+    const left = node.childForFieldName("left");
+    if (!left || left.type !== "member_access_expression") return;
+    memberNode = left;
+  } else {
+    memberNode = node;
+    // Skip when this member-access IS the LHS of an assignment. For a plain
+    // assignment that's a pure write (emitted by phpHandleAssignment); for an
+    // augmented assignment the read is already emitted by the isAugmented path,
+    // so skipping here avoids double-counting. Compare by position because
+    // tree-sitter hands out fresh wrapper objects per accessor call.
+    const parent = node.parent;
+    if (
+      parent?.type === "assignment_expression" ||
+      parent?.type === "augmented_assignment_expression"
+    ) {
+      const left = parent.childForFieldName("left");
+      if (
+        left &&
+        left.startPosition.row === node.startPosition.row &&
+        left.startPosition.column === node.startPosition.column
+      ) {
+        return;
+      }
+    }
+  }
+
+  const field = phpMemberFieldName(memberNode);
+  if (!field) return;
+
+  const src = findEnclosingScope(
+    scopes,
+    memberNode.startPosition.row,
+    memberNode.startPosition.column,
+    CALLABLE_KINDS,
+  );
+  if (!src) return;
+
+  const cls = field.isThis
+    ? findEnclosingClass(scopes, memberNode.startPosition.row, memberNode.startPosition.column)
+    : null;
+  out.push({
+    kind: "READS_FIELD",
+    src_id: src.id,
+    target: {
+      kinds: ["field"],
+      shortName: field.shortName,
+      scopeQn: cls?.qualifiedName,
+      externalFallback: isDrupalEntityField(field.shortName),
+    },
+  });
+}
+
+// `$obj->set('field', …)` / `$obj->get('field')` — the field name is the first
+// string-literal argument. Emitted as boundary-node field edges (the accessed
+// field is a dynamic config/entity field, not a declared property).
+function phpHandleAccessorCall(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  const nameNode = node.childForFieldName("name");
+  if (!nameNode || nameNode.type !== "name") return;
+  const method = nameNode.text;
+  const isWrite = PHP_FIELD_WRITE_METHODS.has(method);
+  const isRead = PHP_FIELD_READ_METHODS.has(method);
+  if (!isWrite && !isRead) return;
+
+  const args = node.childForFieldName("arguments");
+  if (!args) return;
+  const firstArg = args.namedChildren.find((c) => c && c.type === "argument");
+  if (!firstArg) return;
+  const strNode = firstArg.namedChildren.find(
+    (c) => c && (c.type === "string" || c.type === "encapsed_string"),
+  );
+  if (!strNode) return;
+  const contentNode = strNode.namedChildren.find((c) => c && c.type === "string_content");
+  const shortName = (contentNode?.text ?? "").trim();
+  if (!shortName) return;
+
+  const src = findEnclosingScope(
+    scopes,
+    node.startPosition.row,
+    node.startPosition.column,
+    CALLABLE_KINDS,
+  );
+  if (!src) return;
+
+  out.push({
+    kind: isWrite ? "WRITES_FIELD" : "READS_FIELD",
+    src_id: src.id,
+    // String-keyed accessors target dynamic fields — always via boundary node.
+    target: { kinds: ["field"], shortName, externalFallback: true },
+  });
 }
 
 function phpHandleInheritance(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
