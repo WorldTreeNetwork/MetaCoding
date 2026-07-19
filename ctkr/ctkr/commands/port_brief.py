@@ -24,7 +24,13 @@ import json
 import sys
 from pathlib import Path
 
-from ctkr.commands._common import add_common_flags, resolve_data_dir
+from ctkr.commands._common import (
+    DEFAULT_LLM_PROVIDER,
+    GPT56_STRONG_MODEL,
+    add_common_flags,
+    require_provider_key,
+    resolve_data_dir,
+)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -165,16 +171,27 @@ def run(args: argparse.Namespace) -> int:
         )
     if args.appendix_multiple is not None:
         budget = BudgetConfig(**{**budget.__dict__, "appendix_multiple": args.appendix_multiple})
+    provider = args.provider or DEFAULT_LLM_PROVIDER
+    # Adopted default (9h5.9): brief fusion → OpenAI gpt-5.6-terra (complete brief
+    # at ~baseline cost; the most robust GPT tier on this workload).
+    fusion_model = args.fusion_model or (
+        GPT56_STRONG_MODEL if provider == "openai" else DEFAULT_FUSION_MODEL
+    )
+    rc = require_provider_key(
+        provider, stage="port-brief fusion", default_hint=f"OpenAI {fusion_model}"
+    )
+    if rc is not None:
+        return rc
     cfg = PortBriefConfig(
         budget=budget,
-        fusion_model=args.fusion_model or DEFAULT_FUSION_MODEL,
+        fusion_model=fusion_model,
         prompt_version=args.prompt_version or DEFAULT_PROMPT_VERSION,
     )
 
     client = LLMClient(
         cache_dir=ctkr_dir / "llm_cache",
         cost_log=ctkr_dir / "llm_cost.jsonl",
-        default_provider=args.provider or "anthropic",
+        default_provider=provider,
     )
     out_dir = ctkr_dir / "port_briefs"
 

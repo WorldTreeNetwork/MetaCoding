@@ -32,7 +32,6 @@ from ctkr.llm import (
     _ProviderResponse,
 )
 
-
 # ----- mock provider used by most tests -----
 
 
@@ -235,6 +234,85 @@ def test_structured_and_unstructured_paths_dont_share_cache(client: LLMClient) -
     p = client.complete("p")
     s = client.complete_structured("p", schema=MotifLabel)
     assert p.prompt_hash != s.prompt_hash
+    assert len(mock.calls) == 2
+
+
+# ----- one-shot repair retry (MetaCoding-9h5.9) -----
+
+
+def test_repair_retry_fires_once_and_carries_validation_error(client: LLMClient) -> None:
+    """On a schema-validation failure with repair on, the client re-prompts
+    exactly once, appends the validation error to the second prompt, and returns
+    the corrected parse."""
+    mock = _MockAnthropicProvider(
+        structured=[
+            {"label": "x", "confidence": 1.7},  # 1st: out of bounds → invalid
+            {"label": "x", "confidence": 0.5},  # 2nd (repair): valid
+        ]
+    )
+    client.register_provider(mock)
+
+    out = client.complete_structured("distill this", schema=MotifLabel, repair=True)
+
+    assert out.parsed.confidence == 0.5
+    # Exactly two underlying provider calls — the original and one repair.
+    assert len(mock.calls) == 2
+    # The repair prompt is the original plus the appended validation error.
+    repair_prompt = mock.calls[1]["prompt"]
+    assert "distill this" in repair_prompt
+    assert "failed schema validation" in repair_prompt
+    assert "MotifLabel" in repair_prompt
+    # The failed first attempt's spend is still logged (honest cost) plus the
+    # successful repair → two structured cost rows, neither a cache hit.
+    rows = [
+        json.loads(line) for line in client.cost_log.read_text().splitlines() if line.strip()  # type: ignore[union-attr]
+    ]
+    assert len(rows) == 2
+    assert all(r["structured"] and not r["cache_hit"] for r in rows)
+
+
+def test_repair_off_by_default_raises_without_retry(client: LLMClient) -> None:
+    """Without opting in, a single invalid payload raises and does NOT retry."""
+    mock = _MockAnthropicProvider(
+        structured=[{"label": "x", "confidence": 1.7}, {"label": "x", "confidence": 0.5}]
+    )
+    client.register_provider(mock)
+    with pytest.raises(StructuredOutputError):
+        client.complete_structured("x", schema=MotifLabel)
+    assert len(mock.calls) == 1  # no repair attempt
+
+
+def test_repair_retry_that_also_fails_raises_after_one_attempt(client: LLMClient) -> None:
+    """If the repair attempt also fails validation, the client gives up after
+    exactly one retry (two calls total) and raises."""
+    mock = _MockAnthropicProvider(
+        structured=[
+            {"label": "x", "confidence": 1.7},  # invalid
+            {"label": "x", "confidence": 2.9},  # repair also invalid
+        ]
+    )
+    client.register_provider(mock)
+    with pytest.raises(StructuredOutputError, match="even after one repair retry"):
+        client.complete_structured("x", schema=MotifLabel, repair=True)
+    assert len(mock.calls) == 2
+
+
+def test_repair_dial_enables_retry_client_wide(tmp_path: Path) -> None:
+    """The ``structured_repair`` client dial opts every structured call in,
+    without a per-call flag."""
+    client = LLMClient(
+        cache_dir=tmp_path / "cache",
+        cost_log=tmp_path / "cost.jsonl",
+        default_model="claude-haiku-4-5-20251001",
+        max_attempts=1,
+        structured_repair=True,
+    )
+    mock = _MockAnthropicProvider(
+        structured=[{"label": "x", "confidence": 1.7}, {"label": "x", "confidence": 0.5}]
+    )
+    client.register_provider(mock)
+    out = client.complete_structured("p", schema=MotifLabel)
+    assert out.parsed.confidence == 0.5
     assert len(mock.calls) == 2
 
 

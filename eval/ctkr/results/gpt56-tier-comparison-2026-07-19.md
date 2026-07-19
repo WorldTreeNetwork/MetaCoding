@@ -209,3 +209,48 @@ production data-dir was read or mutated.**
 graph); only the 4 LLM stages were re-run (structural artifacts were reused from the copy, not
 recomputed); `port-brief` was scoped to `--subsystem ss:761b7d53e7a231e2cf7a7782` (1 brief, not
 the full deck). Nothing here should be promoted to a production `.metacoding/`.
+
+---
+
+## Adopted routing, 2026-07-19 (MetaCoding-9h5.9)
+
+Duke approved the recommendation on 2026-07-19. The four LLM-bearing stages now
+**default** to OpenAI GPT-5.6 tiers; the `--provider` / `--model` / `--*-model`
+flags stay as full overrides (`--provider anthropic` restores the prior
+haiku/sonnet mix verbatim). Defaults live in the command modules
+(`ctkr/commands/{intent_cm,port_brief,extract_spec,intention_synth}.py`) via
+shared constants in `ctkr/commands/_common.py`.
+
+| stage | role | new default | override to old |
+|---|---|---|---|
+| `intent-cm --adjudicate` | adjudication | **openai / gpt-5.6-luna** | `--provider anthropic` → sonnet-4-6 |
+| `port-brief` | fusion | **openai / gpt-5.6-terra** | `--provider anthropic` → sonnet-4-6 |
+| `extract-spec` | cheap labeler | **openai / gpt-5.6-luna** | `--provider anthropic` → haiku-4-5 |
+| `extract-spec` | strong (subsystem) | **openai / gpt-5.6-terra** | `--provider anthropic` → sonnet-4-6 |
+| `intention-synthesis` | cheap intent+scenario | **openai / gpt-5.6-luna** | `--provider anthropic` → haiku-4-5 |
+| `intention-synthesis` | strong adjudication | **openai / gpt-5.6-terra** | `--provider anthropic` → sonnet-4-6 |
+
+**Rationale.** luna is the cheapest tier (0.48× baseline) and found the exact
+CM-hard ground-truth seed with zero false positives on the highest-stakes stage;
+terra is baseline-equivalent on quality at ≈parity cost and is the most robust
+GPT tier (it was the one tier that did *not* trip the scenario schema). sol buys
+nothing over terra at 2× cost and is not adopted.
+
+**Cheap-labeler verdict — luna adopted.** The scenario-distillation schema
+failure (the sole blocker on moving the cheap labeler off haiku) is fixed under
+this bead by (a) a `ScenarioDistillOut` alias/near-miss model_validator and (b) a
+generic one-shot repair retry in `LLMClient.complete_structured` (re-prompts once
+with the pydantic error appended). A live re-test of the T5b scenario call with
+gpt-5.6-luna against three fresh copies of the 0p7 sandbox data-dir (hardening in
+place, caches cleared per attempt) produced a **valid scenario on 3/3 attempts**
+(11, 1, 1 scenarios; the repair retry fired on attempts 2 and 3, where luna
+emitted the bare `{"behavior": …}` shape that the alias mapper deliberately does
+*not* invent a `then` for). 3/3 ≥ the 2/3 bar → cheap labeler flipped to luna.
+Live re-test spend: **$0.1927** total across the three attempts (cap was $1). All
+three copies are sandbox scratch (`…/7c92fede-…/scratchpad/9h5.9-retest/attempt-{1,2,3}/data-dir`),
+copied from the read-only 0p7 baseline and never written back.
+
+**Fail-closed guard.** Because these stages now default to OpenAI, each affected
+command checks `OPENAI_API_KEY` at startup and, if unset, prints a one-line
+`ERROR: <stage> now defaults to OpenAI <model>; … set OPENAI_API_KEY or pass
+--provider anthropic` instead of a deep `KeyMissingError` stack trace.

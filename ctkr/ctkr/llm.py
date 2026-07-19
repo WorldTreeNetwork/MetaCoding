@@ -459,6 +459,14 @@ class LLMClient:
     max_attempts: int = 3
     backoff_initial: float = 1.0
     backoff_factor: float = 2.0
+    # One-shot repair retry: when a provider returns JSON that parses but fails
+    # schema validation, re-prompt ONCE with the validation error appended, then
+    # fail as before if the retry also fails. Off by default (zero behavior change
+    # for callers that don't opt in); nested-schema stages (e.g. ScenarioDistillOut
+    # in T5b) set the dial or pass ``repair=True`` per call. Generic — not tied to
+    # any one schema — because reasoning models trip nested-required-field
+    # validation on other schemas too.
+    structured_repair: bool = False
     _providers: dict[str, Provider] = field(default_factory=dict)
     _injected: dict[str, Provider] = field(default_factory=dict)
 
@@ -590,6 +598,7 @@ class LLMClient:
         max_tokens: int | None = None,
         system: str | None = None,
         reasoning_effort: str | None = None,
+        repair: bool | None = None,
     ) -> StructuredCompletion[T]:
         prov_name = provider or self.default_provider
         m = model or self.default_model
@@ -641,26 +650,69 @@ class LLMClient:
         effort_kw: dict[str, Any] = (
             {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
         )
-        resp, raw = _retry(
-            lambda: prov.complete_structured(
-                prompt,
-                model=m,
-                schema=schema,
-                temperature=t,
-                max_tokens=mt,
-                system=system,
-                **effort_kw,
-            ),
-            attempts=self.max_attempts,
-            initial=self.backoff_initial,
-            factor=self.backoff_factor,
-        )
+
+        def _provider_call(p: str) -> tuple[Any, dict[str, Any]]:
+            return _retry(
+                lambda: prov.complete_structured(
+                    p,
+                    model=m,
+                    schema=schema,
+                    temperature=t,
+                    max_tokens=mt,
+                    system=system,
+                    **effort_kw,
+                ),
+                attempts=self.max_attempts,
+                initial=self.backoff_initial,
+                factor=self.backoff_factor,
+            )
+
+        do_repair = self.structured_repair if repair is None else repair
+        resp, raw = _provider_call(prompt)
         try:
             parsed = schema.model_validate(raw)
         except Exception as e:
-            raise StructuredOutputError(
-                f"Provider returned JSON that didn't validate against {schema.__name__}: {e}"
-            ) from e
+            if not do_repair:
+                raise StructuredOutputError(
+                    f"Provider returned JSON that didn't validate against {schema.__name__}: {e}"
+                ) from e
+            # Log the failed attempt's spend (the tokens were really billed), then
+            # re-prompt exactly once with the validation error appended so the model
+            # can self-correct the offending field.
+            self._cost_append(
+                _CostRow(
+                    ts=_now(),
+                    provider=prov_name,
+                    model=m,
+                    prompt_hash=prompt_hash,
+                    input_tokens=resp.input_tokens,
+                    output_tokens=resp.output_tokens,
+                    cost_estimate_usd=_estimate_cost(
+                        m, resp.input_tokens, resp.output_tokens
+                    ),
+                    cache_hit=False,
+                    structured=True,
+                )
+            )
+            logger.warning(
+                "structured %s failed validation; issuing one repair retry: %s",
+                schema.__name__,
+                e,
+            )
+            repair_prompt = (
+                f"{prompt}\n\nYour previous output failed schema validation: {e}\n"
+                "Re-emit a single JSON object that conforms exactly to the schema; "
+                "fix the reported field(s) and include every required field. "
+                "Do not add commentary."
+            )
+            resp, raw = _provider_call(repair_prompt)
+            try:
+                parsed = schema.model_validate(raw)
+            except Exception as e2:
+                raise StructuredOutputError(
+                    f"Provider returned JSON that didn't validate against "
+                    f"{schema.__name__} even after one repair retry: {e2}"
+                ) from e2
         cost = _estimate_cost(m, resp.input_tokens, resp.output_tokens)
         text = json.dumps(raw)
         payload = {
