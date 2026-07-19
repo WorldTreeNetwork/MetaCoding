@@ -162,6 +162,90 @@ def test_client_threads_reasoning_effort_to_provider(tmp_path: Any) -> None:
     assert len(mock.calls) == 1
 
 
+class _KwRecordingProvider:
+    """Mock provider that records the model + max_tokens it is called with,
+    under whatever name it is registered as."""
+
+    env_var: ClassVar[str] = "OPENAI_API_KEY"
+
+    def __init__(self, name: str = "openai") -> None:
+        self.name = name
+        self.calls: list[dict[str, Any]] = []
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        system: str | None,
+        reasoning_effort: str | None = None,
+    ) -> _ProviderResponse:
+        self.calls.append({"model": model, "max_tokens": max_tokens})
+        return _ProviderResponse(text="ok", input_tokens=1, output_tokens=1)
+
+    def complete_structured(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+
+def test_default_provider_routes_without_per_call_provider(tmp_path: Any) -> None:
+    # Command modules set default_provider='openai' and route the tier through
+    # --model; the stage code never passes an explicit provider, so the client
+    # default must carry it.
+    client = LLMClient(
+        cache_dir=tmp_path / "cache",
+        cost_log=tmp_path / "cost.jsonl",
+        default_provider="openai",
+    )
+    mock = _KwRecordingProvider(name="openai")
+    client.register_provider(mock)
+
+    out = client.complete("ping", model="gpt-5.6-luna")
+    assert out.provider == "openai"
+    assert out.text == "ok"
+    assert mock.calls[0]["model"] == "gpt-5.6-luna"
+
+
+def test_reasoning_max_tokens_floor_applied_only_to_reasoning_models(tmp_path: Any) -> None:
+    client = LLMClient(
+        cache_dir=tmp_path / "cache",
+        cost_log=tmp_path / "cost.jsonl",
+        default_provider="openai",
+        reasoning_max_tokens=16000,
+    )
+    mock = _KwRecordingProvider(name="openai")
+    client.register_provider(mock)
+
+    # Reasoning model: a small stage cap is floored so reasoning tokens don't
+    # starve the visible output.
+    client.complete("p", model="gpt-5.6-sol", max_tokens=900)
+    assert mock.calls[-1]["max_tokens"] == 16000
+
+    # A cap already above the floor is left untouched.
+    client.complete("q", model="gpt-5.6-sol", max_tokens=20000)
+    assert mock.calls[-1]["max_tokens"] == 20000
+
+    # Non-reasoning model is never floored.
+    anth = _KwRecordingProvider(name="anthropic")
+    client.register_provider(anth)
+    client.complete("r", provider="anthropic", model="claude-haiku-4-5-20251001", max_tokens=900)
+    assert anth.calls[-1]["max_tokens"] == 900
+
+
+def test_reasoning_floor_disabled_when_none(tmp_path: Any) -> None:
+    client = LLMClient(
+        cache_dir=tmp_path / "cache",
+        cost_log=tmp_path / "cost.jsonl",
+        default_provider="openai",
+        reasoning_max_tokens=None,
+    )
+    mock = _KwRecordingProvider(name="openai")
+    client.register_provider(mock)
+    client.complete("p", model="gpt-5.6-sol", max_tokens=900)
+    assert mock.calls[-1]["max_tokens"] == 900
+
+
 def test_anthropic_provider_rejects_reasoning_effort() -> None:
     from ctkr.llm import AnthropicProvider
 

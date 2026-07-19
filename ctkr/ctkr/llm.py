@@ -445,6 +445,14 @@ class LLMClient:
     default_model: str = "claude-haiku-4-5-20251001"
     default_temperature: float = 0.0
     default_max_tokens: int = 1024
+    # GPT-5.x reasoning tiers bill *reasoning* tokens against
+    # ``max_completion_tokens``. A stage cap sized for Claude output (900–2000)
+    # can be fully consumed by reasoning, truncating the structured payload to
+    # empty. For reasoning models only, floor the completion budget so the
+    # visible output has room; the cap is not billed unless the model uses it,
+    # so this is cost-safe and leaves the Anthropic path untouched. Set to
+    # ``None`` to disable the floor.
+    reasoning_max_tokens: int | None = 16000
     max_attempts: int = 3
     backoff_initial: float = 1.0
     backoff_factor: float = 2.0
@@ -484,6 +492,8 @@ class LLMClient:
         m = model or self.default_model
         t = self.default_temperature if temperature is None else temperature
         mt = max_tokens or self.default_max_tokens
+        if self.reasoning_max_tokens and _is_openai_reasoning_model(m):
+            mt = max(mt, self.reasoning_max_tokens)
 
         prompt_hash = _hash_prompt(
             provider=prov_name,
@@ -582,6 +592,8 @@ class LLMClient:
         m = model or self.default_model
         t = self.default_temperature if temperature is None else temperature
         mt = max_tokens or self.default_max_tokens
+        if self.reasoning_max_tokens and _is_openai_reasoning_model(m):
+            mt = max(mt, self.reasoning_max_tokens)
 
         prompt_hash = _hash_prompt(
             provider=prov_name,

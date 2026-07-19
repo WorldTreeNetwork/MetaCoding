@@ -62,6 +62,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Run the strong-model adjudication over the flagged (CM-hard/CM-soft) "
         "subset. Off by default (LLM spend).",
     )
+    p.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider for adjudication: 'anthropic' (default) or 'openai' "
+        "(GPT-5.x tiers — pass the tier via --model).",
+    )
     p.add_argument("--model", default=None, help="Strong adjudication model (sonnet default).")
     p.add_argument(
         "--prompt-version", default=None, help="Override the adjudication prompt_version."
@@ -125,7 +131,11 @@ def run(args: argparse.Namespace) -> int:
     if args.adjudicate:
         from ctkr.llm import LLMClient
 
-        client = LLMClient(cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl")
+        client = LLMClient(
+            cache_dir=ctkr_dir / "llm_cache",
+            cost_log=ctkr_dir / "llm_cost.jsonl",
+            default_provider=args.provider or "anthropic",
+        )
         sys.stderr.write("adjudicating flagged subset with the strong model...\n")
         adjudicated, adj_stats = adjudicate_cm(
             cm_df,

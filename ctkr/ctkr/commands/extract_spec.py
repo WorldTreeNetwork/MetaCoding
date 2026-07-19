@@ -66,6 +66,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--repo", default=None, help="Restrict the deck to one repo.")
     p.add_argument(
+        "--provider",
+        default=None,
+        help="LLM provider for every call: 'anthropic' (default) or 'openai' "
+        "(GPT-5.x tiers — pass the tier via --model/--subsystem-model).",
+    )
+    p.add_argument(
         "--model",
         default=None,
         help="LLM model for cheap per-element labels (default: spec-labeler default).",
@@ -159,6 +165,7 @@ def run(args: argparse.Namespace) -> int:
     client = LLMClient(
         cache_dir=ctkr_dir / "llm_cache",
         cost_log=ctkr_dir / "llm_cost.jsonl",
+        default_provider=args.provider or "anthropic",
     )
 
     kwargs: dict = {
