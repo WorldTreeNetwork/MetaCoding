@@ -115,10 +115,23 @@ _PRICES_PER_M: dict[str, tuple[float, float]] = {
     "claude-opus-4-7": (15.00, 75.00),
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-haiku-4-5-20251001": (0.80, 4.00),
+    # GPT-5.6 agent tiers (2026-07 list prices).
+    "gpt-5.6-sol": (5.00, 30.00),
+    "gpt-5.6-terra": (2.50, 15.00),
+    "gpt-5.6-luna": (1.00, 6.00),
     "gpt-5": (10.00, 30.00),  # placeholder; replace when officially priced
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
 }
+
+
+def _is_openai_reasoning_model(model: str) -> bool:
+    """GPT-5.x-family reasoning models have a different Chat Completions
+    contract: ``max_completion_tokens`` instead of ``max_tokens``, no
+    ``temperature`` (the API rejects it), and an optional
+    ``reasoning_effort``. Determinism for these tiers therefore rests on
+    the prompt-hash cache, not on a pinned temperature."""
+    return model.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 def _estimate_cost(model: str, in_toks: int, out_toks: int) -> float:
@@ -190,7 +203,12 @@ class AnthropicProvider:
         temperature: float,
         max_tokens: int,
         system: str | None,
+        reasoning_effort: str | None = None,
     ) -> _ProviderResponse:
+        if reasoning_effort is not None:
+            raise LLMError(
+                "reasoning_effort is an OpenAI GPT-5.x parameter; not supported by the anthropic provider"
+            )
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -216,7 +234,12 @@ class AnthropicProvider:
         temperature: float,
         max_tokens: int,
         system: str | None,
+        reasoning_effort: str | None = None,
     ) -> tuple[_ProviderResponse, dict[str, Any]]:
+        if reasoning_effort is not None:
+            raise LLMError(
+                "reasoning_effort is an OpenAI GPT-5.x parameter; not supported by the anthropic provider"
+            )
         tool_name = "emit_" + schema.__name__.lower()
         json_schema = schema.model_json_schema()
         # Anthropic requires the top-level schema to be type=object.
@@ -279,6 +302,28 @@ class OpenAIProvider:
 
         self._client = openai.OpenAI(api_key=api_key or os.environ[self.env_var])
 
+    @staticmethod
+    def _request_kwargs(
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        reasoning_effort: str | None,
+    ) -> dict[str, Any]:
+        """GPT-5.x reasoning tiers (Sol/Terra/Luna) reject ``temperature``
+        and ``max_tokens``; they take ``max_completion_tokens`` and an
+        optional ``reasoning_effort``. Legacy models keep the old contract."""
+        if _is_openai_reasoning_model(model):
+            kwargs: dict[str, Any] = {"max_completion_tokens": max_tokens}
+            if reasoning_effort is not None:
+                kwargs["reasoning_effort"] = reasoning_effort
+            return kwargs
+        if reasoning_effort is not None:
+            raise LLMError(
+                f"reasoning_effort is only supported on GPT-5.x reasoning models, not {model!r}"
+            )
+        return {"temperature": temperature, "max_tokens": max_tokens}
+
     def complete(
         self,
         prompt: str,
@@ -287,6 +332,7 @@ class OpenAIProvider:
         temperature: float,
         max_tokens: int,
         system: str | None,
+        reasoning_effort: str | None = None,
     ) -> _ProviderResponse:
         messages: list[dict[str, str]] = []
         if system:
@@ -295,8 +341,12 @@ class OpenAIProvider:
         resp = self._client.chat.completions.create(
             model=model,
             messages=messages,  # type: ignore[arg-type]
-            temperature=temperature,
-            max_tokens=max_tokens,
+            **self._request_kwargs(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+            ),
         )
         usage = resp.usage
         return _ProviderResponse(
@@ -314,6 +364,7 @@ class OpenAIProvider:
         temperature: float,
         max_tokens: int,
         system: str | None,
+        reasoning_effort: str | None = None,
     ) -> tuple[_ProviderResponse, dict[str, Any]]:
         messages: list[dict[str, str]] = []
         if system:
@@ -325,8 +376,12 @@ class OpenAIProvider:
         resp = self._client.chat.completions.create(
             model=model,
             messages=messages,  # type: ignore[arg-type]
-            temperature=temperature,
-            max_tokens=max_tokens,
+            **self._request_kwargs(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+            ),
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -423,6 +478,7 @@ class LLMClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> Completion:
         prov_name = provider or self.default_provider
         m = model or self.default_model
@@ -437,6 +493,7 @@ class LLMClient:
             max_tokens=mt,
             system=system,
             structured_schema=None,
+            reasoning_effort=reasoning_effort,
         )
 
         cached = self._cache_load(prompt_hash)
@@ -466,9 +523,12 @@ class LLMClient:
             )
 
         prov = self._provider(prov_name)
+        effort_kw: dict[str, Any] = (
+            {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
+        )
         resp = _retry(
             lambda: prov.complete(
-                prompt, model=m, temperature=t, max_tokens=mt, system=system
+                prompt, model=m, temperature=t, max_tokens=mt, system=system, **effort_kw
             ),
             attempts=self.max_attempts,
             initial=self.backoff_initial,
@@ -516,6 +576,7 @@ class LLMClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> StructuredCompletion[T]:
         prov_name = provider or self.default_provider
         m = model or self.default_model
@@ -530,6 +591,7 @@ class LLMClient:
             max_tokens=mt,
             system=system,
             structured_schema=schema.model_json_schema(),
+            reasoning_effort=reasoning_effort,
         )
 
         cached = self._cache_load(prompt_hash)
@@ -561,6 +623,9 @@ class LLMClient:
             )
 
         prov = self._provider(prov_name)
+        effort_kw: dict[str, Any] = (
+            {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
+        )
         resp, raw = _retry(
             lambda: prov.complete_structured(
                 prompt,
@@ -569,6 +634,7 @@ class LLMClient:
                 temperature=t,
                 max_tokens=mt,
                 system=system,
+                **effort_kw,
             ),
             attempts=self.max_attempts,
             initial=self.backoff_initial,
@@ -670,20 +736,21 @@ def _hash_prompt(
     max_tokens: int,
     system: str | None,
     structured_schema: dict[str, Any] | None,
+    reasoning_effort: str | None = None,
 ) -> str:
-    canon = json.dumps(
-        {
-            "provider": provider,
-            "model": model,
-            "prompt": prompt,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "system": system,
-            "schema": structured_schema,
-        },
-        sort_keys=True,
-        ensure_ascii=False,
-    ).encode("utf-8")
+    payload: dict[str, Any] = {
+        "provider": provider,
+        "model": model,
+        "prompt": prompt,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "system": system,
+        "schema": structured_schema,
+    }
+    # Only included when set, so pre-existing cache entries keep their hashes.
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
+    canon = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return blake3.blake3(canon).hexdigest(length=16)
 
 
