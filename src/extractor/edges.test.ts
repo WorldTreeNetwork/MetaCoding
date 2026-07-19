@@ -988,3 +988,126 @@ interface AssetInterface extends EntityInterface, EntityChangedInterface {}
     expect(assetEdges.length).toBe(5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PHP field-access edges (bead MetaCoding-vju): synthesized READS_FIELD /
+// WRITES_FIELD, since scip-php emits no ReadAccess/WriteAccess roles. Covers
+// $this->field / $obj->prop assignments + reads, augmented assignment,
+// Drupal ->set('field',…)/->get('field') accessors, $entity->field_* idioms,
+// and a negative case (local variable write is not a field edge).
+// ---------------------------------------------------------------------------
+describe("PHP field-access edge candidates", () => {
+  let phpParser: TsParser;
+  beforeAll(async () => { phpParser = await makeParser("php"); });
+
+  function candidates(src: string) {
+    const tree = phpParser.parse(src)!;
+    const ex = extractPhp(tree, { filePath: "src/A.php", branch: "main", repo: "r" });
+    const er = extractEdgeCandidates(tree, { language: "php", filePath: "src/A.php", symbols: ex.symbols });
+    const resolver = new SymbolResolver();
+    for (const s of ex.symbols) resolver.add(s);
+    tree.delete();
+    return { candidates: er.candidates, symbols: ex.symbols, resolver };
+  }
+
+  // Resolved edges from a declared property (`$this->bar` where bar is a field).
+  const SRC = `<?php
+class Widget {
+    private $bar;
+    private $count;
+    public function m() {
+        $this->bar = 1;
+        $x = $this->bar;
+        $this->count += 2;
+        $obj->prop = 5;
+        $local = 3;
+    }
+}
+`;
+
+  test("$this->field = X emits WRITES_FIELD resolving to the declared property", () => {
+    const { candidates: cs, resolver } = candidates(SRC);
+    const w = cs.filter(
+      (c) => c.kind === "WRITES_FIELD" && c.target.shortName === "bar",
+    );
+    expect(w.length).toBe(1);
+    // Resolves to the in-class field via scopeQn (Widget::bar).
+    expect(resolver.resolve(w[0]!.target, "r")).not.toBeNull();
+    expect(w[0]!.target.scopeQn).toContain("Widget");
+  });
+
+  test("$this->field read emits READS_FIELD (not on the assignment LHS)", () => {
+    const { candidates: cs } = candidates(SRC);
+    const reads = cs.filter(
+      (c) => c.kind === "READS_FIELD" && c.target.shortName === "bar",
+    );
+    // Exactly one read of bar (the `$x = $this->bar` line); the LHS write of
+    // `$this->bar = 1` must NOT also count as a read.
+    expect(reads.length).toBe(1);
+  });
+
+  test("augmented assignment $this->count += 2 emits BOTH write and read", () => {
+    const { candidates: cs } = candidates(SRC);
+    const w = cs.filter((c) => c.kind === "WRITES_FIELD" && c.target.shortName === "count");
+    const r = cs.filter((c) => c.kind === "READS_FIELD" && c.target.shortName === "count");
+    expect(w.length).toBe(1);
+    expect(r.length).toBe(1);
+  });
+
+  test("$obj->prop = 5 emits WRITES_FIELD (non-this receiver, no scope hint)", () => {
+    const { candidates: cs } = candidates(SRC);
+    const w = cs.filter((c) => c.kind === "WRITES_FIELD" && c.target.shortName === "prop");
+    expect(w.length).toBe(1);
+    expect(w[0]!.target.scopeQn).toBeUndefined();
+  });
+
+  test("negative: a plain local variable write ($local = 3) emits no field edge", () => {
+    const { candidates: cs } = candidates(SRC);
+    const bogus = cs.filter(
+      (c) =>
+        (c.kind === "WRITES_FIELD" || c.kind === "READS_FIELD") &&
+        c.target.shortName === "local",
+    );
+    expect(bogus.length).toBe(0);
+  });
+
+  // Drupal accessor + entity-field idioms — kept via external boundary nodes.
+  const DRUPAL = `<?php
+class AssetController {
+    public function handle($entity) {
+        $entity->set('field_notes', 'hello');
+        $note = $entity->get('field_notes');
+        $entity->field_status = 'active';
+        $s = $entity->field_status;
+    }
+}
+`;
+
+  test("->set('field', …) emits WRITES_FIELD with externalFallback keyed on the string", () => {
+    const { candidates: cs } = candidates(DRUPAL);
+    const w = cs.filter(
+      (c) => c.kind === "WRITES_FIELD" && c.target.shortName === "field_notes",
+    );
+    expect(w.length).toBe(1);
+    expect(w[0]!.target.externalFallback).toBe(true);
+  });
+
+  test("->get('field') emits READS_FIELD with externalFallback keyed on the string", () => {
+    const { candidates: cs } = candidates(DRUPAL);
+    const r = cs.filter(
+      (c) => c.kind === "READS_FIELD" && c.target.shortName === "field_notes",
+    );
+    expect(r.length).toBe(1);
+    expect(r[0]!.target.externalFallback).toBe(true);
+  });
+
+  test("$entity->field_* member access is treated as an entity field (externalFallback)", () => {
+    const { candidates: cs } = candidates(DRUPAL);
+    const w = cs.filter((c) => c.kind === "WRITES_FIELD" && c.target.shortName === "field_status");
+    const r = cs.filter((c) => c.kind === "READS_FIELD" && c.target.shortName === "field_status");
+    expect(w.length).toBe(1);
+    expect(w[0]!.target.externalFallback).toBe(true);
+    expect(r.length).toBe(1);
+    expect(r[0]!.target.externalFallback).toBe(true);
+  });
+});

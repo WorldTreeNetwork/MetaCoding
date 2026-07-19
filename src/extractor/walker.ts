@@ -319,6 +319,13 @@ async function flushCandidates(
     if (dedupe.has(key)) continue;
     dedupe.add(key);
     const edge: Edge = { kind: c.kind, src_id: c.src_id, dst_id: dst };
+    // Field-access edges from this lane are Tree-sitter heuristics, not SCIP
+    // access-role occurrences — mark them so consumers can distinguish the two
+    // (bead MetaCoding-vju). For PHP this is the ONLY source of these edges,
+    // since scip-php emits no ReadAccess/WriteAccess roles at all.
+    if (c.kind === "READS_FIELD" || c.kind === "WRITES_FIELD") {
+      edge.provenance = "tree_sitter_heuristic";
+    }
     await store.addEdge(edge);
     flushed++;
   }

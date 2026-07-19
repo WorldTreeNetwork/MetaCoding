@@ -28,6 +28,15 @@ const PLAIN_EDGES: EdgeKind[] = [
 
 const COUNTED_EDGES: EdgeKind[] = ["CALLS", "REFERENCES"];
 
+// Field-access edges carry a `provenance` column (bead MetaCoding-vju) so
+// consumers can tell SCIP-derived access-role edges from edges synthesized by
+// the Tree-sitter heuristic lane. The tables are created plain (in PLAIN_EDGES)
+// and the column is added additively below, so pre-existing databases pick it
+// up on open without a rebuild. ALTER REL TABLE ... ADD is supported by
+// ladybugdb and re-reports duplicates with "already has property", which
+// execIgnoreExists tolerates.
+const PROVENANCE_EDGES: EdgeKind[] = ["READS_FIELD", "WRITES_FIELD"];
+
 const NODE_DDL = `
 CREATE NODE TABLE Symbol (
   id STRING,
@@ -88,6 +97,12 @@ export async function ensureGraphSchema(conn: Connection): Promise<void> {
     await execIgnoreExists(
       conn,
       `ALTER TABLE Symbol ADD ${col.name} ${col.type};`,
+    );
+  }
+  for (const kind of PROVENANCE_EDGES) {
+    await execIgnoreExists(
+      conn,
+      `ALTER TABLE ${kind} ADD provenance STRING;`,
     );
   }
 }
