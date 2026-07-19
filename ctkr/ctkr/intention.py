@@ -886,6 +886,88 @@ def _classify(d: float, r: float, tables: NormTables, port_critical: bool) -> st
     return "ambiguous"
 
 
+# ───────────────────────── intent-CM → D coupling (dial-rec #2) ─────────────────────────
+
+
+def cm_discount(sensitivity: str | None, tables: NormTables) -> float:
+    """Coupling-strength discount for an element's intent-CM grade (§5.3 dial-rec #2).
+
+    Returns the fraction of structural determinacy to REMOVE when the intent-CM lane
+    graded the element ``hard``/``soft`` for the (local-first) target. ``0.0`` for any
+    other grade (``none``/``None``/unknown), i.e. no coupling. Both weights are dials
+    (``d_cm_hard_discount`` / ``d_cm_soft_discount`` in the scoring table); set them to
+    0.0 to disable the coupling entirely.
+    """
+    sc = tables.scoring
+    g = (sensitivity or "").strip().lower().replace("cm-", "")
+    if g == "hard":
+        return float(sc.get("d_cm_hard_discount", 0.0))
+    if g == "soft":
+        return float(sc.get("d_cm_soft_discount", 0.0))
+    return 0.0
+
+
+def couple_cm_determinacy(
+    d: float, sensitivity: str | None, tables: NormTables
+) -> tuple[float, str | None]:
+    """Discount a determinacy score ``d`` by the element's intent-CM grade.
+
+    ``D_effective = D * (1 - discount)``. Returns ``(d_effective, driver)`` where
+    ``driver`` is a human-readable audit string (or ``None`` when no coupling applied,
+    so the caller can skip appending a no-op driver). Never raises on an unknown grade.
+    """
+    disc = cm_discount(sensitivity, tables)
+    if disc <= 0.0:
+        return d, None
+    d_eff = round(d * (1.0 - disc), 4)
+    g = (sensitivity or "").strip().lower().replace("cm-", "")
+    return d_eff, f"intent-CM {g} → D discounted ×{1.0 - disc:.2f} ({d:.4f}→{d_eff:.4f})"
+
+
+def apply_cm_coupling(
+    load_df: pl.DataFrame,
+    cm_sensitivity: dict[str, str],
+    tables: NormTables | None = None,
+) -> pl.DataFrame:
+    """Re-score + re-classify intention_load rows using the intent-CM lane (dial-rec #2).
+
+    ``cm_sensitivity`` maps ``element_id → grade`` (``"hard"``/``"soft"``; any other
+    value, incl. ``"none"``, is ignored). For each element present in the map, its
+    ``structural_determinacy`` is discounted by :func:`couple_cm_determinacy` and its
+    ``load_class`` is re-derived at the discounted D (``port_critical_conflict`` and
+    ``intention_richness`` unchanged); a driver string records the adjustment. Rows not
+    in the map — and the whole frame when the coupling dials are 0.0 — pass through
+    byte-identical. Pure/deterministic; no LLM, no graph. Returns a NEW frame.
+
+    This is the join point between the (separately computed) intent-CM adjudication and
+    the load classifier: the caller supplies the grade per structural element_id (e.g.
+    from ``intent_cm_adjudicated.jsonl`` mapped onto the subsystem member set).
+    """
+    tables = tables or load_norm_tables()
+    if load_df.height == 0 or not cm_sensitivity:
+        return load_df
+
+    rows: list[dict] = []
+    for row in load_df.iter_rows(named=True):
+        row = dict(row)
+        grade = cm_sensitivity.get(row["element_id"])
+        d_eff, driver = couple_cm_determinacy(
+            float(row.get("structural_determinacy") or 0.0), grade, tables
+        )
+        if driver is not None:
+            row["structural_determinacy"] = d_eff
+            row["load_class"] = _classify(
+                d_eff,
+                float(row.get("intention_richness") or 0.0),
+                tables,
+                bool(row.get("port_critical_conflict")),
+            )
+            row["drivers"] = list(row.get("drivers") or []) + [driver]
+        rows.append(row)
+
+    return pl.DataFrame(rows, schema=_load_schema()).select(INTENTION_LOAD_COLUMNS)
+
+
 # ───────────────────────── conflict detection ─────────────────────────
 
 
@@ -1409,6 +1491,9 @@ __all__ = [
     "fold_affixes",
     "canonical_marker",
     "compute_intention",
+    "cm_discount",
+    "couple_cm_determinacy",
+    "apply_cm_coupling",
     "HarvestStats",
     "write_intention_signals",
     "write_intention_load",

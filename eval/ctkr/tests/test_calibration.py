@@ -23,7 +23,7 @@ from calibration_schema import (
     write_calibration,
 )
 from calibration_ingest import _derive_miss_type, ingest
-from calibration_report import dial_sweep, precision_recall
+from calibration_report import dial_sweep, idiom_over_fire_rate, precision_recall
 
 
 # ───────────────────────── synthetic fixtures ─────────────────────────
@@ -406,3 +406,63 @@ def test_dial_sweep_lower_r_min_reduces_ambiguous() -> None:
     amb_low_r = sweep.filter(pl.col("r_min") == 0.1)["n_ambiguous"][0]
     amb_high_r = sweep.filter(pl.col("r_min") == 0.9)["n_ambiguous"][0]
     assert amb_low_r <= amb_high_r
+
+
+# ───────────────────────── idiom-over-fire metric (dial-rec #1) ─────────────────────────
+
+
+def test_idiom_over_fire_empty() -> None:
+    """No calibration data → zero flags, rate None (never crashes)."""
+    cal = read_calibration("/nonexistent/calibration.parquet")
+    iof = idiom_over_fire_rate(cal)
+    assert iof["n_flagged"] == 0
+    assert iof["n_over_fire"] == 0
+    assert iof["idiom_over_fire_rate"] is None
+
+
+def test_idiom_over_fire_all_flags_land_on_non_value(tmp_path: Path) -> None:
+    """intention-critical + ambiguous flags where the builder never consulted →
+    100% over-fire (the observed first-port signal: source-idiom flags)."""
+    out = _ingest_obs(tmp_path, [
+        {"element_id": "elem_ic", "builder_consulted_evidence": False},   # over-fire
+        {"element_id": "elem_amb", "builder_consulted_evidence": False},  # over-fire
+        {"element_id": "elem_sc", "builder_consulted_evidence": False},   # structure-clear, ignored
+    ])
+    iof = idiom_over_fire_rate(read_calibration(out))
+    assert iof["n_flagged"] == 2
+    assert iof["n_over_fire"] == 2
+    assert iof["idiom_over_fire_rate"] == 1.0
+    assert iof["by_class"]["intention-critical"]["n_over_fire"] == 1
+    assert iof["by_class"]["ambiguous"]["n_over_fire"] == 1
+
+
+def test_idiom_over_fire_consulted_flag_is_not_over_fire(tmp_path: Path) -> None:
+    """A flagged class the builder DID consult is a correct fire, not over-fire."""
+    out = _ingest_obs(tmp_path, [
+        {"element_id": "elem_ic", "builder_consulted_evidence": True},  # correct fire
+    ])
+    iof = idiom_over_fire_rate(read_calibration(out))
+    assert iof["n_flagged"] == 1
+    assert iof["n_over_fire"] == 0
+    assert iof["idiom_over_fire_rate"] == 0.0
+
+
+def test_idiom_over_fire_structure_clear_excluded(tmp_path: Path) -> None:
+    """structure-clear predictions are never counted — only flagged classes over-fire."""
+    out = _ingest_obs(tmp_path, [
+        {"element_id": "elem_sc", "builder_consulted_evidence": False},
+    ])
+    iof = idiom_over_fire_rate(read_calibration(out))
+    assert iof["n_flagged"] == 0
+    assert iof["idiom_over_fire_rate"] is None
+
+
+def test_idiom_over_fire_null_consulted_not_counted_as_over_fire(tmp_path: Path) -> None:
+    """Unobserved evidence usage (null) counts toward flagged but never as over-fire."""
+    out = _ingest_obs(tmp_path, [
+        {"element_id": "elem_ic"},  # no builder_consulted_evidence → null
+    ])
+    iof = idiom_over_fire_rate(read_calibration(out))
+    assert iof["n_flagged"] == 1
+    assert iof["n_over_fire"] == 0
+    assert iof["idiom_over_fire_rate"] == 0.0

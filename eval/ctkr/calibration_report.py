@@ -87,6 +87,65 @@ def precision_recall(cal: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=empty_schema) if rows else pl.DataFrame(schema=empty_schema)
 
 
+# Flagged classes whose whole purpose is to signal "a port must consult evidence
+# here". When one fires on a source-idiom element a value-equivalence port never
+# implements, that is an OVER-FIRE (dial-rec #1: track it, do NOT silently filter).
+_FLAGGED_CLASSES = ["intention-critical", "ambiguous"]
+
+
+def idiom_over_fire_rate(cal: pl.DataFrame) -> dict:
+    """Idiom-over-fire rate for the flagged load classes (dial-rec #1).
+
+    An intention-critical / ambiguous prediction exists to tell a port "consult the
+    harvested evidence here". It OVER-FIRES when it lands on a source-idiom element with
+    no path to a value-line term — one the value-equivalence port never implements, so
+    the builder never needed the evidence. The value-line proxy already recorded by the
+    pipeline is ``builder_consulted_evidence``: a flagged class the builder did NOT
+    consult (miss_type ``evidence-given-not-needed``) fired on a non-value element.
+
+    Duke's goalpost rule (§open-question 3): keep scoring EVERY element — do not filter
+    source-idiom elements out of calibration — but surface the over-fire as its own
+    metric so the classifier's source-paradigm noise is explicit and tracked, not hidden.
+
+    Returns a dict::
+
+        {
+          "n_flagged": int,          # intention-critical + ambiguous predictions
+          "n_over_fire": int,        # of those, ones the builder never needed
+          "idiom_over_fire_rate": float | None,   # n_over_fire / n_flagged (None if 0)
+          "by_class": {cls: {"n_flagged", "n_over_fire", "rate"}},
+        }
+
+    Rows with ``builder_consulted_evidence`` null (evidence usage unobserved) are counted
+    in ``n_flagged`` but never as over-fire (unknown != over-fire).
+    """
+    by_class: dict[str, dict] = {}
+    n_flagged = 0
+    n_over = 0
+    for cls in _FLAGGED_CLASSES:
+        subset = cal.filter(pl.col("predicted_load_class") == cls) if cal.height else cal
+        n = subset.height
+        # over-fire: builder explicitly did NOT consult (False, not null)
+        n_of = (
+            subset.filter(pl.col("builder_consulted_evidence") == False).height  # noqa: E712
+            if n
+            else 0
+        )
+        n_flagged += n
+        n_over += n_of
+        by_class[cls] = {
+            "n_flagged": n,
+            "n_over_fire": n_of,
+            "rate": round(n_of / n, 4) if n else None,
+        }
+    return {
+        "n_flagged": n_flagged,
+        "n_over_fire": n_over,
+        "idiom_over_fire_rate": round(n_over / n_flagged, 4) if n_flagged else None,
+        "by_class": by_class,
+    }
+
+
 def dial_sweep(
     load_df: pl.DataFrame,
     cal: pl.DataFrame,
@@ -163,12 +222,14 @@ def report(
     *,
     d_hi_range: list[float] | None = None,
     r_min_range: list[float] | None = None,
-) -> dict[str, pl.DataFrame]:
-    """Run both report components; return {"precision_recall": df, "dial_sweep": df}."""
+) -> dict[str, object]:
+    """Run all report components; return
+    {"precision_recall": df, "idiom_over_fire": dict, "dial_sweep": df}."""
     cal = read_calibration(calibration_path)
     load_df = pl.read_parquet(load_parquet_path)
     return {
         "precision_recall": precision_recall(cal),
+        "idiom_over_fire": idiom_over_fire_rate(cal),
         "dial_sweep": dial_sweep(load_df, cal, d_hi_range=d_hi_range, r_min_range=r_min_range),
     }
 
@@ -186,6 +247,7 @@ def main() -> None:
 
     result = report(args.calibration, args.load_parquet)
     pr = result["precision_recall"]
+    iof = result["idiom_over_fire"]
     sweep = result["dial_sweep"]
 
     print("\n=== Per-class precision/recall ===")
@@ -193,6 +255,15 @@ def main() -> None:
         print("  (no calibration data yet)")
     else:
         print(pr)
+
+    print("\n=== Idiom-over-fire (flagged classes firing on non-value elements) ===")
+    rate = iof["idiom_over_fire_rate"]
+    print(
+        f"  {iof['n_over_fire']}/{iof['n_flagged']} flagged predictions over-fired"
+        f"  (rate = {rate if rate is not None else 'n/a'})"
+    )
+    for cls, c in iof["by_class"].items():
+        print(f"    {cls:20} {c['n_over_fire']}/{c['n_flagged']}  (rate {c['rate']})")
 
     print(f"\n=== Dial-sensitivity sweep ({sweep.height} grid points) ===")
     print(sweep.head(10))
@@ -202,6 +273,7 @@ def main() -> None:
     if args.out_json:
         out = {
             "precision_recall": pr.to_dicts(),
+            "idiom_over_fire": iof,
             "dial_sweep": sweep.to_dicts(),
         }
         args.out_json.write_text(json.dumps(out, indent=2), encoding="utf-8")

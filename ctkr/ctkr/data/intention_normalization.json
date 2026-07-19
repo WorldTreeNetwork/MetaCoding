@@ -125,7 +125,10 @@
     "r_coherence_entropy_hi": 0.35,
     "r_test_linkage_floor": 0.4,
     "d_hi": 0.55,
-    "r_min": 0.4
+    "r_min": 0.4,
+    "cm_coupling_note": "§5.3 dial-rec #2: couple the (already-computed) intent-CM lane into structural determinacy. When intent-CM tags an element CM-hard/CM-soft for a local-first target, its central-authority invariant is never truly 'structure-clear' no matter how clean its call graph — so discount D before classification. Coupling STRENGTH is a dial (like the r_coherence entropy knob), not hardcoded: D_effective = D * (1 - discount). Set both to 0.0 to disable. Separate weights for hard vs soft. Default hard_discount=0.5 chosen against the first real port: the UniqueBirthLog constraint (role:70108211…, D=0.7493, CM-hard) drops to 0.375 < d_hi(0.55), landing it out of structure-clear (observed intention-critical), catching the lone structure-clear miss.",
+    "d_cm_hard_discount": 0.5,
+    "d_cm_soft_discount": 0.25
   },
 
   "portability_defaults": {
