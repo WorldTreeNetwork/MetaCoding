@@ -1092,26 +1092,30 @@ function phpMemberFieldName(member: Node): {
   return { shortName, isThis };
 }
 
-function phpHandleAssignment(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
-  const left = node.childForFieldName("left");
-  if (!left || left.type !== "member_access_expression") return;
-  const field = phpMemberFieldName(left);
-  if (!field) return;
-
+// Shared by phpHandleAssignment/phpHandleReadsField: resolve the enclosing
+// scope (and, for `$this->field`, the enclosing class) at `memberNode`'s
+// position and push a single field-access edge candidate.
+function pushPhpFieldEdge(
+  kind: "WRITES_FIELD" | "READS_FIELD",
+  field: { shortName: string; isThis: boolean },
+  memberNode: Node,
+  scopes: ScopeIndex,
+  out: EdgeCandidate[],
+): void {
   const src = findEnclosingScope(
     scopes,
-    left.startPosition.row,
-    left.startPosition.column,
+    memberNode.startPosition.row,
+    memberNode.startPosition.column,
     CALLABLE_KINDS,
   );
   if (!src) return;
 
   // Scope hint: `$this->field` prefers a field in the enclosing class.
   const cls = field.isThis
-    ? findEnclosingClass(scopes, left.startPosition.row, left.startPosition.column)
+    ? findEnclosingClass(scopes, memberNode.startPosition.row, memberNode.startPosition.column)
     : null;
   out.push({
-    kind: "WRITES_FIELD",
+    kind,
     src_id: src.id,
     target: {
       kinds: ["field"],
@@ -1121,6 +1125,14 @@ function phpHandleAssignment(node: Node, scopes: ScopeIndex, out: EdgeCandidate[
       externalFallback: isDrupalEntityField(field.shortName),
     },
   });
+}
+
+function phpHandleAssignment(node: Node, scopes: ScopeIndex, out: EdgeCandidate[]): void {
+  const left = node.childForFieldName("left");
+  if (!left || left.type !== "member_access_expression") return;
+  const field = phpMemberFieldName(left);
+  if (!field) return;
+  pushPhpFieldEdge("WRITES_FIELD", field, left, scopes, out);
 }
 
 function phpHandleReadsField(
@@ -1159,28 +1171,7 @@ function phpHandleReadsField(
 
   const field = phpMemberFieldName(memberNode);
   if (!field) return;
-
-  const src = findEnclosingScope(
-    scopes,
-    memberNode.startPosition.row,
-    memberNode.startPosition.column,
-    CALLABLE_KINDS,
-  );
-  if (!src) return;
-
-  const cls = field.isThis
-    ? findEnclosingClass(scopes, memberNode.startPosition.row, memberNode.startPosition.column)
-    : null;
-  out.push({
-    kind: "READS_FIELD",
-    src_id: src.id,
-    target: {
-      kinds: ["field"],
-      shortName: field.shortName,
-      scopeQn: cls?.qualifiedName,
-      externalFallback: isDrupalEntityField(field.shortName),
-    },
-  });
+  pushPhpFieldEdge("READS_FIELD", field, memberNode, scopes, out);
 }
 
 // `$obj->set('field', …)` / `$obj->get('field')` — the field name is the first
