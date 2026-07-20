@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "c1-membership-direct",
+      "title": "An animal assigned to a group is a member of that group",
+      "feature": "group-membership",
+      "glossary_terms": [
+        "animal",
+        "group",
+        "group_member",
+        "assign_to_group"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "A",
+          "name": "Ewe Yarrow",
+          "descriptor": "Sheep"
+        },
+        {
+          "entity": "group",
+          "alias": "G1",
+          "name": "Inner Flock"
+        }
+      ],
+      "when": [
+        {
+          "action": "assign_to_group",
+          "ref": "A",
+          "group": "G1"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "group_member",
+          "subject": "A",
+          "group": "G1"
+        }
+      ]
+    },
+    {
+      "key": "c1-membership-transitive",
+      "title": "An animal in a group that is itself in a second group is a member of both",
+      "feature": "group-membership",
+      "glossary_terms": [
+        "animal",
+        "group",
+        "group_member",
+        "assign_to_group"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "A",
+          "name": "Ewe Bramble",
+          "descriptor": "Sheep"
+        },
+        {
+          "entity": "group",
+          "alias": "G1",
+          "name": "Nested Inner Flock"
+        },
+        {
+          "entity": "group",
+          "alias": "G2",
+          "name": "Nested Outer Flock"
+        }
+      ],
+      "when": [
+        {
+          "action": "assign_to_group",
+          "ref": "A",
+          "group": "G1"
+        },
+        {
+          "action": "assign_to_group",
+          "ref": "G1",
+          "group": "G2"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "group_member",
+          "subject": "A",
+          "group": "G1"
+        },
+        {
+          "assert": "group_member",
+          "subject": "A",
+          "group": "G2"
+        }
+      ]
+    },
+    {
+      "key": "c1-membership-unrelated-group",
+      "title": "An animal is not a member of a group nothing has put it in",
+      "feature": "group-membership",
+      "glossary_terms": [
+        "animal",
+        "group",
+        "group_member",
+        "assign_to_group"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "A",
+          "name": "Ewe Sorrel",
+          "descriptor": "Sheep"
+        },
+        {
+          "entity": "group",
+          "alias": "G1",
+          "name": "Sorrel Flock"
+        },
+        {
+          "entity": "group",
+          "alias": "G2",
+          "name": "Elsewhere Flock"
+        }
+      ],
+      "when": [
+        {
+          "action": "assign_to_group",
+          "ref": "A",
+          "group": "G1"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "group_member",
+          "subject": "A",
+          "group": "G2"
+        }
+      ]
+    }
+  ]
+}

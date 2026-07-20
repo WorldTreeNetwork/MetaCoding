@@ -46,6 +46,13 @@ class FakeFarmOSTransport:
         if path == "/oauth/token":
             return json.dumps({"access_token": "faketoken", "expires_in": 3600})
 
+        if len(segs) == 1:  # the resource index — the source states its bundles
+            return json.dumps({"links": {
+                f"log--{b}": {"href": f"/api/log/{b}"}
+                for b in ("activity", "birth", "harvest", "input",
+                          "observation", "seeding")
+            }})
+
         # /api/<entity>/<bundle>[/<id>]
         entity = segs[1]
         bundle = segs[2] if len(segs) > 2 else None

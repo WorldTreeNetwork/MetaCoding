@@ -33,7 +33,9 @@ is a failure, not a gap.
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -78,8 +80,16 @@ class PortBridge:
         self.manifest = manifest
         self._proc: subprocess.Popen[str] | None = None
         self._next_id = 0
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._reader: threading.Thread | None = None
+        #: Set once a deadline expires. INVARIANT 3: a bridge that stopped
+        #: answering is not answering *later*, it is NO VERDICT — and every
+        #: subsequent call must say so immediately rather than waiting again.
+        self._dead: str = ""
 
     def start(self) -> None:
+        if self._dead:
+            raise BridgeError(self._dead)
         if self._proc is not None:
             return
         spec = self.manifest.bridge
@@ -99,6 +109,27 @@ class PortBridge:
                 f"could not start port bridge {spec.command!r} in "
                 f"{self.manifest.bridge_cwd()}: {exc}"
             ) from exc
+        self._reader = threading.Thread(
+            target=self._pump, args=(self._proc.stdout,), daemon=True
+        )
+        self._reader.start()
+
+    def _pump(self, stdout: Any) -> None:
+        """Read the bridge's lines off-thread so a read can carry a DEADLINE.
+
+        ``proc.stdout.readline()`` has no timeout, and ``BridgeSpec.timeout`` was
+        applied only to ``proc.wait()`` at shutdown. A bridge that accepted a
+        request and then slept consumed the caller's entire tool timeout and
+        produced NO verdict — the worst outcome for an orchestrator waiting on N
+        results, because a missing answer is indistinguishable from a slow one.
+        """
+        try:
+            for line in iter(stdout.readline, ""):
+                self._lines.put(line)
+        except Exception:  # noqa: BLE001 — the pipe closing is not an error here
+            pass
+        finally:
+            self._lines.put(None)
 
     def _env(self) -> dict[str, str] | None:
         if not self.manifest.bridge.env:
@@ -118,8 +149,17 @@ class PortBridge:
             proc.stdin.flush()
         except (BrokenPipeError, ValueError) as exc:
             raise BridgeError(f"port bridge closed its input during {op!r}: {exc}") from exc
-        line = proc.stdout.readline()
-        if not line:
+        deadline = self.manifest.bridge.timeout
+        try:
+            line = self._lines.get(timeout=deadline)
+        except queue.Empty:
+            self._kill(
+                f"port bridge did not answer {op!r} within {deadline}s "
+                f"(BridgeSpec.timeout). A silent bridge is NO VERDICT, not a "
+                f"pending one — the judge does not wait on the party it judges."
+            )
+            raise BridgeError(self._dead) from None
+        if line is None:
             err = proc.stderr.read() if proc.stderr else ""
             raise BridgeError(
                 f"port bridge produced no answer to {op!r} "
@@ -129,9 +169,14 @@ class PortBridge:
             resp = json.loads(line)
         except json.JSONDecodeError as exc:
             raise BridgeError(f"port bridge answered {op!r} with non-JSON: {line!r}") from exc
-        if resp.get("id") not in (None, req["id"]):
+        # Correlation is MANDATORY. Accepting `id: None` made correlation
+        # opt-out by the defendant: a bridge that omits the field may answer out
+        # of order, including replaying a previous fixture's correct answer.
+        if resp.get("id") != req["id"]:
             raise BridgeError(
-                f"port bridge answered id {resp.get('id')!r} to request {req['id']}"
+                f"port bridge answered id {resp.get('id')!r} to request "
+                f"{req['id']} — every response must echo its request id; an "
+                f"uncorrelated answer could belong to any question"
             )
         if not resp.get("ok"):
             msg = str(resp.get("error", "unspecified bridge error"))
@@ -150,6 +195,19 @@ class PortBridge:
                 )
             raise AdapterError(f"{op}: {msg}")
         return resp.get("value")
+
+    def _kill(self, reason: str) -> None:
+        """Kill the child and remember why. No further call waits on it."""
+        self._dead = reason
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            proc.kill()
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream:
+                    try:
+                        stream.close()
+                    except Exception:  # noqa: BLE001
+                        pass
 
     def stop(self) -> None:
         proc, self._proc = self._proc, None

@@ -150,6 +150,20 @@ class Provenance(BaseModel):
     #: Why, when the class is not "scoring". Excluding evidence costs a reason.
     evidence_note: str = ""
 
+    #: INVARIANT 1. ``{assertion: derivation_id}`` for every DERIVED probe whose
+    #: value this fixture asserts — the identity of the computation that produced
+    #: the number, as of the moment it was observed. When we later CORRECT a
+    #: derivation (as ``group_member`` was corrected to recurse and to gate on
+    #: effective time) the stamp no longer matches the contract and the fixture
+    #: is INVALID at load: a correction cannot retroactively bless a value that
+    #: answered the old question. A BOUNDARY value has no entry here — there is
+    #: no computation of ours to version.
+    derivations: dict[str, str] = Field(default_factory=dict)
+    #: ``{assertion: "boundary"|"derived"}``, recorded for the reader. The
+    #: authoritative copy is the probe contract, which no pack can edit; this is
+    #: a legible echo, never consulted for a scoring decision.
+    authority: dict[str, str] = Field(default_factory=dict)
+
 
 class SemanticFixture(BaseModel):
     """One value-level given/when/then scenario (D4), storage-free by rule."""
@@ -198,7 +212,14 @@ class SemanticFixture(BaseModel):
 # JSONL IO                                                                     #
 # --------------------------------------------------------------------------- #
 def load_fixtures(path: str | Path) -> list[SemanticFixture]:
-    """Read a semantic-fixture JSONL file into models (order preserved)."""
+    """Read a semantic-fixture JSONL file into models (order preserved).
+
+    This is the RAW read. It says nothing about whether the file is the pack a
+    recorder sealed — use :func:`ctkr.oracle.pack.load_pack` for anything whose
+    output is a verdict. Every judging path goes through the pack loader; this
+    one exists for the recorder, the sealer, and tools that are inspecting a file
+    rather than trusting it.
+    """
     fixtures: list[SemanticFixture] = []
     with Path(path).open("r", encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):
@@ -370,6 +391,18 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         issues.append(
             ValidationIssue(fixture_id=fid, severity="error", where=where, message=msg)
         )
+
+    # --- the id must hash the body it is attached to ------------------------
+    # `fixture_id` has always BEEN a blake3 content hash; it was simply computed
+    # on write and never on read, so a pack with an expected value edited from
+    # 3.0 to 999.0 validated clean and was scored. Recomputing here is the whole
+    # fix: an edited body cannot keep its id, and a re-derived id does not match
+    # the seal.
+    if fx.fixture_id and fx.fixture_id != fx.content_id():
+        err("fixture_id",
+            f"{fx.fixture_id} does not hash this fixture's body "
+            f"({fx.content_id()}) — the scenario or an expected VALUE was edited "
+            f"after recording")
 
     # --- given: entity terms legal, aliases unique --------------------------
     aliases: dict[str, str] = {}  # alias -> entity term

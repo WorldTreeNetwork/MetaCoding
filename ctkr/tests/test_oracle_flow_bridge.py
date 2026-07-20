@@ -89,6 +89,17 @@ class FakeFarmOS:
         parsed = urllib.parse.urlparse(path)
         segs = [s for s in parsed.path.split("/") if s]
         qs = urllib.parse.parse_qs(parsed.query)
+        if len(segs) == 1:
+            # The resource index. Folds over "all logs" read the bundle set from
+            # HERE, because the source states it and we must not type our own.
+            return json.dumps({"links": {
+                **{f"log--{b}": {"href": f"/api/log/{b}"}
+                   for b in ("activity", "birth", "harvest", "input",
+                             "observation", "seeding")},
+                **{f"asset--{b}": {"href": f"/api/asset/{b}"}
+                   for b in ("animal", "equipment", "group", "land", "plant",
+                             "structure")},
+            }})
         entity, bundle = segs[1], (segs[2] if len(segs) > 2 else None)
         rid = segs[3] if len(segs) > 3 else None
         if method == "POST":
@@ -120,6 +131,7 @@ class FakeFarmOS:
         rid = self._id()
         res = {"type": data["type"], "id": rid, "bundle": bundle,
                "attributes": attrs, "relationships": rels}
+        res["attributes"]["drupal_internal__id"] = self._n
         if entity == "log":
             res["attributes"].setdefault("timestamp", _iso(1_700_000_000))
         if entity == "asset":
@@ -257,9 +269,68 @@ class FakeFarmOS:
             if qs.get("filter[is_group_assignment]", [None])[0] is not None:
                 rows = [r for r in rows
                         if r["attributes"].get("is_group_assignment")]
+            rows = self._conditions(rows, qs)
+            rows = self._sorted(rows, qs)
+            limit = qs.get("page[limit]", [None])[0]
+            if limit is not None:
+                rows = rows[: int(limit)]
             included = [i for r in rows for i in self._included(r, include)]
             return json.dumps({"data": rows, "included": included})
         raise AssertionError(f"unhandled GET {entity}/{bundle}/{rid}")
+
+    # ---- the long-form JSON:API condition filter --------------------------- #
+    # `filter[k][condition][path|operator|value]`. Needed because a membership
+    # read must gate on `timestamp <= now`, and the short form cannot express an
+    # operator. farmOS carries `timestamp` as integer unix seconds in filters.
+    def _conditions(self, rows, qs):
+        groups: dict = {}
+        for key, vals in qs.items():
+            if not key.startswith("filter[") or "][condition][" not in key:
+                continue
+            name = key.split("[", 2)[1].rstrip("]")
+            part = key.rsplit("[", 1)[1].rstrip("]")
+            groups.setdefault(name, {})[part] = vals[0]
+        for cond in groups.values():
+            field, op = cond.get("path", ""), cond.get("operator", "=")
+            want = cond.get("value")
+            kept = []
+            for r in rows:
+                if field == "asset.id":
+                    if want in self._rel_ids(r, "asset"):
+                        kept.append(r)
+                    continue
+                got = r["attributes"].get(field)
+                if field == "timestamp":
+                    got, want_n = _epoch(got), float(want)
+                    if (op in ("<=", "%3C%3D") and got <= want_n) or \
+                       (op == "=" and got == want_n):
+                        kept.append(r)
+                    continue
+                if field == "is_group_assignment":
+                    if bool(got) == (str(want) in ("1", "true", "True")):
+                        kept.append(r)
+                    continue
+                if str(got) == str(want):
+                    kept.append(r)
+            rows = kept
+        return rows
+
+    @staticmethod
+    def _sorted(rows, qs):
+        spec = qs.get("sort", [None])[0]
+        if not spec:
+            return rows
+        for key in reversed(spec.split(",")):
+            desc = key.startswith("-")
+            field = key.lstrip("-")
+            rows = sorted(
+                rows,
+                key=lambda r: (_epoch(r["attributes"].get(field))
+                               if field == "timestamp"
+                               else (r["attributes"].get(field) or 0)),
+                reverse=desc,
+            )
+        return rows
 
     def _included(self, log, include):
         out = []
@@ -587,7 +658,7 @@ def test_stock_is_keyed_on_the_adjusted_asset_not_the_referenced_one():
     assert adapter.stock_on_hand(y, "count", "kilogram") == 4
 
 
-def test_missing_stock_surface_is_reported_with_the_fix():
+def test_missing_surface_never_tells_an_agent_to_destroy_the_shared_oracle():
     """No stock delivered => a named remedy, never a silent zero."""
 
     class NoInventory(FakeFarmOS):
@@ -596,8 +667,14 @@ def test_missing_stock_surface_is_reported_with_the_fix():
 
     adapter = _adapter(NoInventory())
     a = _stock_asset(adapter)
-    with pytest.raises(AdapterError, match="farm_inventory"):
+    # The remedy used to read `docker exec … drush en farm_inventory -y`. The
+    # oracle is SHARED: an agent following that instruction takes down every
+    # sibling's run. A missing surface is reported, never remediated in place.
+    with pytest.raises(AdapterError, match="stock surface is absent") as exc:
         adapter.stock_on_hand(a, "count", "kilogram")
+    for destructive in ("drush", "docker exec", "bring-up.sh"):
+        assert f"`{destructive}" not in str(exc.value)
+    assert "Do NOT run docker" in str(exc.value)
 
 
 # --------------------------------------------------------------------------- #
@@ -701,8 +778,12 @@ def test_missing_birth_surface_is_reported_with_the_fix():
 
     adapter = _adapter(NoBirth())
     calf = _animal(adapter, "Calf1")
-    with pytest.raises(AdapterError, match="farm_birth"):
+    with pytest.raises(AdapterError, match="birth-record surface is absent") as exc:
         adapter.record_birth(calf, [], "birth", "done", None)
+    for destructive in ("drush", "docker", "bring-up.sh"):
+        assert f"`{destructive}" not in str(exc.value)
+    assert "expect_refusal" in str(exc.value)
+    assert "Do NOT run docker" in str(exc.value)
 
 
 # --------------------------------------------------------------------------- #

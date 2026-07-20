@@ -1,0 +1,10 @@
+{
+  "port": "c1-port-A",
+  "description": "non-transitive LWW register — DIVERGES from farmOS",
+  "bridge": {
+    "command": ["python3", "../_bridge.py"],
+    "env": {"RECURSIVE": "0"},
+    "timeout": 10.0
+  },
+  "capabilities": {"operations": ["assign_to_group"], "probes": ["group_member"]}
+}

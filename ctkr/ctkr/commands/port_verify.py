@@ -25,14 +25,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from ctkr.oracle.fixtures import load_fixtures
+from ctkr.oracle.pack import PackError, load_pack
 from ctkr.oracle.port_adapter import BridgeError, PortAdapter
 from ctkr.oracle.port_contract import (
     DEFAULT_DECISION_SOURCES,
     ContractError,
     PortManifest,
-    load_decision_ids,
-    load_marks,
+    load_decisions,
 )
 
 
@@ -45,7 +44,7 @@ _MARK = {
     AssertionStatus.PASSED: "PASS",
     AssertionStatus.FAILED: "FAIL",
     AssertionStatus.DIVERGED: "DIVG",
-    AssertionStatus.UNANSWERABLE: "GAP ",
+    AssertionStatus.NO_VERDICT: "NONE",
 }
 
 
@@ -56,26 +55,23 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "Execute a recorded semantic-fixture pack against a port through the "
             "port's declared bridge. Reports passed / failed / sanctioned-"
-            "divergence / UNANSWERABLE separately: an assertion no declared probe "
-            "can answer is a gap, never a pass, and corroboration-only fixtures "
-            "are reported but excluded from the value score."
+            "divergence / NO VERDICT separately. The pack is loaded WHOLE and "
+            "checked against the seal its recorder wrote: a subset, an edited "
+            "value, or a stale derivation yields no verdict at all. An assertion "
+            "no declared probe can answer, one the port declines at run time, and "
+            "one whose recorded value is an unvalidated derivation of ours all "
+            "reach NO VERDICT — never a pass."
         ),
     )
     p.add_argument("fixtures", help="Path to the observed semantic-fixture JSONL pack.")
     p.add_argument("--port", required=True,
                    help="Port directory containing port.manifest.json (or the "
                         "manifest file itself).")
-    p.add_argument("--marks", default="",
-                   help="Optional fixture-marks file (JSON or JSONL) marking "
-                        "fixtures corroboration-only / order-sensitive. Kept "
-                        "outside the pack: a recorded pack is evidence.")
-    p.add_argument("--decisions", default="",
-                   help="Decision registry (JSONL) that divergence decision_ids "
-                        "must resolve against. Defaults to the kernel CM registry.")
-    p.add_argument("--no-decision-check", action="store_true",
-                   help="Do not resolve divergence decision_ids (not recommended: "
-                        "an unresolvable sanction is how a wrong value gets waved "
-                        "through).")
+    # There is deliberately NO --marks and NO --decisions. Both were pens the
+    # party being judged could hold: --marks let a caller declare which evidence
+    # counts, and --decisions let a port author point the sanction resolver at a
+    # registry they had just written. Evidence quality comes from the sealed
+    # pack; decisions come from the repo, at a fixed path.
     p.add_argument("--json", dest="as_json", action="store_true",
                    help="Emit the full report as JSON on stdout.")
     p.add_argument("--show-passes", action="store_true",
@@ -89,12 +85,17 @@ def _emit_text(report: PortVerifyReport) -> None:
     w = sys.stderr.write
     w(
         f"\n  port            : {report.port}\n"
+        f"  pack            : {report.pack_id or '(unsealed)'}  seal {report.pack_seal[:16]}\n"
         f"  fixtures        : {s.fixtures_total}"
         f" ({s.fixtures_unrunnable} could not run,"
-        f" {s.fixtures_excluded} corroboration-only)\n"
+        f" {s.fixtures_excluded} corroboration-only,"
+        f" {s.fixtures_invalid} INVALID EVIDENCE)\n"
         f"  assertions      : {s.assertions_total}\n"
         f"  answered        : {s.answered}\n"
-        f"  UNANSWERABLE    : {s.unanswerable}   <- declared gaps, not passes\n"
+        f"  NO VERDICT      : {s.no_verdict}   <- never passes, always blocks clean\n"
+        + "".join(f"      - {n} x {cause}\n"
+                 for cause, n in sorted(s.no_verdict_by_cause.items()))
+        +
         f"  scored          : {s.scored_answered}"
         f"   ({s.excluded_corroboration} answered but excluded from scoring)\n"
         f"    passed        : {s.scored_passed}\n"
@@ -117,9 +118,8 @@ def _emit_text(report: PortVerifyReport) -> None:
             w(f"    - {why}\n")
     for problem in report.declaration_problems:
         w(f"    ! declaration problem: {problem}\n")
-    if report.marks_source:
-        w(f"  marks           : {s.fixtures_excluded} fixture(s) excluded via "
-          f"{report.marks_source}\n")
+    for bad in report.invalid_evidence:
+        w(f"    ! INVALID EVIDENCE: {bad}\n")
     w("\n")
     return None
 
@@ -156,45 +156,28 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write(f"\n{exc}\n")
         return 2
 
+    # The pack is loaded WHOLE and verified against its recorder-written seal.
+    # A pack that is not the pack the recorder sealed yields no verdict at all —
+    # a subset, an edited expected value, or an unresolvable witness stops here.
     try:
-        fixtures = load_fixtures(args.fixtures)
-    except (OSError, ValueError) as exc:
-        sys.stderr.write(f"\n{exc}\n")
+        pack = load_pack(args.fixtures)
+    except (OSError, ValueError, PackError) as exc:
+        sys.stderr.write(f"\n  NO VERDICT — the evidence is not sound:\n  {exc}\n")
         return 2
 
-    marks = []
-    if args.marks:
-        try:
-            marks = load_marks(args.marks)
-        except (OSError, ContractError, ValueError) as exc:
-            sys.stderr.write(f"\n{exc}\n")
-            return 2
-
-    # Resolve the decision ids a divergence may cite. Unless the caller opts out
-    # explicitly, an unresolvable sanction is a declaration problem.
-    known_ids: set[str] | None = None
-    if not args.no_decision_check:
-        sources = (
-            [args.decisions] if args.decisions
-            else [_repo_root() / s for s in DEFAULT_DECISION_SOURCES]
+    decisions = load_decisions(_repo_root() / s for s in DEFAULT_DECISION_SOURCES)
+    if not decisions:
+        sys.stderr.write(
+            "\n  no decision registry found at the repo path — every cited "
+            "decision_id will be reported as unresolvable.\n"
         )
-        known_ids = load_decision_ids(sources)
-        if not known_ids:
-            sys.stderr.write(
-                "\n  no decision registry found — divergence decision_ids cannot be "
-                "resolved. Pass --decisions <file>, or --no-decision-check to accept "
-                "unverified sanctions (they will still be reported).\n"
-            )
 
     adapter = PortAdapter(manifest)
     try:
-        report = verify_port(adapter, fixtures, manifest, marks,
-                             fixtures_path=str(args.fixtures),
-                             known_decision_ids=known_ids)
+        report = verify_port(adapter, pack, manifest, decisions)
     except BridgeError as exc:
         sys.stderr.write(f"\n  port bridge unusable: {exc}\n")
         return 2
-    report.marks_source = str(args.marks) if args.marks else ""
 
     if args.as_json:
         sys.stdout.write(report.model_dump_json(indent=2) + "\n")

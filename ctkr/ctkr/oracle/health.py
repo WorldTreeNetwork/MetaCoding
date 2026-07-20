@@ -26,16 +26,23 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-#: Seconds to wait on a preflight probe. Deliberately short — this is a liveness
-#: check, not a workload; a healthy local oracle answers in well under a second.
-DEFAULT_TIMEOUT = 5.0
+#: Seconds to wait on a preflight probe. The 5s default failed a wave-sized
+#: fan-out — a measured sweep of concurrent recorders got 12/12 at 90s and 6/12
+#: at 5s, every failure the OAuth token under contention. A liveness check that
+#: reports CONTENTION as DEATH sends an agent to the remedy below, which is the
+#: one action that would actually kill the oracle for its 11 siblings.
+DEFAULT_TIMEOUT = 90.0
 
-#: How to get the oracle back. Quoted verbatim in the failure message so an agent
-#: mid-fan-out does not have to go find the runbook.
+#: What to do when the oracle does not answer. The oracle is SHARED: the previous
+#: text told whoever hit a slow token endpoint to run `bring-up.sh`, i.e. to
+#: destroy the instance every concurrent sibling was using. Bringing it up is an
+#: operator action, taken once, by a human who knows nobody else is running.
 REMEDY = (
-    "Bring it up with `ctkr/ctkr/oracle/bring-up.sh` (~2 min with images cached), "
-    "then confirm with `ctkr oracle-verify ctkr/oracle/data/farmos_core_fixtures.jsonl "
-    "--adapter farmos` (must be 7/7)."
+    "The oracle is SHARED by every concurrent run. Do NOT run bring-up.sh, "
+    "docker, or drush against it — that destroys every sibling's run, and the "
+    "usual cause of this message is CONTENTION, not death. First retry with a "
+    "longer --preflight-timeout. If it is still silent, STOP and report it: "
+    "restarting the shared oracle is an operator decision, not an agent's."
 )
 
 
@@ -44,7 +51,7 @@ class OracleDown(RuntimeError):
 
     def __init__(self, reason: str, base_url: str) -> None:
         super().__init__(
-            f"ORACLE DOWN at {base_url}: {reason}\n  {REMEDY}\n"
+            f"ORACLE NOT ANSWERING at {base_url}: {reason}\n  {REMEDY}\n"
             "  Do NOT substitute intuited values for observation — a build judged "
             "without the oracle is a conformance claim, never a value claim "
             "(see docs/design/no-oracle-fallback.md)."

@@ -1,0 +1,34 @@
+{
+  "pack_id": "270156b34d87",
+  "recorded_at": "2026-07-20T19:39:53.323415+00:00",
+  "source_system": "farmOS",
+  "source_version": "4.x",
+  "fixture_ids": [
+    "0d6f8d137c51eba0e52ef30068abbea9",
+    "66f78c4e694b08044dc30180bcaf5de3",
+    "5166ec6b1f8bc0a65154a25d03191fd8",
+    "bfac109159dc2d66480ca128fa48eb91",
+    "5c5904fc3dafbddd2b32630653c31efd",
+    "7570157419b16e441e1ba05fa76a6bde",
+    "109814672fe6e549a6c92c8a2d04d758",
+    "28220102bd21cec50de45e81d8b4f7c8",
+    "c040e958aab883579d29bfc280712dcf",
+    "def0dcc1a71e8fb0be2eefc11f09a23d",
+    "6e8b8665ebd0c9501c1832f87f6b87f7"
+  ],
+  "fixtures_blake3": "f855dc11664763842293c759aca3acb6",
+  "observations_blake3": "98530320360ee7e0b38941905d8d73cb",
+  "derivations": {
+    "yield_total": "3f299470a126f329",
+    "log_count": "6c6869b9e8a9b6e4",
+    "group_member": "22b77a9c85a4989d",
+    "quantity_recorded": "7f98960a5c513d77",
+    "stock_on_hand": "fe0d197f57c00836",
+    "stock_pair_count": "9a173457ef8d89e7",
+    "adjustment_count": "7cd527725b146dd4",
+    "parent_count": "c6bf3671e7c4df31",
+    "has_parent": "b72317e3a75bc406",
+    "birth_record_count": "dada0d951d78c63e"
+  },
+  "seal": "270156b34d87aee009f9f01c05121909"
+}

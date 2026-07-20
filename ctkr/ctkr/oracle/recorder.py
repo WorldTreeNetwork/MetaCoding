@@ -38,6 +38,7 @@ from ctkr.oracle.fixtures import (
     ThenAssertion,
     WhenStep,
 )
+from ctkr.oracle.probes import PROBE_CONTRACT
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 
@@ -658,6 +659,20 @@ def record_flow(
         evidence_class = "corroboration-only"
         evidence_note = flow.corroboration_reason or detected
 
+    # INVARIANT 1. Every value the fixture carries is stamped with WHERE ITS
+    # AUTHORITY COMES FROM, and — when it is one of ours — with the identity of
+    # the computation that produced it. The recorder is the only party that can
+    # honestly state this, because it is the party that made the reads.
+    asserted = {a.assert_ for a in then}
+    authority = {
+        t: PROBE_CONTRACT[t].authority for t in sorted(asserted) if t in PROBE_CONTRACT
+    }
+    derivations = {
+        t: PROBE_CONTRACT[t].derivation_id
+        for t in sorted(asserted)
+        if t in PROBE_CONTRACT and PROBE_CONTRACT[t].derivation_id
+    }
+
     observations = list(getattr(client, "observations", []))[obs_start:]
     fixture = SemanticFixture(
         title=flow.title,
@@ -674,6 +689,8 @@ def record_flow(
             observation_refs=[o.obs_id for o in observations],
             evidence_class=evidence_class,
             evidence_note=evidence_note,
+            derivations=derivations,
+            authority=authority,
         ),
     ).with_id()
     return fixture, observations

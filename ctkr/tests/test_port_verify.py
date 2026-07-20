@@ -7,6 +7,7 @@ and its honesty rules, not a port and not a live system.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,13 +16,8 @@ from ctkr.oracle import glossary
 from ctkr.oracle.adapter import ImplementationAdapter
 from ctkr.oracle.fixtures import SemanticFixture
 from ctkr.oracle.port_adapter import PortAdapter, Unanswerable
-from ctkr.oracle.port_contract import (
-    ContractError,
-    Divergence,
-    FixtureMark,
-    PortManifest,
-    load_marks,
-)
+from ctkr.oracle.pack import Pack, PackSeal
+from ctkr.oracle.port_contract import ContractError, Divergence, PortManifest
 from ctkr.oracle.port_verify import (
     AssertionStatus,
     PortScore,
@@ -149,15 +145,21 @@ def make_manifest(
     operations: list[str],
     probes: list[str],
     divergences: list[Divergence] | None = None,
-    marks: list[FixtureMark] | None = None,
 ) -> PortManifest:
     return PortManifest(
         port="fake",
         bridge={"command": ["true"]},
         capabilities={"operations": operations, "probes": probes},
         divergences=divergences or [],
-        fixture_marks=marks or [],
     )
+
+
+def pack(fixtures, invalid=()) -> Pack:
+    """An in-memory sealed pack. `verify_port` takes NOTHING else that can move
+    the score, which is the point: there is no `marks` argument to pass."""
+    return Pack(path=Path("t/fixtures.jsonl"),
+                seal=PackSeal(fixture_ids=[f.fixture_id for f in fixtures]).sealed(),
+                fixtures=list(fixtures), invalid=list(invalid))
 
 
 def make_adapter(
@@ -260,14 +262,14 @@ def test_unanswerable_probe_is_a_gap_not_a_pass() -> None:
     fx = fixture("f1", [soh(4.0), adjcount(1)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
+                         pack([fx]), manifest)
 
     statuses = [o.status for o in report.verdicts[0].outcomes]
-    assert statuses == [AssertionStatus.PASSED, AssertionStatus.UNANSWERABLE]
+    assert statuses == [AssertionStatus.PASSED, AssertionStatus.NO_VERDICT]
     # Reported, not dropped: the assertion is still in the output.
     assert len(report.verdicts[0].outcomes) == 2
     s = report.score
-    assert (s.assertions_total, s.answered, s.unanswerable) == (2, 1, 1)
+    assert (s.assertions_total, s.answered, s.no_verdict) == (2, 1, 1)
     assert s.scored_answered == 1 and s.scored_passed == 1
     # The value score's denominator is never the pack size.
     assert s.value_score == 1.0
@@ -282,10 +284,10 @@ def test_an_undeclared_operation_makes_the_whole_fixture_unanswerable() -> None:
     )
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
+                         pack([fx]), manifest)
     v = report.verdicts[0]
     assert v.ran is False
-    assert [o.status for o in v.outcomes] == [AssertionStatus.UNANSWERABLE]
+    assert [o.status for o in v.outcomes] == [AssertionStatus.NO_VERDICT]
     assert "set_log_status" in v.error
     assert report.score.scored_answered == 0
 
@@ -294,9 +296,9 @@ def test_headline_cannot_be_quoted_as_one_number() -> None:
     fx = fixture("f1", [soh(4.0), adjcount(1)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
+                         pack([fx]), manifest)
     headline = report.score.headline()
-    assert "1/1" in headline and "1/2 unanswerable" in headline
+    assert "1/1" in headline and "1/2 NO VERDICT" in headline
     dumped = json.loads(report.model_dump_json())
     assert "pass_rate" not in json.dumps(dumped)
 
@@ -309,7 +311,7 @@ def _diverging_setup(port_value: float, declared: list[Divergence]):
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
     adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
                            overrides={"stock_on_hand": port_value})
-    return verify_port(adapter, [fx], manifest)
+    return verify_port(adapter, pack([fx]), manifest)
 
 
 def test_declared_divergence_is_accepted() -> None:
@@ -354,8 +356,8 @@ def test_a_divergence_cannot_launder_an_unanswerable_assertion() -> None:
         })
     ])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
-    assert report.verdicts[0].outcomes[0].status == AssertionStatus.UNANSWERABLE
+                         pack([fx]), manifest)
+    assert report.verdicts[0].outcomes[0].status == AssertionStatus.NO_VERDICT
     assert report.score.scored_diverged == 0
 
 
@@ -378,7 +380,7 @@ def test_a_divergence_for_a_fixture_outside_the_pack_is_reported() -> None:
         })
     ])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
+                         pack([fx]), manifest)
     assert any("not in this pack" in p for p in report.declaration_problems)
 
 
@@ -401,16 +403,24 @@ def test_a_divergence_needs_a_reason_and_a_port_value() -> None:
 # --------------------------------------------------------------------------- #
 # 4. Corroboration-only fixtures are reported but never scored                 #
 # --------------------------------------------------------------------------- #
+def corroboration(fid: str, then, title="order-sensitive"):
+    """A fixture the RECORDER classified as corroboration-only, inside the pack.
+
+    This is now the ONLY way a fixture can be excluded from the value score, and
+    the port has no hand in it: the class travels in the sealed pack's provenance.
+    """
+    fx = fixture(fid, then, title=title)
+    fx.provenance.evidence_class = "corroboration-only"
+    fx.provenance.evidence_note = "value encodes source insertion order"
+    return fx
+
+
 def test_corroboration_only_fixture_is_reported_but_excluded() -> None:
     ok = fixture("keep", [soh(4.0)])
-    corroboration = fixture("order", [soh(999.0)], title="order-sensitive")
-    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], marks=[
-        FixtureMark(fixture_id="order", corroboration_only=True,
-                    order_sensitive=True,
-                    reason="value encodes source insertion order")
-    ])
+    corr = corroboration("order", [soh(999.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [ok, corroboration], manifest)
+                         pack([ok, corr]), manifest)
 
     excluded = report.verdicts[1]
     assert excluded.scored is False
@@ -431,33 +441,61 @@ def test_corroboration_only_fixture_is_reported_but_excluded() -> None:
 
 def test_an_order_sensitive_fixture_cannot_pass_for_the_wrong_reason() -> None:
     """Even when it MATCHES, an excluded fixture adds nothing to the score."""
-    fx = fixture("order", [soh(4.0)])
-    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], marks=[
-        FixtureMark(fixture_id="order", corroboration_only=True,
-                    reason="value encodes source insertion order")
-    ])
+    fx = corroboration("order", [soh(4.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
-                         [fx], manifest)
+                         pack([fx]), manifest)
     assert report.verdicts[0].outcomes[0].status == AssertionStatus.PASSED
     assert report.score.scored_answered == 0
     assert report.score.scored_passed == 0
 
 
-def test_marks_file_loads_json_and_jsonl(tmp_path) -> None:
-    row = {"fixture_id": "x", "corroboration_only": True, "reason": "why"}
-    as_json = tmp_path / "m.json"
-    as_json.write_text(json.dumps([row]), encoding="utf-8")
-    as_jsonl = tmp_path / "m.jsonl"
-    as_jsonl.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    assert load_marks(as_json) == load_marks(as_jsonl)
-    assert load_marks(as_json)[0].excluded_from_score
+# ---- INVARIANT 2: the defendant holds no pen that touches the verdict ------- #
+def test_a_port_manifest_cannot_carry_fixture_marks() -> None:
+    """C2. The attack, in full: a deliberately-broken port scored
+    `passed 25 / failed 5 / reproduced 83.3% / EXIT=1`. Adding five
+    `corroboration_only` marks with a plausible reason to the port's OWN
+    manifest produced `scored 18 (12 excluded) / failed 0 / reproduced 100.0% /
+    clean=true / EXIT=0`, with the five FAILs still printed in the body.
+
+    The fix is not a check. The field does not exist, so the manifest that
+    carries it does not load at all.
+    """
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PortManifest.model_validate({
+            "port": "liar",
+            "bridge": {"command": ["true"]},
+            "capabilities": {"operations": ALL_OPS, "probes": ["stock_on_hand"]},
+            "fixture_marks": [{"fixture_id": "f1", "corroboration_only": True,
+                               "reason": "order-sensitive, honest"}],
+        })
 
 
-def test_excluding_a_fixture_requires_a_reason() -> None:
-    m = PortManifest(port="p", bridge={"command": ["true"]})
-    m.fixture_marks = [FixtureMark(fixture_id="x", corroboration_only=True)]
-    with pytest.raises(ContractError):
-        m.check()
+def test_there_is_no_marks_parameter_to_verify_port() -> None:
+    """A5/C2, structurally: no caller — port author, agent, or CLI — can hand
+    the judge a list of fixtures that do not count."""
+    import inspect
+
+    params = set(inspect.signature(verify_port).parameters)
+    assert params == {"adapter", "pack", "manifest", "decisions"}
+    assert "marks" not in json.dumps(sorted(params))
+
+
+def test_a_port_cannot_choose_a_subset_of_the_pack() -> None:
+    """A5. `sed -n '4,7p'` of a pack gave `coverage 10/10 = 100.0%, clean`.
+
+    A pack now states its own extent, in a seal its recorder wrote; judging is
+    against the whole artifact, and `load_pack` is the only door in.
+    """
+    import inspect
+
+    from ctkr.oracle import pack as pack_mod
+
+    src = inspect.getsource(pack_mod.load_pack)
+    assert "is judged whole" in src
+    assert "does not match its seal" in src
 
 
 # --------------------------------------------------------------------------- #
@@ -479,10 +517,10 @@ def test_a_declared_but_refused_probe_fails_and_is_not_a_gap() -> None:
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
                            refuse={"stock_on_hand"})
-    report = verify_port(adapter, [fx], manifest)
+    report = verify_port(adapter, pack([fx]), manifest)
     o = report.verdicts[0].outcomes[0]
     assert o.status == AssertionStatus.FAILED
-    assert report.score.unanswerable == 0
+    assert report.score.no_verdict == 0
     assert any("refuses it" in p for p in report.declaration_problems)
 
 
@@ -507,9 +545,9 @@ def test_score_buckets_never_overlap() -> None:
     fx_fail = fixture("b", [soh(1.0)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=[])
     adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest)
-    report = verify_port(adapter, [fx_pass, fx_fail], manifest)
+    report = verify_port(adapter, pack([fx_pass, fx_fail]), manifest)
     s = score_verdicts(report.verdicts)
-    assert s.answered + s.unanswerable == s.assertions_total
+    assert s.answered + s.no_verdict == s.assertions_total
     assert (s.scored_passed + s.scored_diverged + s.scored_failed
             == s.scored_answered)
     assert s.scored_answered + s.excluded_corroboration == s.answered
@@ -544,8 +582,8 @@ def test_an_unresolvable_decision_id_is_a_declaration_problem() -> None:
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
     adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
                            overrides={"stock_on_hand": 9.0})
-    report = verify_port(adapter, [fx], manifest,
-                         known_decision_ids={"pending-status-gates"})
+    report = verify_port(adapter, pack([fx]), manifest,
+                         decisions={"pending-status-gates": "stock_on_hand"})
     assert any("no-such-decision-anywhere" in p for p in report.declaration_problems)
     assert not report.clean
 
@@ -585,12 +623,33 @@ def test_sanctioned_divergences_block_a_clean_verdict() -> None:
     assert any("MODULO" in w for w in report.needs_review)
 
 
-def test_external_marks_require_a_reason(tmp_path) -> None:
-    """The path that WINS must be the best-validated one, not the unvalidated one."""
-    p = tmp_path / "marks.json"
-    p.write_text(json.dumps([{"fixture_id": "x", "corroboration_only": True}]))
-    with pytest.raises(ContractError, match="requires a reason"):
-        load_marks(p)
+def test_there_is_no_external_marks_file_at_all() -> None:
+    """The external `--marks` path is gone, not merely better validated.
+
+    It was introduced as the trustworthy channel — a caller-supplied file the
+    port's author supposedly did not write. But `port-verify` is invoked by hand
+    or by an agent every time (there is no automated invocation anywhere in the
+    repo), so "the caller" and "the party being judged" are the same process. A
+    reason field does not fix who is holding the pen.
+    """
+    from ctkr.oracle import port_contract
+    from ctkr.commands import port_verify as cmd
+
+    assert not hasattr(port_contract, "load_marks")
+    assert not hasattr(port_contract, "FixtureMark")
+
+    # The flag is not accepted by the parser — the mention left in the source is
+    # the comment explaining why it was removed.
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    cmd.register(parser.add_subparsers())
+    with pytest.raises(SystemExit):
+        parser.parse_args(["port-verify", "p.jsonl", "--port", "d",
+                           "--marks", "m.json"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["port-verify", "p.jsonl", "--port", "d",
+                           "--decisions", "mine.jsonl"])
 
 
 def test_a_bridge_may_declare_a_per_call_gap() -> None:
@@ -604,7 +663,7 @@ def test_a_bridge_may_declare_a_per_call_gap() -> None:
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
     adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
                            overrides={"stock_on_hand": _PER_CALL_GAP})
-    report = verify_port(adapter, [fx], manifest)
-    assert report.score.unanswerable == 1
+    report = verify_port(adapter, pack([fx]), manifest)
+    assert report.score.no_verdict == 1
     assert report.score.scored_passed == 0
     assert not report.clean

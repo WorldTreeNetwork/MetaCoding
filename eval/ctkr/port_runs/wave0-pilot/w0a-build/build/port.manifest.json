@@ -2,14 +2,22 @@
   "port": "w0a-asset-inventory",
   "description": "Wave-0 pilot blind port of the Asset Inventory feature, built on the shared kernel v1. Declares only the surface it actually has: everything else is an unanswerable gap, on purpose.",
   "bridge": {
-    "command": ["bun", "run", "port_bridge.ts"],
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
     "cwd": ".",
     "timeout": 30.0
   },
   "capabilities": {
-    "operations": ["record_inventory_adjustment"],
-    "probes": ["stock_on_hand", "stock_pair_count"]
+    "operations": [
+      "record_inventory_adjustment"
+    ],
+    "probes": [
+      "stock_on_hand",
+      "stock_pair_count"
+    ]
   },
-  "divergences": [],
-  "fixture_marks": []
+  "divergences": []
 }

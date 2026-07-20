@@ -20,12 +20,12 @@ from pathlib import Path
 from ctkr.oracle.fixtures import validate_fixture, write_fixtures
 from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
 from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
+from ctkr.oracle.pack import PackError, seal_pack
 from ctkr.oracle.recorder import (
     build_client,
     record_session_result,
     core_flows,
     hardening_flows,
-    record_session,
     write_observations,
 )
 
@@ -118,6 +118,17 @@ def run(args: argparse.Namespace) -> int:
     n_fx = write_fixtures(fixtures, fx_path)
     n_obs = write_observations(observations, obs_path)
 
+    # SEAL the pack the moment it is written, by the party that wrote it. From
+    # here on the pack is a whole artifact: whoever is judged against it can no
+    # longer choose a subset of it, edit an expected value in it, or re-classify
+    # its evidence. See ctkr/oracle/pack.py.
+    seal = None
+    seal_error = ""
+    try:
+        seal = seal_pack(fx_path)
+    except PackError as exc:
+        seal_error = str(exc)
+
     issues = [i for fx in fixtures for i in validate_fixture(fx)]
     sys.stderr.write(
         f"\n  flows recorded      : {len(fixtures)}/{len(flows)}\n"
@@ -126,6 +137,8 @@ def run(args: argparse.Namespace) -> int:
         f"  validation issues   : {len(issues)}\n"
         f"  fixtures            : {fx_path}\n"
         f"  observations        : {obs_path}\n"
+        + (f"  pack seal           : {seal.pack_id} ({seal.seal})\n"
+           if seal else f"  pack NOT SEALED     : {seal_error}\n")
     )
     for i in issues:
         sys.stderr.write(f"  [{i.severity}] {i.where}: {i.message}\n")
@@ -144,4 +157,4 @@ def run(args: argparse.Namespace) -> int:
             "  If the source REFUSED the write, that refusal is a semantic worth\n"
             "  recording: set expect_refusal on the flow and re-run.\n"
         )
-    return 1 if (issues or session.unrecorded) else 0
+    return 1 if (issues or session.unrecorded or seal is None) else 0

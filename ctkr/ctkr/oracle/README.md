@@ -36,7 +36,7 @@ that produced it) and the glossary terms it uses.
 | `recorder.py` | scripted value-flows → distilled fixtures (values from observation) |
 | `runner.py` | verify fixtures against any adapter → pass/fail per fixture |
 
-`data/farmos_core_fixtures.jsonl` is the recorded core pack (7 fixtures);
+`data/core-pack/` is the recorded, SEALED core pack (7 fixtures);
 `data/farmos_core_observations.jsonl` the raw request/response provenance.
 
 ## CLI
@@ -63,7 +63,7 @@ it (e.g. an OrbStack reset, 2026-07-20) costs nothing but the rebuild.
 After a rebuild, prove equivalence before recording anything new:
 
 ```bash
-uv run python -m ctkr oracle-verify ctkr/oracle/data/farmos_core_fixtures.jsonl \
+uv run python -m ctkr oracle-verify ctkr/oracle/data/core-pack/fixtures.jsonl \
   --adapter farmos --base-url http://localhost:8095   # must be 7/7
 ```
 

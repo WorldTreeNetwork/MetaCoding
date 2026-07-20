@@ -137,13 +137,7 @@ class FarmOSAdapter(ImplementationAdapter):
         self.client = client
         self._unit_cache: dict[str, str] = {}  # unit name -> term uuid
         self._type_term_cache: dict[tuple[str, str], str] = {}  # (vocab, name) -> uuid
-        # Group membership is read as the LATEST done group-assignment log
-        # (sort=-timestamp). farmOS timestamps are integer unix seconds, so two
-        # assignments minted in the same second tie and the "latest" is
-        # nondeterministic. We stamp each assignment with a strictly increasing
-        # timestamp per adapter instance so latest-wins is well-defined (and the
-        # reassignment fixture reproduces deterministically on self-verify).
-        self._last_assign_ts: int = 0
+        self._log_bundles: tuple[str, ...] | None = None
 
     # ---- lifecycle --------------------------------------------------------- #
     def open(self) -> None:
@@ -195,6 +189,22 @@ class FarmOSAdapter(ImplementationAdapter):
             href = nxt.get("href") if isinstance(nxt, dict) else None
             url = href.replace(self.client.base_url, "") if href else None
         return rows
+
+    def log_bundles(self) -> tuple[str, ...]:
+        """Every log bundle **the source's own resource index publishes**.
+
+        A fold over "all logs" must fold over the set the SOURCE says exists,
+        not a list we typed. The hard-coded five-kind list this replaces omitted
+        ``birth`` — so `yield_total` and `adjustment_count` were silently blind
+        to a whole bundle, which is `group_member`'s defect one level up: an
+        adapter-authored enumeration standing in for a source-stated one.
+        """
+        if self._log_bundles is None:
+            links = self.client.request("GET", "/api").get("links") or {}
+            self._log_bundles = tuple(sorted(
+                k.split("--", 1)[1] for k in links if k.startswith("log--")
+            ))
+        return self._log_bundles
 
     # ---- given / when ------------------------------------------------------ #
     def create_asset(
@@ -283,12 +293,13 @@ class FarmOSAdapter(ImplementationAdapter):
     def assign_to_group(self, asset_handle: Handle, group_handle: Handle) -> None:
         _, abundle, aid = self._split(asset_handle)
         _, _, gid = self._split(group_handle)
-        # Strictly increasing timestamp so successive assignments order
-        # deterministically under the sort=-timestamp membership read.
-        ts = int(time.time())
-        if ts <= self._last_assign_ts:
-            ts = self._last_assign_ts + 1
-        self._last_assign_ts = ts
+        # No adapter-minted timestamp. The previous code stamped a strictly
+        # increasing per-instance timestamp so "latest wins" would be
+        # well-defined under a sort=-timestamp read — i.e. the adapter SHAPED
+        # the observation to suit its own query. farmOS breaks the tie itself
+        # (`lfd2.timestamp = lfd.timestamp AND lfd2.id > lfd.id`), and
+        # `group_member` now reads it that way, so the source orders its own
+        # events and we record what it did.
         doc = {
             "data": {
                 "type": "log--activity",
@@ -296,7 +307,7 @@ class FarmOSAdapter(ImplementationAdapter):
                     "name": "group assignment",
                     "status": "done",
                     "is_group_assignment": True,
-                    "timestamp": ts,
+                    "timestamp": int(time.time()),
                 },
                 "relationships": {
                     "asset": {"data": [{"type": f"asset--{abundle}", "id": aid}]},
@@ -319,7 +330,7 @@ class FarmOSAdapter(ImplementationAdapter):
     ) -> float:
         _, _, aid = self._split(asset_handle)
         total = 0.0
-        for kind in ("harvest", "input", "activity", "observation", "seeding"):
+        for kind in self.log_bundles():
             path = (
                 f"/api/log/{kind}?filter[asset.id]={aid}"
                 f"&include=quantity,quantity.units&page[limit]=50"
@@ -362,24 +373,63 @@ class FarmOSAdapter(ImplementationAdapter):
         # farmOS: `archived` is a boolean; an active asset is not archived.
         return not doc["data"]["attributes"].get("archived")
 
-    def group_member(self, asset_handle: Handle, group_handle: Handle) -> bool:
-        _, abundle, aid = self._split(asset_handle)
-        _, _, gid = self._split(group_handle)
-        # Membership = the group referenced by the LATEST done group-assignment
-        # log that includes the asset (farmOS's group-membership semantics).
+    #: farmOS's own membership authority, quoted so the derivation and the thing
+    #: it is validated against sit next to each other in the file that computes it:
+    #:
+    #:   web/profiles/farm/modules/asset/group/src/GroupMembership.php
+    #:     public function getGroupMembers(array $groups, bool $recurse = TRUE,
+    #:                                     $timestamp = NULL)
+    #:
+    #: Three facts this code MUST honour, each of which the previous
+    #: implementation did not, and each of which was measured to invert an
+    #: acceptance verdict:
+    #:   1. RECURSION IS THE DEFAULT. A member of a member-group is a member.
+    #:   2. EFFECTIVE TIME GATES. `lfd.timestamp <= :timestamp` (default: now).
+    #:      A not-yet-effective assignment does not confer membership.
+    #:   3. THE TIE-BREAK IS THE SOURCE'S. `lfd2.timestamp = lfd.timestamp AND
+    #:      lfd2.id > lfd.id` — larger internal id wins an equal-time tie.
+    def _direct_group_ids(self, asset_uuid: str, as_of: int) -> set[str]:
+        """The group(s) the newest effective done assignment puts an asset in."""
         path = (
             "/api/log/activity"
-            f"?filter[is_group_assignment]=1&filter[asset.id]={aid}"
-            "&filter[status]=done&sort=-timestamp&page[limit]=1&include=group"
+            "?filter[ga][condition][path]=is_group_assignment"
+            "&filter[ga][condition][value]=1"
+            "&filter[st][condition][path]=status"
+            "&filter[st][condition][value]=done"
+            f"&filter[as][condition][path]=asset.id"
+            f"&filter[as][condition][value]={asset_uuid}"
+            "&filter[ts][condition][path]=timestamp"
+            "&filter[ts][condition][operator]=%3C%3D"
+            f"&filter[ts][condition][value]={as_of}"
+            "&sort=-timestamp,-drupal_internal__id&page[limit]=1&include=group"
         )
         rows = self._paged(path)
         if not rows:
-            return False
+            return set()
         grp = ((rows[0].get("relationships") or {}).get("group") or {}).get("data")
         if not grp:
-            return False
-        grp_ids = {grp["id"]} if isinstance(grp, dict) else {g["id"] for g in grp}
-        return gid in grp_ids
+            return set()
+        return {grp["id"]} if isinstance(grp, dict) else {g["id"] for g in grp}
+
+    def group_member(self, asset_handle: Handle, group_handle: Handle) -> bool:
+        _, _, aid = self._split(asset_handle)
+        _, _, gid = self._split(group_handle)
+        as_of = int(time.time())
+        # Walk the membership chain upward. `getGroupMembers(recurse=TRUE)` says
+        # a group's members include the members of its member-groups; read from
+        # the asset's side that is exactly the transitive closure of "the group
+        # my newest effective assignment names".
+        seen: set[str] = set()
+        frontier = self._direct_group_ids(aid, as_of)
+        while frontier:
+            if gid in frontier:
+                return True
+            seen |= frontier
+            nxt: set[str] = set()
+            for g in frontier:
+                nxt |= self._direct_group_ids(g, as_of)
+            frontier = nxt - seen  # a membership cycle terminates, it does not hang
+        return False
 
     # ---- stock / inventory (w0a) ------------------------------------------- #
     # farmOS keeps the adjustment on the QUANTITY (`inventory_adjustment` +
@@ -387,15 +437,25 @@ class FarmOSAdapter(ImplementationAdapter):
     # Two writes per adjustment, therefore. Both fields only exist once the
     # farm_inventory module is installed — a missing module is reported with the
     # fix rather than silently producing an empty stock reading.
+    # The oracle is SHARED. A remedy that tells an agent to run docker/drush
+    # against it is a remedy that tells one agent to break every sibling's run,
+    # and the previous wording did exactly that. If the write was REFUSED rather
+    # than unsupported, the refusal is the finding — record it.
+    _SHARED_ORACLE_RULE = (
+        "Do NOT run docker, drush, or bring-up.sh against this oracle: it is "
+        "shared by every concurrent run. Report the missing surface instead."
+    )
     _INVENTORY_REMEDY = (
-        "the stock surface is absent at the boundary — enable it with "
-        "`docker exec farmos-oracle-www drush en farm_inventory -y` "
-        "(and add farm_inventory to ctkr/ctkr/oracle/bring-up.sh)"
+        "the stock surface is absent at the boundary. If the source REFUSED the "
+        "write, that refusal is the semantic — set expect_refusal on the flow. "
+        "If the surface is genuinely absent, this feature cannot be recorded "
+        "here. " + _SHARED_ORACLE_RULE
     )
     _BIRTH_REMEDY = (
-        "the birth-record surface is absent at the boundary — enable it with "
-        "`docker exec farmos-oracle-www drush en farm_birth -y` "
-        "(and add farm_birth to ctkr/ctkr/oracle/bring-up.sh)"
+        "the birth-record surface is absent at the boundary. If the source "
+        "REFUSED the write, that refusal is the semantic — set expect_refusal on "
+        "the flow. If the surface is genuinely absent, this feature cannot be "
+        "recorded here. " + _SHARED_ORACLE_RULE
     )
 
     def _create_adjustment_quantity(
@@ -499,11 +559,11 @@ class FarmOSAdapter(ImplementationAdapter):
         """How many recorded events carry a stock adjustment against the asset.
 
         There is no cross-kind event collection at this boundary, so the ledger
-        query is issued once per kind and the rows are summed.
+        query is issued once per bundle THE SOURCE PUBLISHES and the rows summed.
         """
         _, _, aid = self._split(asset_handle)
         total = 0
-        for kind in ("activity", "harvest", "input", "observation", "seeding"):
+        for kind in self.log_bundles():
             total += len(self._paged(
                 f"/api/log/{kind}?filter[quantity.inventory_asset.id]={aid}"
                 "&sort=timestamp,drupal_internal__id&page[limit]=50"

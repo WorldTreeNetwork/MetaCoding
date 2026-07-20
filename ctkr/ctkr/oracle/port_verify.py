@@ -11,26 +11,30 @@ It is a separate scorer from :func:`ctkr.oracle.runner.run_fixtures` for one
 reason: that runner's result is a boolean per assertion and a single blended
 ``pass_rate``, and the whole point here is that **three outcomes are not two**.
 
-The three honesty rules, each enforced structurally rather than by convention:
+Everything below is an instance of three invariants, not a list of guards:
 
-1. **An unanswerable assertion is a declared gap.** The port declares its probe
-   surface; an assertion whose probe is undeclared is never called, never
-   guessed, and is counted in its own bucket. There is no code path from
-   :class:`~ctkr.oracle.port_adapter.Unanswerable` to
-   :attr:`AssertionStatus.PASSED`, and the report has no field that blends
-   answered and unanswerable into one percentage.
+**I1 — every value declares its authority.** An assertion is judged against a
+recorded value, and that value came from either the source's own interface
+(``boundary``) or from a computation of ours (``derived``). The probe contract
+states which, and for a derived probe, what source authority the derivation was
+validated against. A derived value with no such validation is **not evidence**:
+:func:`_judge_assertion` reaches :data:`AssertionStatus.NO_VERDICT` before it
+calls the port at all. This is why the C1 result inverts — a port that matches
+farmOS can no longer be failed by a probe that never asked farmOS.
 
-2. **A sanctioned divergence is declared up front.** Only a mismatch that a
-   :class:`~ctkr.oracle.port_contract.Divergence` named *before the run*, and
-   whose declared ``port_value`` the port actually delivered, is
-   ``diverged_as_declared``. Any other mismatch fails. A declaration is consulted
-   only for an ANSWERED assertion, so it can never launder a gap; and a
-   declaration that did not fire is reported as a declaration problem, because a
-   stale sanction is a lie about the port.
+**I2 — the defendant never holds a pen that touches the verdict.** The only
+inputs to this function that shape the score are the probe contract (repo), the
+sealed pack (recorder), and the decision registry (repo). The port supplies its
+capabilities and its divergences: two claims *about itself*, both of which can
+only hurt it. There is no ``marks`` parameter, because there is no artifact in
+which the party being judged may say which evidence counts.
 
-3. **A fixture whose value encodes source insertion order does not score.**
-   Marked ``corroboration_only``/``order_sensitive``, it is executed and fully
-   reported, but excluded from the value score's denominator and numerator alike.
+**I3 — absence of an answer is never an answer.** One bucket,
+:data:`AssertionStatus.NO_VERDICT`, absorbs every shape of "we did not learn the
+answer": an undeclared probe, a runtime decline, a fixture whose setup could not
+run, an invalid fixture, an unvalidated derivation, a bridge that stopped
+speaking. It is never a pass, it always blocks ``clean``, and a run whose scored
+denominator is empty says *"this run is evidence of nothing"* rather than 100%.
 """
 
 from __future__ import annotations
@@ -43,8 +47,14 @@ from pydantic import BaseModel, Field, computed_field
 
 from ctkr.oracle.adapter import AdapterError
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
-from ctkr.oracle.port_adapter import FalseDeclaration, PortAdapter, Unanswerable
-from ctkr.oracle.port_contract import Divergence, FixtureMark, PortManifest
+from ctkr.oracle.pack import Pack
+from ctkr.oracle.port_adapter import (
+    BridgeError,
+    FalseDeclaration,
+    PortAdapter,
+    Unanswerable,
+)
+from ctkr.oracle.port_contract import Divergence, PortManifest, decision_covers
 from ctkr.oracle.probes import PROBE_CONTRACT, methods_for_action
 from ctkr.oracle.runner import UnresolvedAlias, compare_values, resolve_probe_args
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
@@ -56,7 +66,26 @@ class AssertionStatus:
     PASSED = "passed"
     FAILED = "failed"
     DIVERGED = "diverged_as_declared"
-    UNANSWERABLE = "unanswerable"
+    #: INVARIANT 3. Every shape of "we did not learn the answer" collapses here:
+    #: undeclared probe, runtime decline, unrunnable setup, invalid fixture,
+    #: unvalidated derivation, dead bridge. There is deliberately no separate
+    #: `unanswerable` status any more — distinguishing the *kinds* of silence
+    #: invited treating some of them as benign, and the sharpest attack on this
+    #: judge was a port that declined exactly the inputs it would get wrong and
+    #: reported "reproduced 24/24 = 100.0%".
+    NO_VERDICT = "no_verdict"
+
+
+#: Why an assertion produced no verdict. Reported per bucket so "the port
+#: declined 6 calls it declared it could answer" cannot hide inside "6 gaps".
+class NoVerdictCause:
+    UNDECLARED = "probe not declared by the port"
+    DECLINED = "port declined a call on a probe it declared"
+    UNRUNNABLE = "the fixture's setup could not be performed"
+    INVALID_EVIDENCE = "the recorded fixture is not valid evidence"
+    UNVALIDATED_AUTHORITY = "the recorded value is a derived belief, not evidence"
+    BRIDGE_DEAD = "the port's bridge stopped answering"
+    EXCLUDED = "the recorder marked this evidence corroboration-only"
 
 
 class ProbeOutcome(BaseModel):
@@ -75,6 +104,10 @@ class ProbeOutcome(BaseModel):
     #: Set when a declared divergence was applied (status DIVERGED).
     divergence_reason: str = ""
     decision_id: str = ""
+    #: INVARIANT 1 — where the RECORDED value's authority came from.
+    authority: str = ""
+    #: INVARIANT 3 — which :class:`NoVerdictCause` applies (status NO_VERDICT).
+    cause: str = ""
 
 
 class FixtureVerdict(BaseModel):
@@ -93,7 +126,7 @@ class FixtureVerdict(BaseModel):
     def counts(self) -> dict[str, int]:
         c = {k: 0 for k in
              (AssertionStatus.PASSED, AssertionStatus.FAILED,
-              AssertionStatus.DIVERGED, AssertionStatus.UNANSWERABLE)}
+              AssertionStatus.DIVERGED, AssertionStatus.NO_VERDICT)}
         for o in self.outcomes:
             c[o.status] += 1
         return c
@@ -110,9 +143,12 @@ class PortScore(BaseModel):
 
     assertions_total: int = 0
     answered: int = 0
-    unanswerable: int = 0
+    #: INVARIANT 3 — the single "we did not learn the answer" bucket.
+    no_verdict: int = 0
+    #: The same total, split by cause, so no cause can hide inside another.
+    no_verdict_by_cause: dict[str, int] = Field(default_factory=dict)
 
-    #: Of the ANSWERED assertions, those a fixture mark excludes from scoring.
+    #: Of the ANSWERED assertions, those the RECORDER excluded from scoring.
     excluded_corroboration: int = 0
 
     scored_answered: int = 0
@@ -123,6 +159,9 @@ class PortScore(BaseModel):
     fixtures_total: int = 0
     fixtures_unrunnable: int = 0
     fixtures_excluded: int = 0
+    #: Fixtures the pack itself could not vouch for (forged id, unresolvable
+    #: witness, stale derivation). Counted here, never dropped.
+    fixtures_invalid: int = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -168,14 +207,20 @@ class PortScore(BaseModel):
         return (self.scored_answered - self.scored_diverged) <= 0
 
     def headline(self) -> str:
-        """A verdict sentence that cannot be quoted as one number."""
+        """A verdict sentence that cannot be quoted as one number.
+
+        ``reproduced X/Y`` is always printed **out of the whole pack**, because
+        the quotable number was the attack: a port that declined exactly the six
+        inputs it would get wrong reported "reproduced 24/24 = 100.0%".
+        """
         denom = self.scored_answered - self.scored_diverged
         value = "nothing scored" if denom <= 0 else f"{self.scored_passed}/{denom}"
         return (
-            f"reproduced {value} scored assertions, "
+            f"reproduced {value} scored assertions "
+            f"(of {self.assertions_total} in the pack), "
             f"{self.scored_diverged} sanctioned divergence"
             f"{'' if self.scored_diverged == 1 else 's'} (NOT counted as passes), "
-            f"{self.unanswerable}/{self.assertions_total} unanswerable, "
+            f"{self.no_verdict}/{self.assertions_total} NO VERDICT, "
             f"{self.excluded_corroboration} corroboration-only excluded"
         )
 
@@ -188,10 +233,12 @@ class PortVerifyReport(BaseModel):
     #: Declarations that are wrong ABOUT THE PORT — a stale divergence, a
     #: capability the bridge refuses. Never silently tolerated.
     declaration_problems: list[str] = Field(default_factory=list)
-    #: Where fixture exclusions came from, if an external marks file was used.
-    #: Recorded so a reader can see that a score was shaped by a caller-supplied
-    #: file — the marks path is not necessarily written by the port's author.
-    marks_source: str = ""
+    #: The seal of the pack that was judged. A verdict names the evidence it was
+    #: reached on, and that evidence is a whole sealed artifact — not a path.
+    pack_seal: str = ""
+    pack_id: str = ""
+    #: Fixtures the pack could not vouch for, with the reason, verbatim.
+    invalid_evidence: list[str] = Field(default_factory=list)
 
     @property
     def failed(self) -> int:
@@ -209,8 +256,9 @@ class PortVerifyReport(BaseModel):
         """
         return (
             self.score.scored_failed == 0
-            and self.score.unanswerable == 0
+            and self.score.no_verdict == 0
             and not self.declaration_problems
+            and not self.invalid_evidence
             and self.score.scored_diverged == 0
             and not self.score.scored_nothing
         )
@@ -222,8 +270,19 @@ class PortVerifyReport(BaseModel):
         why: list[str] = []
         if self.score.scored_failed:
             why.append(f"{self.score.scored_failed} value failure(s)")
-        if self.score.unanswerable:
-            why.append(f"{self.score.unanswerable} unanswerable assertion(s) — missing surface")
+        if self.score.no_verdict:
+            why.append(
+                f"{self.score.no_verdict} assertion(s) reached NO VERDICT — "
+                + "; ".join(
+                    f"{n} × {cause}"
+                    for cause, n in sorted(self.score.no_verdict_by_cause.items())
+                )
+            )
+        if self.invalid_evidence:
+            why.append(
+                f"{len(self.invalid_evidence)} fixture(s) in this pack are not "
+                f"valid evidence and were not judged"
+            )
         if self.declaration_problems:
             why.append(f"{len(self.declaration_problems)} declaration problem(s)")
         if self.score.scored_diverged:
@@ -282,28 +341,42 @@ def find_divergence(
 # --------------------------------------------------------------------------- #
 # The judge                                                                    #
 # --------------------------------------------------------------------------- #
-def _marks_by_id(marks: Iterable[FixtureMark]) -> dict[str, FixtureMark]:
-    return {m.fixture_id: m for m in marks}
+def _excluded_by_recorder(fx: SemanticFixture) -> str:
+    """The RECORDER's reason for excluding this fixture's values, or ``""``.
+
+    The one and only source of an evidence-quality exclusion. It travels inside
+    the sealed pack, written by a party with no stake in any score. There is no
+    second source, no override, and no re-admission.
+    """
+    if fx.provenance.evidence_class == "corroboration-only":
+        return fx.provenance.evidence_note or "recorded as corroboration-only"
+    return ""
 
 
-def _unrunnable_verdict(
-    fx: SemanticFixture, reason: str, mark: FixtureMark | None
+def _no_verdict_verdict(
+    fx: SemanticFixture, reason: str, cause: str
 ) -> FixtureVerdict:
-    scored = not (mark and mark.excluded_from_score)
+    """Nothing was learnt about this fixture. Every assertion says exactly that."""
+    excluded = _excluded_by_recorder(fx)
     return FixtureVerdict(
         fixture_id=fx.fixture_id, title=fx.title, flow=fx.provenance.flow,
-        ran=False, scored=scored, mark_reason=(mark.reason if mark else ""),
-        error=reason,
+        ran=False, scored=not excluded, mark_reason=excluded, error=reason,
         outcomes=[
             ProbeOutcome(
                 fixture_id=fx.fixture_id, assertion=t.assert_, subject=t.subject,
                 op=t.op, expected=t.value, actual=None,
-                status=AssertionStatus.UNANSWERABLE, scored=scored,
-                detail=reason,
+                status=AssertionStatus.NO_VERDICT, scored=not excluded,
+                detail=reason, cause=cause,
+                authority=_authority_of(t.assert_),
             )
             for t in fx.then
         ],
     )
+
+
+def _authority_of(assertion: str) -> str:
+    spec = PROBE_CONTRACT.get(assertion)
+    return spec.authority if spec else ""
 
 
 def _missing_operations(adapter: PortAdapter, fx: SemanticFixture) -> list[str]:
@@ -321,32 +394,38 @@ def verify_fixture(
     adapter: PortAdapter,
     fx: SemanticFixture,
     declarations: list[Divergence],
-    mark: FixtureMark | None,
     declaration_problems: list[str],
+    decisions: dict[str, str] | None = None,
+    declines: dict[str, int] | None = None,
 ) -> FixtureVerdict:
     """Replay one fixture against the port and judge every assertion."""
-    scored = not (mark and mark.excluded_from_score)
+    scored = not _excluded_by_recorder(fx)
 
     missing = _missing_operations(adapter, fx)
     if missing:
-        return _unrunnable_verdict(
+        return _no_verdict_verdict(
             fx,
             "port declares no operation " + ", ".join(repr(m) for m in missing)
             + " — the fixture's setup cannot be performed, so nothing about its "
               "values is known",
-            mark,
+            NoVerdictCause.UNRUNNABLE,
         )
 
-    adapter.reset()
     handles: dict[str, str] = {}
     try:
+        adapter.reset()
         now = flow_now()
         for g in fx.given:
             handles[g.alias] = apply_given(adapter, g)
         for w in fx.when:
             apply_when(adapter, w, handles, now)
+    except BridgeError as exc:
+        # INVARIANT 3: a bridge that stopped speaking produces NO VERDICT within
+        # its declared timeout, never an unbounded wait and never a crash that
+        # loses the verdicts already reached.
+        return _no_verdict_verdict(fx, str(exc), NoVerdictCause.BRIDGE_DEAD)
     except Unanswerable as exc:  # a capability gate we did not pre-flight
-        return _unrunnable_verdict(fx, str(exc), mark)
+        return _no_verdict_verdict(fx, str(exc), NoVerdictCause.UNRUNNABLE)
     except (AdapterError, KeyError) as exc:
         # The port DECLARED these operations and they broke. That is a failure of
         # the port, not a gap in it — the assertions are answered "wrongly".
@@ -355,13 +434,14 @@ def verify_fixture(
             declaration_problems.append(f"{fx.fixture_id}: {exc}")
         return FixtureVerdict(
             fixture_id=fx.fixture_id, title=fx.title, flow=fx.provenance.flow,
-            ran=False, scored=scored, mark_reason=(mark.reason if mark else ""),
+            ran=False, scored=scored, mark_reason=_excluded_by_recorder(fx),
             error=detail,
             outcomes=[
                 ProbeOutcome(
                     fixture_id=fx.fixture_id, assertion=t.assert_,
                     subject=t.subject, op=t.op, expected=t.value, actual=None,
                     status=AssertionStatus.FAILED, scored=scored, detail=detail,
+                    authority=_authority_of(t.assert_),
                 )
                 for t in fx.then
             ],
@@ -384,12 +464,13 @@ def verify_fixture(
 
     outcomes = [
         _judge_assertion(adapter, fx, i, handles, declarations, scored,
-                         declaration_problems)
+                         declaration_problems, decisions or {},
+                         declines if declines is not None else {})
         for i in range(len(fx.then))
     ]
     return FixtureVerdict(
         fixture_id=fx.fixture_id, title=fx.title, flow=fx.provenance.flow,
-        ran=True, scored=scored, mark_reason=(mark.reason if mark else ""),
+        ran=True, scored=scored, mark_reason=_excluded_by_recorder(fx),
         outcomes=outcomes,
     )
 
@@ -402,24 +483,41 @@ def _judge_assertion(
     declarations: list[Divergence],
     scored: bool,
     declaration_problems: list[str],
+    decisions: dict[str, str],
+    declines: dict[str, int],
 ) -> ProbeOutcome:
     t: ThenAssertion = fx.then[index]
 
     def out(status: str, **kw: Any) -> ProbeOutcome:
         return ProbeOutcome(
             fixture_id=fx.fixture_id, assertion=t.assert_, subject=t.subject,
-            op=t.op, expected=t.value, status=status, scored=scored, **kw,
+            op=t.op, expected=t.value, status=status, scored=scored,
+            authority=_authority_of(t.assert_), **kw,
         )
 
     spec = PROBE_CONTRACT.get(t.assert_)
     if spec is None:
-        return out(AssertionStatus.UNANSWERABLE,
+        return out(AssertionStatus.NO_VERDICT,
+                   cause=NoVerdictCause.INVALID_EVIDENCE,
                    detail=f"no probe binds assertion {t.assert_!r}")
+
+    # ---- INVARIANT 1, before anything is asked of the port ------------------ #
+    # The expected value is our own unvalidated computation. Comparing a port to
+    # it cannot produce evidence in EITHER direction: agreement means the port
+    # reproduced our belief, disagreement means it did not. That is the exact
+    # shape that scored a farmOS-matching port at 95.2% NOT-CLEAN and a
+    # farmOS-diverging one at 100% clean. The port is not called.
+    if not spec.is_evidence:
+        return out(AssertionStatus.NO_VERDICT,
+                   cause=NoVerdictCause.UNVALIDATED_AUTHORITY,
+                   detail=spec.unvalidated_reason)
+
     if not adapter.declares_probe(t.assert_):
         return out(
-            AssertionStatus.UNANSWERABLE,
+            AssertionStatus.NO_VERDICT,
+            cause=NoVerdictCause.UNDECLARED,
             detail=(f"port declares no probe {t.assert_!r} (would need adapter "
-                    f"method {spec.method!r}) — GAP, not a pass"),
+                    f"method {spec.method!r}) — NO VERDICT, not a pass"),
         )
 
     subject = handles.get(t.subject)
@@ -433,9 +531,18 @@ def _judge_assertion(
 
     try:
         actual = getattr(adapter, spec.method)(subject, *args)
+    except BridgeError as exc:
+        return out(AssertionStatus.NO_VERDICT,
+                   cause=NoVerdictCause.BRIDGE_DEAD, detail=str(exc))
     except Unanswerable as exc:
-        # Runtime restatement of the same gap. Still a gap; still never a pass.
-        return out(AssertionStatus.UNANSWERABLE, detail=str(exc))
+        # The port DECLARED this probe and then declined THIS call. Still never a
+        # pass — but it is also not the same thing as a missing surface, and
+        # conflating them is what let a bridge decline exactly the six inputs it
+        # would have got wrong and report "reproduced 24/24 = 100.0%". Counted by
+        # probe, and surfaced as a declaration problem in `verify_port`.
+        declines[t.assert_] = declines.get(t.assert_, 0) + 1
+        return out(AssertionStatus.NO_VERDICT,
+                   cause=NoVerdictCause.DECLINED, detail=str(exc))
     except FalseDeclaration as exc:
         declaration_problems.append(f"{fx.fixture_id}: {exc}")
         return out(AssertionStatus.FAILED, detail=str(exc))
@@ -472,6 +579,20 @@ def _judge_assertion(
                     f"port delivered {actual!r} — a sanction covers ONE stated "
                     f"value, not any deviation"),
         )
+    # A sanction must be TOPICALLY bound. Existence was not enough: five
+    # stock-arithmetic divergences all citing `birth-uniqueness` — a real
+    # decision, about birth logs — were accepted, and the exit code went 1 → 3.
+    if decisions:
+        did = declared.decision_id.strip()
+        if did in decisions and not decision_covers(decisions[did], t.assert_):
+            declaration_problems.append(
+                f"{fx.fixture_id}/{t.assert_}({t.subject}): decision {did!r} "
+                f"exists but says nothing about {t.assert_!r} — a sanction must "
+                f"be about the thing it sanctions"
+            )
+            return out(AssertionStatus.FAILED, actual=actual,
+                       detail=f"divergence cites {did!r}, which is not about "
+                              f"{t.assert_!r}")
     return out(AssertionStatus.DIVERGED, actual=actual,
                divergence_reason=declared.reason,
                decision_id=declared.decision_id)
@@ -487,8 +608,10 @@ def score_verdicts(verdicts: list[FixtureVerdict]) -> PortScore:
             s.fixtures_excluded += 1
         for o in v.outcomes:
             s.assertions_total += 1
-            if o.status == AssertionStatus.UNANSWERABLE:
-                s.unanswerable += 1
+            if o.status == AssertionStatus.NO_VERDICT:
+                s.no_verdict += 1
+                cause = o.cause or "unclassified"
+                s.no_verdict_by_cause[cause] = s.no_verdict_by_cause.get(cause, 0) + 1
                 continue
             s.answered += 1
             if not o.scored:
@@ -506,84 +629,93 @@ def score_verdicts(verdicts: list[FixtureVerdict]) -> PortScore:
 
 def verify_port(
     adapter: PortAdapter,
-    fixtures: Iterable[SemanticFixture],
+    pack: Pack,
     manifest: PortManifest,
-    extra_marks: Iterable[FixtureMark] = (),
-    fixtures_path: str = "",
-    known_decision_ids: Iterable[str] | None = None,
+    decisions: dict[str, str] | None = None,
 ) -> PortVerifyReport:
-    """Replay a fixture pack against a port and produce the honest report.
+    """Replay a SEALED pack against a port and produce the honest report.
 
-    ``known_decision_ids`` is the set of decision ids a divergence may cite. A
-    sanction that names a decision no registry knows about is a declaration
-    problem — otherwise "it's a sanctioned divergence" is self-certifying.
+    The signature is the invariant. There are exactly three inputs that can move
+    the score, and the port authors none of them:
+
+    * ``pack`` — a whole, hash-verified artifact written by the recorder,
+      carrying its own evidence classes and its own list of what is in it. The
+      port cannot choose a subset, cannot edit a value, and cannot re-classify
+      evidence, because none of those survive :func:`ctkr.oracle.pack.load_pack`.
+    * ``manifest`` — the port's claims *about itself*: capabilities (checked
+      against its running bridge) and divergences (never a pass, always block
+      ``clean``).
+    * ``decisions`` — the repo's decision registry, resolved from a fixed path.
+
+    There is no ``marks`` parameter and no ``fixtures`` parameter. Removing them
+    is the fix: they were the two places the defendant reached into the verdict.
     """
-    fixtures = list(fixtures)
-    declaration_problems_pre: list[str] = []
-    # Precedence, weakest first: the PACK's own evidence class (set by the
-    # recorder from what it observed — the most trustworthy source, since it is
-    # not written by anyone with a stake in the score), then the port's manifest,
-    # then an external marks file. A pack-carried mark cannot be UNDONE by a
-    # later one: a port must not be able to re-admit a fixture the recorder
-    # judged unscoreable.
-    marks = _marks_by_id(
-        FixtureMark(
-            fixture_id=fx.fixture_id,
-            corroboration_only=True,
-            order_sensitive=True,
-            reason=fx.provenance.evidence_note or "recorded as corroboration-only",
+    fixtures = list(pack.fixtures)
+    declaration_problems: list[str] = []
+    declines: dict[str, int] = {}
+
+    # INVARIANT 3. A fixture the pack cannot vouch for is not dropped and not
+    # judged: it is carried as NO VERDICT, so a pack cannot shrink its own
+    # denominator by becoming unreadable.
+    verdicts: list[FixtureVerdict] = [
+        FixtureVerdict(
+            fixture_id=inv.fixture_id, title=inv.title, ran=False, scored=True,
+            error=inv.reason,
+            outcomes=[ProbeOutcome(
+                fixture_id=inv.fixture_id, assertion="", subject="", op="==",
+                status=AssertionStatus.NO_VERDICT,
+                cause=NoVerdictCause.INVALID_EVIDENCE, detail=inv.reason,
+            )],
         )
-        for fx in fixtures
-        if fx.provenance.evidence_class == "corroboration-only"
-    )
-    pack_marked = set(marks)
-    for m in (*manifest.fixture_marks, *extra_marks):
-        if m.fixture_id in pack_marked and not m.excluded_from_score:
-            declaration_problems_pre.append(
-                f"fixture {m.fixture_id} was recorded as corroboration-only; a "
-                f"later mark cannot re-admit it to the value score"
-            )
-            continue
-        marks[m.fixture_id] = m
-    declaration_problems: list[str] = list(declaration_problems_pre)
+        for inv in pack.invalid
+    ]
 
     adapter.open()
     try:
-        verdicts = [
+        verdicts += [
             verify_fixture(adapter, fx, manifest.divergences,
-                           marks.get(fx.fixture_id), declaration_problems)
+                           declaration_problems, decisions or {}, declines)
             for fx in fixtures
         ]
     finally:
         adapter.close()
 
     # A declaration naming a fixture the pack does not contain is also a lie.
-    ids = {fx.fixture_id for fx in fixtures}
+    ids = pack.all_fixture_ids
     for d in manifest.divergences:
         if d.fixture_id not in ids:
             declaration_problems.append(
                 f"divergence declared for {d.fixture_id!r}, which is not in this pack"
             )
-    for mid in marks:
-        if mid not in ids:
-            declaration_problems.append(
-                f"fixture mark declared for {mid!r}, which is not in this pack"
-            )
 
-    # A sanction must name a decision that EXISTS. Without this, `decision_id`
-    # is decoration and any wrong value can be waved through by inventing one.
-    if known_decision_ids is not None:
-        known = set(known_decision_ids)
+    # A sanction must name a decision that EXISTS, in the repo's registry.
+    if decisions is not None:
         for d in manifest.divergences:
-            if d.decision_id.strip() and d.decision_id.strip() not in known:
+            did = d.decision_id.strip()
+            if did and did not in decisions:
                 declaration_problems.append(
                     f"divergence on {d.fixture_id}/{d.assert_} cites decision "
-                    f"{d.decision_id!r}, which no decision registry knows — a "
+                    f"{did!r}, which the repo decision registry does not know — a "
                     f"sanction must point at a real, resolvable decision"
                 )
 
+    # A port that DECLARED a probe and then declined calls on it chose which of
+    # its own answers would be scored. That is a claim about itself that turned
+    # out to be false at run time, so it is a declaration problem, with the count.
+    for term, n in sorted(declines.items()):
+        declaration_problems.append(
+            f"port declared probe {term!r} and then declined {n} call(s) on it — "
+            f"a capability that is unavailable exactly where it is tested is not "
+            f"a capability, and the declines are NOT gaps in the pack"
+        )
+
+    score = score_verdicts(verdicts)
+    score.fixtures_invalid = len(pack.invalid)
     return PortVerifyReport(
-        port=manifest.port, fixtures_path=fixtures_path,
-        score=score_verdicts(verdicts), verdicts=verdicts,
+        port=manifest.port, fixtures_path=str(pack.path),
+        score=score, verdicts=verdicts,
         declaration_problems=declaration_problems,
+        pack_seal=pack.seal.seal, pack_id=pack.seal.pack_id,
+        invalid_evidence=[f"{i.fixture_id[:8]} {i.title}: {i.reason}"
+                          for i in pack.invalid],
     )

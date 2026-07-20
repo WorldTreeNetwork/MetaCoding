@@ -1,0 +1,10 @@
+{
+  "port": "c1-port-B",
+  "description": "recursive membership — MATCHES farmOS GroupMembership.php",
+  "bridge": {
+    "command": ["python3", "../_bridge.py"],
+    "env": {"RECURSIVE": "1"},
+    "timeout": 10.0
+  },
+  "capabilities": {"operations": ["assign_to_group"], "probes": ["group_member"]}
+}

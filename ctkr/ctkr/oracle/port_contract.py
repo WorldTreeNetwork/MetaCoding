@@ -1,30 +1,34 @@
-"""What a port DECLARES about itself — capabilities, divergences, fixture marks.
+"""What a port DECLARES **about itself** — and nothing else.
 
-``port-verify`` never infers anything about a port. Three things must be stated
-up front, as data, before a single fixture runs:
+INVARIANT 2: *the defendant never holds a pen that touches the verdict.*
 
-1. **Capabilities** (:class:`PortCapabilities`) — which glossary *operations* the
-   port can perform and which glossary *probes* it can answer. An assertion whose
-   probe is not declared is an **unanswerable gap**; it can never become a pass.
+A port may state exactly two kinds of thing, and both are claims about the port:
 
-2. **Divergences** (:class:`Divergence`) — where the port deliberately differs
-   from the source system, naming the fixture, the assertion, the value the port
-   is expected to deliver instead, why, and the decision that sanctioned it. A
-   mismatch matching a declaration is EXPECTED-AND-CORRECT. A mismatch with no
-   declaration is a failure, always. A declaration is never consulted for an
-   *unanswerable* assertion, so "it's the divergence" can never excuse a gap.
+1. **Capabilities** (:class:`PortCapabilities`) — which glossary *operations* it
+   can perform and which glossary *probes* it can answer. This is a claim about
+   itself, and it is checkable against its own running bridge, so it is safe to
+   let the port make it: over-claiming becomes a false declaration, under-claiming
+   becomes a gap, and neither is a pass.
 
-3. **Fixture marks** (:class:`FixtureMark`) — evidence-quality facts about a
-   recorded fixture that no port can fix: chiefly ``corroboration_only``, for a
-   fixture whose observed value encodes the source's own insertion order (six
-   permutations of the same events give four different values). Such a fixture
-   is REPORTED but EXCLUDED from the value score: passing it proves nothing and
-   failing it condemns nothing.
+2. **Divergences** (:class:`Divergence`) — where it deliberately differs from the
+   source, naming the fixture, the assertion, the value it will deliver instead,
+   why, and the decision that sanctions it. A divergence never *excuses* anything:
+   it is reported in its own bucket, is not counted as a pass, and blocks a clean
+   verdict. And its ``decision_id`` must resolve — **topically** — against the
+   repo's decision registry, which the port does not write and cannot point
+   elsewhere: citing a real decision about birth logs to wave through five stock
+   arithmetic errors was an accepted move until the topical check existed.
 
-Marks live outside the fixture pack on purpose — a recorded pack is evidence and
-``port-verify`` must never rewrite it. :class:`SemanticFixture` also carries an
-optional ``scoring`` block for packs recorded after the schema learned about
-this; when both exist the external marks file wins and says so.
+**What a port may no longer say.** ``fixture_marks`` is gone from the manifest, and
+so is the external ``--marks`` file. Both let the party being judged (or anyone
+holding its command line) declare which evidence counts: adding five
+``corroboration_only`` marks to a port's own manifest turned ``failed 5 / EXIT=1``
+into ``failed 0 / reproduced 100% / clean=true / EXIT=0``, with the five FAILs
+still printed in the body. Evidence quality is now stated in exactly one place —
+``provenance.evidence_class``, written by the recorder into a sealed pack (see
+:mod:`ctkr.oracle.pack`) — because the recorder has no stake in the score.
+A manifest that still carries ``fixture_marks`` does not load: ``extra="forbid"``
+means the pen does not exist rather than being unavailable.
 """
 
 from __future__ import annotations
@@ -104,21 +108,6 @@ class Divergence(BaseModel):
         return True
 
 
-class FixtureMark(BaseModel):
-    """Evidence-quality facts about one recorded fixture."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    fixture_id: str
-    corroboration_only: bool = False
-    order_sensitive: bool = False
-    reason: str = ""
-
-    @property
-    def excluded_from_score(self) -> bool:
-        return self.corroboration_only or self.order_sensitive
-
-
 class BridgeSpec(BaseModel):
     """How to start the port's verification bridge process."""
 
@@ -140,7 +129,9 @@ class PortManifest(BaseModel):
     bridge: BridgeSpec
     capabilities: PortCapabilities = Field(default_factory=PortCapabilities)
     divergences: list[Divergence] = Field(default_factory=list)
-    fixture_marks: list[FixtureMark] = Field(default_factory=list)
+    # NOTE: there is deliberately no `fixture_marks` field. `extra="forbid"`
+    # makes a manifest that carries one FAIL TO LOAD — the pen is absent, not
+    # merely ignored, so a port cannot mark its own failing evidence unscoreable.
     #: Path (relative to the manifest) of the manifest itself, filled on load.
     manifest_path: str = ""
 
@@ -185,16 +176,6 @@ class PortManifest(BaseModel):
                     f"required — a sanctioned divergence must name the decision "
                     f"that sanctions it, not just assert one exists"
                 )
-        seen: set[str] = set()
-        for mark in self.fixture_marks:
-            if mark.fixture_id in seen:
-                problems.append(f"duplicate fixture mark for {mark.fixture_id}")
-            seen.add(mark.fixture_id)
-            if mark.excluded_from_score and not mark.reason.strip():
-                problems.append(
-                    f"fixture mark {mark.fixture_id}: excluding a fixture from the "
-                    f"score requires a reason"
-                )
         if problems:
             raise ContractError("; ".join(problems))
 
@@ -209,63 +190,25 @@ class PortManifest(BaseModel):
         return c if c.is_absolute() else (self.root / c)
 
 
-def load_marks(path: str | Path) -> list[FixtureMark]:
-    """Read an external fixture-marks file (JSON list or JSONL).
-
-    Marks are kept OUT of the recorded pack: a pack is evidence and must not be
-    rewritten to make a port look better or worse.
-    """
-    p = Path(path)
-    text = p.read_text(encoding="utf-8").strip()
-    if not text:
-        return []
-    rows: list[dict[str, Any]]
-    if text.lstrip().startswith("["):
-        rows = json.loads(text)
-    else:
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-    try:
-        marks = [FixtureMark.model_validate(r) for r in rows]
-    except Exception as exc:  # noqa: BLE001
-        raise ContractError(f"{p}: {exc}") from exc
-
-    # The external path WINS over in-manifest marks, so it must be the
-    # BEST-validated path, not the unvalidated one. It previously skipped the
-    # reason check that in-manifest marks get — which let a reason-less marks
-    # file exclude every fixture in a pack and turn 30 wrong answers into a
-    # zero-failure run. Excluding evidence from a score always costs a reason.
-    problems: list[str] = []
-    seen: set[str] = set()
-    for m in marks:
-        if m.fixture_id in seen:
-            problems.append(f"duplicate fixture mark for {m.fixture_id}")
-        seen.add(m.fixture_id)
-        if m.excluded_from_score and not m.reason.strip():
-            problems.append(
-                f"fixture mark {m.fixture_id}: excluding a fixture from the score "
-                f"requires a reason"
-            )
-    if problems:
-        raise ContractError(f"{p}: " + "; ".join(problems))
-    return marks
-
-
-#: Where decision ids are resolved from, relative to the repo root. A divergence
-#: naming a decision that no registry knows about is a declaration problem.
+#: Where decision ids resolve from, relative to the REPO ROOT — never from a
+#: caller-supplied path. `--decisions <anything>` let a port author point the
+#: resolver at a registry they had just written, which makes "it's a sanctioned
+#: divergence" self-certifying again one level up.
 DEFAULT_DECISION_SOURCES: tuple[str, ...] = (
     "eval/ctkr/port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
 )
 
 
-def load_decision_ids(paths: Iterable[str | Path]) -> set[str]:
-    """Collect known decision ids from JSONL decision registries.
+def load_decisions(paths: Iterable[str | Path]) -> dict[str, str]:
+    """``{decision_id: the decision's own text}`` from JSONL decision registries.
 
-    Accepts either the kernel CM registry (keyed ``invariant``) or a port-decision
-    ledger (keyed ``id`` / ``decision_id`` / ``targetElement``). Missing files are
-    skipped by the caller, not silently treated as empty — an unresolvable
-    ``decision_id`` must surface, never pass.
+    The TEXT is kept, not just the id, because existence is not warrant: five
+    stock-arithmetic divergences citing ``birth-uniqueness`` — a real decision,
+    about birth logs — were all accepted, and the exit code was downgraded from
+    1 to 3. A sanction must be *topically* bound to what it sanctions
+    (:func:`decision_covers`).
     """
-    ids: set[str] = set()
+    out: dict[str, str] = {}
     for path in paths:
         p = Path(path)
         if not p.exists():
@@ -278,8 +221,20 @@ def load_decision_ids(paths: Iterable[str | Path]) -> set[str]:
                 row = json.loads(s)
             except json.JSONDecodeError:
                 continue
+            text = json.dumps(row, sort_keys=True).lower()
             for key in ("invariant", "id", "decision_id", "targetElement"):
                 v = row.get(key)
                 if isinstance(v, str) and v.strip():
-                    ids.add(v.strip())
-    return ids
+                    out[v.strip()] = out.get(v.strip(), "") + " " + text
+    return out
+
+
+def decision_covers(text: str, assertion: str) -> bool:
+    """Whether a decision's own text names the assertion term it is cited for.
+
+    Deliberately a *naming* test rather than a semantic one: the decision must
+    have been written with this term in view. A decision that never mentions
+    ``stock_on_hand`` cannot sanction a wrong ``stock_on_hand``, whatever the
+    port says about it.
+    """
+    return assertion.lower() in (text or "").lower()

@@ -1,0 +1,26 @@
+{
+  "pack_id": "e8c76084c90a",
+  "recorded_at": "2026-07-20T19:43:16.273865+00:00",
+  "source_system": "farmOS",
+  "source_version": "4.x",
+  "fixture_ids": [
+    "8cc9162c04eaa27e621f0c7e5e3efbf6",
+    "2df52cc2fb4b08ad4f78806d6c9d0b64",
+    "c7bc3fefdd361af52d84feaaed57de06"
+  ],
+  "fixtures_blake3": "57edbdeb78c536ca9d3fe620b23dca87",
+  "observations_blake3": "c024a01343359dcbeaa76028840fafeb",
+  "derivations": {
+    "yield_total": "3f299470a126f329",
+    "log_count": "6c6869b9e8a9b6e4",
+    "group_member": "22b77a9c85a4989d",
+    "quantity_recorded": "7f98960a5c513d77",
+    "stock_on_hand": "fe0d197f57c00836",
+    "stock_pair_count": "9a173457ef8d89e7",
+    "adjustment_count": "7cd527725b146dd4",
+    "parent_count": "c6bf3671e7c4df31",
+    "has_parent": "b72317e3a75bc406",
+    "birth_record_count": "dada0d951d78c63e"
+  },
+  "seal": "e8c76084c90a13beb4a1e9517fbde81c"
+}

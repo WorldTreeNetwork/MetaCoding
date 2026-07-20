@@ -69,7 +69,7 @@ The oracle is **ephemeral by design**; losing it costs a rebuild, not data.
 ```bash
 ctkr/ctkr/oracle/bring-up.sh                       # ~2 min with images cached
 uv run python -m ctkr oracle-verify \
-  ctkr/oracle/data/farmos_core_fixtures.jsonl --adapter farmos   # must be 7/7
+  ctkr/oracle/data/core-pack/fixtures.jsonl --adapter farmos   # must be 7/7
 ```
 
 The 7/7 self-verification is mandatory after any rebuild: it proves the new

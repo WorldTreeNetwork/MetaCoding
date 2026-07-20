@@ -98,8 +98,8 @@ def test_require_oracle_raises_with_the_remedy_and_the_no_intuition_rule() -> No
     with pytest.raises(OracleDown) as excinfo:
         require_oracle(BASE, opener=_opener(handler))
     message = str(excinfo.value)
-    assert "ORACLE DOWN" in message
-    assert "bring-up.sh" in message
+    assert "ORACLE NOT ANSWERING" in message
+    assert "Do NOT run bring-up.sh" in message
     # the fallback discipline must travel with the failure, not live only in a doc
     assert "never a value claim" in message
 
