@@ -35,9 +35,11 @@ export function makeKernelRegistry(): KindRegistry {
 // ---- Binding CM-decision registry (kernel element 5) ----
 //
 // The three sub-decisions the composition run surfaced, plus the two other
-// kernel invariants, each bound to a recommended menu option. All are marked
-// `provisional` — implemented now, awaiting Duke's resolution — but each carries
-// a named convergence key, so `requireBound` accepts them and the build proceeds.
+// kernel invariants, each bound to a recommended menu option. birth-uniqueness
+// and movement-as-log-taxonomy are `bound` — Duke confirmed both in the
+// 2026-07-20 elicitation review (MetaCoding-tkj). The remaining three are still
+// `provisional` (kernel author's pick, awaiting review), but each carries a named
+// convergence key, so `requireBound` accepts them and the build proceeds.
 // Mirrored, line-for-line, by ./cm-decisions.jsonl (loaded + checked in tests).
 export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
   {
@@ -45,9 +47,9 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     sensitivity: "hard",
     menuChoice: "preserve-via-convergence-rule",
     convergenceKey: "earliest-hlc-wins; later concurrent birth demoted to observation (never dropped)",
-    status: "provisional",
+    status: "bound",
     rationale:
-      "A birth log is a hard 'at most one per asset' invariant, but this target has no coordination layer, so a central write-time gate is off the menu. Two replicas can each record a birth offline; on merge the earliest by HLC survives and the loser is demoted, not silently dropped.",
+      "A birth log is a hard 'at most one per asset' invariant, but this target has no coordination layer, so a central write-time gate is off the menu. Two replicas can each record a birth offline; on merge the earliest by HLC survives and the loser is demoted, not silently dropped. BOUND 2026-07-20 by Duke (elicitation review MetaCoding-tkj): a farmer-visible surfaced duplicate is the desired outcome.",
     recommendedBy: "shared-kernel-v1",
   },
   {
@@ -65,9 +67,9 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     sensitivity: "soft",
     menuChoice: "distinct-kind-not-a-log",
     convergenceKey: "n/a (taxonomy facet, not a convergence rule)",
-    status: "provisional",
+    status: "bound",
     rationale:
-      "A movement is its own event kind with isLog:false, so it never inflates logCount/yield — matches the composed build and keeps the numeric folds clean. Alternative: model it as a farmOS `activity` log (isLog:true), which would change CP2's logCount('activity').",
+      "A movement is its own event kind with isLog:false, so it never inflates logCount/yield — matches the composed build and keeps the numeric folds clean. Alternative: model it as a farmOS `activity` log (isLog:true), which would change CP2's logCount('activity'). BOUND 2026-07-20 by Duke (elicitation review MetaCoding-tkj): clean numeric folds beat farmOS activity-log fidelity.",
     recommendedBy: "shared-kernel-v1",
   },
   {

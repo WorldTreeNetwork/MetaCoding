@@ -70,7 +70,9 @@ freeze — never an ad-hoc string at an append site.
   matches every committed judge as-is. If Duke wants farmOS fidelity, flip the
   `isLog` facet on `movement_recorded` in `kernelConfig.ts` and update CP2 — the
   taxonomy is the single place that decision lives now, not per feature.
-- **Status: PROVISIONAL.**
+- **Status: BOUND** — (A) confirmed by Duke in the 2026-07-20 elicitation review
+  (MetaCoding-tkj). Registry entry `movement-as-log-taxonomy` is `status:"bound"`;
+  reversal now requires a recorded re-decision, not a morning veto.
 
 ---
 
@@ -194,9 +196,12 @@ convergence key a bare PD lacks.
     id-ordering, which element 2 forbids.
 - **Recommendation: (A)** — it reuses the same HLC machinery every other
   latest-wins fold already uses, rather than inventing a birth-only mechanism.
-- **Status: PROVISIONAL.** (Registered in `kernelConfig.ts` / `cm-decisions.jsonl`;
-  no fixture exercises birth, so the store enforces only that the decision is
-  *bound* at construction.)
+- **Status: BOUND** — (A) confirmed by Duke in the 2026-07-20 elicitation review
+  (MetaCoding-tkj); a farmer sees the surfaced duplicate as an observation.
+  (Registered in `kernelConfig.ts` / `cm-decisions.jsonl` as `status:"bound"`; no
+  fixture exercises birth, so the store enforces only that the decision is
+  *bound* at construction. Mechanic implemented by `demoteToObservation`, v1.1
+  element 8.)
 
 The registry also binds `id-scheme`, `movement-as-log-taxonomy`,
 `membership-model`, and `pending-status-gates` — the other four elements — so the
@@ -252,6 +257,25 @@ no production data exists, so all five are cheaply reversible today).
 
 ---
 
+## Duke's review record — 2026-07-20 (elicitation flow, MetaCoding-tkj)
+
+Duke ran the 9h5.13 elicitation flow over the four picks flagged **product-feel**.
+Outcome: **three confirmed, one reversed.** Confirmed picks move
+`provisional → bound`; from here a change is a recorded re-decision, not a veto.
+
+| pick | outcome | effect |
+|---|---|---|
+| 1a — movement is a distinct kind, `isLog:false` | ✅ **CONFIRMED → bound** | CP2 stands; `movement-as-log-taxonomy` now `status:"bound"` |
+| 5a — birth-uniqueness: earliest-HLC-wins, loser demoted to observation | ✅ **CONFIRMED → bound** | `birth-uniqueness` now `status:"bound"`; `demoteToObservation` is the sanctioned mechanic |
+| w0a-2 — inventory same-effectiveTime tie-break on HLC, never id | ✅ **CONFIRMED** | `FoldReduce`'s (effectiveTime, HLC) order stands; oracle confirmation is now corroboration, **not** a wave-1 gate |
+| w0b-1 — parent lineage append-iff-empty | ❌ **REVERSED** | a birth **correction may overwrite parentage**: the parent field is an `LwwRegister`, not a `GuardedFirstWrite`. See element 8 (8a) |
+
+The three picks Duke did not review (id-scheme `prefix_replicaId~counter`;
+membership LWW-register; pending-status-gates) remain **decided-for-me /
+provisional** pending a later pass.
+
+---
+
 # Kernel v1.1 — the fold library (MetaCoding-9h5.26)
 
 > Status: **v1.1, three additions all DECIDED-FOR-ME** (Duke's blanket decide-for-me
@@ -288,7 +312,8 @@ never on entity id (`ids.ts` forbids it).
 |---|---|---|---|---|
 | 6 | `FoldReduce` | ordered reduce: `reset` ASSIGNS, deltas accumulate, over gate-passing events since the latest reset, keyed (effectiveTime, HLC) | w0a-1 / w0a-2 | `fold.ts` |
 | 7 | `GSet` | grow-only ordered collection (append-only, order-preserving, no replace/remove/dedup), HLC-ordered | w0b-2 | `gset.ts` |
-| 8 | `GuardedFirstWrite` + `demoteToObservation` | first-writer-wins (write iff empty; earliest-HLC across replicas) + bound-uniqueness loser demotion | w0b-1 / sub-decision 5a | `fww.ts` |
+| 8 | `demoteToObservation` (+ `pickEarliest`) | bound-uniqueness loser demotion: earliest-HLC kept, losers re-emitted as observations | sub-decision 5a | `fww.ts` |
+| — | `GuardedFirstWrite` | first-writer-wins register — **UNBOUND** since Duke reversed w0b-1 (2026-07-20); do not select without a bound decision | (none) | `fww.ts` |
 
 ## Element 6 — `FoldReduce` (ordered reset/accumulate reduce)
 
@@ -308,8 +333,9 @@ rather than seeding at the reset is what makes the same-effectiveTime tie correc
 merge-deterministic because the (effectiveTime, HLC) order is total.
 
 **Reversal:** an observed fixture showing reset/delta interleaving this ordering
-gets wrong, OR the id-order tie-break (w0a-2) proving domain-observable in a way
-HLC cannot reproduce. No production data exists; cheaply reversible.
+gets wrong. (The id-order limb of this reversal is **closed** — Duke confirmed the
+HLC tie-break on 2026-07-20; an oracle observation would now corroborate it, not
+gate it.) No production data exists; cheaply reversible.
 
 ## Element 7 — `GSet` (grow-only ordered collection)
 
@@ -333,11 +359,26 @@ different CRDT). Routine flag. Cheaply reversible.
 iff the child has no parent — any existing parent is a complete veto" folded
 deterministically under replay/merge?
 
-**Pick (decided-for-me).** `GuardedFirstWrite<V>` (`fww.ts`) — the mirror of
+**Pick — SUPERSEDED 2026-07-20 (Duke, elicitation review MetaCoding-tkj).** The
+decided-for-me pick was `GuardedFirstWrite<V>` (`fww.ts`), the mirror of
 `LwwRegister` with the comparator reversed: `set(value, hlc)` accepts iff empty OR
-the incoming HLC strictly PRECEDES the incumbent, so sequential first-write-wins
-and concurrent earliest-HLC-wins are the same rule. Replaying events in any order
-lands on the same value. This is decision **w0b-1** (parent-lineage-append-if-empty).
+the incoming HLC strictly PRECEDES the incumbent. Duke **reversed w0b-1**: this is
+reversal condition 8a, taken as a product call rather than waiting on the oracle —
+**a birth correction MAY overwrite parentage.**
+
+**Bound pick (Duke, 2026-07-20).** Parent lineage is an `LwwRegister<V>`
+(`lww.ts`), keyed on the HLC like every other latest-wins field: the newest write
+by HLC wins, so a later correction reassigns the parent and replay/merge stay
+order-independent. Rationale: a corrected birth is the farmer fixing a mistake, and
+the source's "existing parent is a total veto" makes that mistake permanent —
+farmOS fidelity loses to correctability here. Cost: a bad correction can silently
+rewrite lineage; if that becomes real, the answer is an audit trail over the
+register, not a write veto. Nothing was built on the old pick (w0b was never
+built), so the reversal cost was documentation only.
+
+`GuardedFirstWrite` remains in the library, tested, but is **UNBOUND** — no current
+feature decision selects it. A wave builder must not reach for it without a bound
+decision naming it; parent lineage in particular is now LWW.
 
 **Question (8b — birth-uniqueness demotion, sub-decision 5a option A).** The bound
 birth-uniqueness rule is earliest-HLC-wins with the loser demoted to an
@@ -353,10 +394,9 @@ owns only the mechanic — who wins, who is demoted — so a feature cannot re-d
 it as min-UUID or drop the loser; the domain supplies the observation-kind
 transform. `pickEarliest` is exported as the mirror of `pickLatest`.
 
-**Reversal (8a):** oracle shows a birth *correction* can later set a parent
-(product-feel flag). **Reversal (8b):** Duke vetoes earliest-HLC / demote-to-
-observation on morning review (product-feel — same entry as v1's birth-uniqueness
-row). Cheaply reversible; no production data.
+**Reversal (8a): TAKEN 2026-07-20** — Duke reversed w0b-1 in review; parent lineage
+is now an `LwwRegister` (see the bound pick above). **Reversal (8b): NOT taken** —
+Duke confirmed earliest-HLC + demote-to-observation; that entry is now BOUND.
 
 ## Resolution record — 2026-07-20 (decided-for-me)
 
@@ -368,6 +408,6 @@ production data exists, so all three are cheaply reversible today.
 
 | # | decision | resolution | flag |
 |---|---|---|---|
-| 6 | `FoldReduce` ordered reduce; reset assigns, ties break on HLC (w0a-1/w0a-2) | decided-for-me | routine — but w0a-2 (HLC vs id tie-break) is ⚠ minor product-feel pending oracle confirmation |
+| 6 | `FoldReduce` ordered reduce; reset assigns, ties break on HLC (w0a-1/w0a-2) | decided-for-me → **w0a-2 CONFIRMED by Duke 2026-07-20** | routine; HLC tie-break stands, oracle check is corroboration only |
 | 7 | `GSet` grow-only multiset, no dedup by value (w0b-2) | decided-for-me | routine |
-| 8 | `GuardedFirstWrite` (w0b-1) + `demoteToObservation` (sub-decision 5a A) | decided-for-me | ⚠ **product-feel — review first**: w0b-1 decides whether a corrected birth can ever assign parentage; demotion decides duplicate-visible vs dropped |
+| 8 | `LwwRegister` for parent lineage (**w0b-1 REVERSED by Duke 2026-07-20**) + `demoteToObservation` (sub-decision 5a A, **CONFIRMED → bound**) | Duke-decided | a corrected birth MAY reassign parentage; `GuardedFirstWrite` retained but UNBOUND |
