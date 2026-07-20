@@ -62,6 +62,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Optional glossary / intent text file (domain framing). Must NOT contain a "
         "reference adapter surface.",
     )
+    p.add_argument(
+        "--cm-decisions", default=None,
+        help="Path to the kernel's bound CM-decision registry (cm-decisions.jsonl, "
+        "src/kernel/decisions.ts format). Bound/provisional decisions are injected into "
+        "the synthesis prompt as FIXED constraints and enforced by a post-generation "
+        "conformance check that fails loudly if the surface re-derives a conflicting "
+        "convergence mechanic (F2 / MetaCoding-9h5.27).",
+    )
     p.add_argument("--target-language", default="TypeScript")
     p.add_argument("--out-json", default=None, help="Output contract JSON path.")
     p.add_argument("--out-md", default=None, help="Output contract markdown path.")
@@ -77,7 +85,9 @@ def run(args: argparse.Namespace) -> int:
     from ctkr.llm import LLMClient
     from ctkr.propose_adapter import (
         build_contract_prompt,
+        check_cm_conformance,
         extract_subsystem_members,
+        load_cm_decisions,
         load_fixture_candidates,
         render_contract_markdown,
         synthesize_contract,
@@ -100,6 +110,20 @@ def run(args: argparse.Namespace) -> int:
             sys.stderr.write(f"ERROR: --glossary {gp} does not exist.\n")
             return 2
         glossary_text = gp.read_text(encoding="utf-8")
+
+    # Bound CM-decision registry (F2 / MetaCoding-9h5.27): fixed constraints the surface
+    # must conform to. Injected verbatim into the prompt AND enforced post-generation.
+    cm_constraints = []
+    if args.cm_decisions:
+        cmp = Path(args.cm_decisions).expanduser().resolve()
+        if not cmp.exists():
+            sys.stderr.write(f"ERROR: --cm-decisions {cmp} does not exist.\n")
+            return 2
+        cm_constraints = load_cm_decisions(cmp)
+        n_binding = sum(1 for c in cm_constraints if c.is_binding)
+        sys.stderr.write(
+            f"loaded {len(cm_constraints)} CM decision(s) ({n_binding} binding) from {cmp}\n"
+        )
 
     # Fixture candidates (mine-fixtures output) — the mined non-obvious semantics.
     fc_path = (
@@ -133,6 +157,7 @@ def run(args: argparse.Namespace) -> int:
         fixture_candidates=fixture_candidates,
         target_profile_text=target_profile_text,
         glossary_text=glossary_text,
+        cm_constraints=cm_constraints,
         target_language=args.target_language,
     )
 
@@ -186,4 +211,19 @@ def run(args: argparse.Namespace) -> int:
         for m in [*contract.mutators, *contract.projections]:
             aot = " @t" if m.as_of_time else ""
             sys.stdout.write(f"  [{m.kind[:4]}] {m.name}{aot}  <- {m.derived_from[:50]}\n")
+
+    # Post-generation CM-conformance gate (F2 / MetaCoding-9h5.27). Deterministic: the
+    # surface must not re-derive a convergence mechanic that conflicts with a bound
+    # decision. Fail loudly (nonzero exit) — never a silent warning. The artifacts above
+    # are written first so the conflicting surface is inspectable.
+    conflicts = check_cm_conformance(contract, cm_constraints)
+    if conflicts:
+        sys.stderr.write(
+            f"\nCM-CONFORMANCE FAILED: {len(conflicts)} bound-decision conflict(s) in the "
+            "generated surface.\n\n"
+        )
+        for cf in conflicts:
+            sys.stderr.write(cf.render() + "\n\n")
+        return 3
+
     return 0
