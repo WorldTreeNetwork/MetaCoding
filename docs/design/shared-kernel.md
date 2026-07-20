@@ -228,3 +228,24 @@ throwing.
    committed judge (CP2) if flipped.
 3. Confirm 2a (replica-counter vs uuid-v7) — both satisfy collision-freedom; the
    choice is opacity-vs-determinism.
+
+---
+
+## Resolution record — 2026-07-20 (decided-for-me)
+
+Duke authorized blanket decide-for-me for the five kernel decisions before signing
+off ("decide everything for me, get as far as possible, i'll check it in the
+morning"). All five provisional picks above are hereby **RESOLVED: decided-for-me**,
+rationales as documented per pick. Reversal condition for every entry: Duke's
+morning review — any veto re-opens the decision through the metric-update /
+decision-registry discipline (recorded re-decision, affected code regenerated;
+no production data exists, so all five are cheaply reversible today).
+
+| # | decision | resolution | flag |
+|---|---|---|---|
+| 1 | Event-kind taxonomy: movement is a distinct kind, `isLog:false` | decided-for-me | ⚠ **product-feel — review first**: the only pick whose flip changes a committed judge; farmOS itself models movements as activity logs |
+| 2 | ID scheme: `prefix_replicaId~counter` | decided-for-me | routine |
+| 3 | HLC `(physical, logical, replicaId)` total order | decided-for-me | routine (unanimous 7-build punt, now filled) |
+| 4 | Single kernel `pickLatest` comparator | decided-for-me | routine (follows from #3) |
+| 5 | Status gates: logs count-regardless / movements require-confirmed | decided-for-me | pinned by live-oracle observations |
+| — | Birth-uniqueness convergence: earliest-HLC-wins, loser **demoted to observation** | decided-for-me | ⚠ **product-feel — review first**: determines whether a farmer sees a surfaced duplicate (observation record) vs nothing; data-preserving, majority-of-builders choice |
