@@ -36,7 +36,7 @@ comparator. See `build/test/prevention.test.ts`.
 | 1 | Event envelope + closed kind taxonomy | closed registry; **a movement is a distinct kind, `isLog:false`** | CP2's latent movement-as-log conflict |
 | 2 | Client id + HLC | **replica-scoped id `prefix_replicaId~counter`** + `(physical,logical,replicaId)` HLC | the `asset_7` ordinal regression + the 7/7 HLC punt |
 | 3 | One latest-wins comparator | `pickLatest`/`LwwRegister` keyed on the HLC — the only legal fold | additive membership (ce015be4 fails) |
-| 4 | Status-semantics contract | declared table: yield/logCount `count-regardless`, location `require-confirmed` | cell4 gating yield on `done` |
+| 4 | Status-semantics contract | declared table: yield/logCount `require-confirmed` + pending partners `pending-only` (v1.2 divergence), location `require-confirmed` | cell4 gating yield on `done` *ad hoc* |
 | 5 | Binding CM-decision registry | `requireBound` throws on unresolved/unnamed-convergence | the birth-uniqueness 3-way split |
 
 ---
@@ -98,7 +98,9 @@ freeze — never an ad-hoc string at an append site.
   replicaId and folds it into every id; there is no method that returns a bare
   ordinal. `EntityId` is a branded type, so a plain number can't be used where an
   id is required.
-- **Status: PROVISIONAL.**
+- **Status: BOUND** — (A) confirmed by Duke, 2026-07-20 elicitation review
+  (MetaCoding-tkj): determinism and no-RNG beat uuid-v7's opacity, and uuid-v7's
+  time-sortability would only invite ordering by id.
 
 ### Sub-decision 2b — the HLC (the 7/7 unanimous punt)
 
@@ -134,7 +136,12 @@ additively (the 0p7/cell-a bug that failed ce015be4) without bypassing the kerne
 entirely. Order-independence of `pickLatest` (guaranteed by the total HLC order)
 is the convergence property: replay in any order, same winner.
 
-**Status: PROVISIONAL.**
+**Status: BOUND** — the membership limb was confirmed by Duke on 2026-07-20
+(MetaCoding-tkj), grounded in the observed fixture *"Reassigning an animal to a new
+group revokes the prior membership"* (assign A→G1 then A→G2 ⇒ `group_member(A,G1)`
+is **false**): live farmOS puts an asset in exactly one group at a time, and the
+assignment replaces rather than accumulates. Multi-group membership would need
+fresh observation plus a removal semantic the kernel does not have.
 
 ---
 
@@ -150,15 +157,40 @@ decides:
 
 | projection | gate | meaning |
 |---|---|---|
-| `yieldTotal`, `logCount`, `logStatus` | `count-regardless` | **pending logs count** (a pending harvest was still recorded) |
+| `yieldTotal`, `logCount` | `require-confirmed` | **the official figure — confirmed only** |
+| `pendingYieldTotal`, `pendingLogCount` | `pending-only` | **the pending mass, surfaced beside it, never blended in** |
+| `logStatus` | `count-regardless` | status is reported as-is, never gated away |
 | `currentLocation`, `assetsAtLocation`, `currentGeometry` | `require-confirmed` | **pending movements are inert** (a proposed move isn't physically true) |
 
-Both required readings are thereby expressible and enforced by construction.
 Freezing the table stops a fan-out author re-litigating it (cell4 gated yield on
-`done` and failed 73ed7c69/d8607818). Adding a status-bearing projection means
-adding a reviewed row here, not re-deciding ad hoc.
+`done` *ad hoc* and failed 73ed7c69/d8607818). Adding a status-bearing projection
+means adding a reviewed row here, not re-deciding ad hoc — and a
+`require-confirmed` numeric must declare its `PENDING_PARTNER`, which a kernel test
+enforces.
 
-**Status: PROVISIONAL.**
+### The deliberate source divergence (v1.2, Duke 2026-07-20, MetaCoding-tkj)
+
+The live oracle is unambiguous that **farmOS counts pending harvests in the
+totals**: fixture `73ed7c69` ("a pending harvest still contributes to the yield
+total") asserts `yield_total == 5.0` for a single *pending* 5 kg harvest, and
+`d8607818` asserts `log_count == 2` / `yield_total == 6.0` for one pending 2 kg
+plus one done 4 kg. Both carry farmOS 4.x provenance with observation refs.
+
+The port **departs from the source here**, on Duke's call: *if a pending row lands
+in the official total, the pending state means nothing — so why have it?* The
+official numerics are therefore confirmed-only, and the pending mass gets its own
+projection rather than being blended in (which hides it) or dropped (which loses
+it). `pending-only` is the exact mirror of `require-confirmed`, so the pair
+**partitions** the candidates — nothing is double-counted and nothing is invisible.
+
+Discipline note: the two observed fixtures were **not rewritten**. They remain
+correct records of what farmOS does; the divergence lives in the bound decision
+(`pending-status-gates`, `menuChoice: supersede-with-port-semantics`), which is
+where a port is allowed to disagree with its source. Under the port's semantics
+those two scenarios read `yieldTotal 0.0 / pendingYieldTotal 5.0` and
+`logCount 1 / pendingLogCount 1 / yieldTotal 4.0 / pendingYieldTotal 2.0`.
+
+**Status: BOUND** (source-divergent).
 
 ---
 
@@ -252,7 +284,7 @@ no production data exists, so all five are cheaply reversible today).
 | 2 | ID scheme: `prefix_replicaId~counter` | decided-for-me | routine |
 | 3 | HLC `(physical, logical, replicaId)` total order | decided-for-me | routine (unanimous 7-build punt, now filled) |
 | 4 | Single kernel `pickLatest` comparator | decided-for-me | routine (follows from #3) |
-| 5 | Status gates: logs count-regardless / movements require-confirmed | decided-for-me | pinned by live-oracle observations |
+| 5 | Status gates: logs count-regardless / movements require-confirmed | **SUPERSEDED 2026-07-20 by Duke** — see the review record below and element 4 | was pinned by live-oracle observations; the port now deliberately diverges |
 | — | Birth-uniqueness convergence: earliest-HLC-wins, loser **demoted to observation** | decided-for-me | ⚠ **product-feel — review first**: determines whether a farmer sees a surfaced duplicate (observation record) vs nothing; data-preserving, majority-of-builders choice |
 
 ---
@@ -270,9 +302,16 @@ Outcome: **three confirmed, one reversed.** Confirmed picks move
 | w0a-2 — inventory same-effectiveTime tie-break on HLC, never id | ✅ **CONFIRMED** | `FoldReduce`'s (effectiveTime, HLC) order stands; oracle confirmation is now corroboration, **not** a wave-1 gate |
 | w0b-1 — parent lineage append-iff-empty | ❌ **REVERSED** | a birth **correction may overwrite parentage**: the parent field is an `LwwRegister`, not a `GuardedFirstWrite`. See element 8 (8a) |
 
-The three picks Duke did not review (id-scheme `prefix_replicaId~counter`;
-membership LWW-register; pending-status-gates) remain **decided-for-me /
-provisional** pending a later pass.
+**Second pass, same session — the remaining three, all now BOUND:**
+
+| pick | outcome | effect |
+|---|---|---|
+| id-scheme `prefix_replicaId~counter` | ✅ **CONFIRMED → bound** | uuid-v7 rejected: needs RNG, and time-sortable ids invite ordering by id |
+| membership = LWW-register on `group_assigned` | ✅ **CONFIRMED → bound** | grounded in the observed reassignment-revokes-prior fixture; one group at a time |
+| pending-status-gates | ⚠️ **SUPERSEDED → bound, source-divergent** | official numerics are confirmed-only; pending gets partner projections (`pendingYieldTotal`, `pendingLogCount`). See element 4 |
+
+All five kernel decisions plus both v1.1 product-feel picks are now resolved; the
+registry has no `provisional` rows left.
 
 ---
 

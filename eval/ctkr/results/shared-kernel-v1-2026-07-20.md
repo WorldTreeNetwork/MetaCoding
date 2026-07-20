@@ -43,6 +43,11 @@
 5. **Status contract** — declared table: `yield`/`logCount` `count-regardless`
    (pending logs count), `currentLocation` `require-confirmed` (pending movements
    inert). Freezes the two opposite readings of one status field.
+   **SUPERSEDED in kernel v1.2 (Duke, 2026-07-20, MetaCoding-tkj):** the official
+   numerics are now `require-confirmed` and the pending mass moved to partner
+   projections (`pendingYieldTotal`/`pendingLogCount`, gate `pending-only`) — a
+   deliberate divergence from observed farmOS. See docs/design/shared-kernel.md
+   §Element 4. This document records v1 as built.
 
 Plus the **binding CM-decision registry** (element 5): `requireBound` throws on an
 unresolved decision or a hard invariant with no named convergence key. The

@@ -212,8 +212,26 @@ export class SharedStore {
     return pickLatest(candidates, (c) => c.hlc)?.status ?? "";
   }
 
+  /** THE official yield: confirmed harvests only. See `pendingYieldTotal`. */
   assetYieldTotal(assetId: Handle, measure: string, unit: string): number {
-    const gate = gateFor("yieldTotal"); // count-regardless: pending counts
+    return this.yieldUnder("yieldTotal", assetId, measure, unit);
+  }
+
+  /**
+   * The yield still awaiting confirmation — surfaced beside the official total,
+   * never added into it (kernel v1.2 status split, MetaCoding-tkj).
+   */
+  pendingYieldTotal(assetId: Handle, measure: string, unit: string): number {
+    return this.yieldUnder("pendingYieldTotal", assetId, measure, unit);
+  }
+
+  private yieldUnder(
+    projection: "yieldTotal" | "pendingYieldTotal",
+    assetId: Handle,
+    measure: string,
+    unit: string,
+  ): number {
+    const gate = gateFor(projection);
     let total = 0;
     for (const e of this.events()) {
       if (e.kind !== "log_recorded") continue;
@@ -226,8 +244,22 @@ export class SharedStore {
     return total;
   }
 
+  /** THE official log count: confirmed logs only. See `pendingLogCount`. */
   logCount(assetId: Handle, kind: string): number {
-    const gate = gateFor("logCount"); // count-regardless
+    return this.countUnder("logCount", assetId, kind);
+  }
+
+  /** How many logs of `kind` are still pending — the partner of `logCount`. */
+  pendingLogCount(assetId: Handle, kind: string): number {
+    return this.countUnder("pendingLogCount", assetId, kind);
+  }
+
+  private countUnder(
+    projection: "logCount" | "pendingLogCount",
+    assetId: Handle,
+    kind: string,
+  ): number {
+    const gate = gateFor(projection);
     let count = 0;
     for (const e of this.events()) {
       if (e.kind !== "log_recorded") continue; // only family "log" — a movement is not a log

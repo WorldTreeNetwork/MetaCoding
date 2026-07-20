@@ -62,6 +62,7 @@ export {
   type ProjectionName,
   CONFIRMED_STATUS,
   STATUS_CONTRACT,
+  PENDING_PARTNER,
   gateFor,
   passesGate,
   admits,
