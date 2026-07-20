@@ -22,6 +22,7 @@ from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
 from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
 from ctkr.oracle.recorder import (
     build_client,
+    record_session_result,
     core_flows,
     hardening_flows,
     record_session,
@@ -108,7 +109,8 @@ def run(args: argparse.Namespace) -> int:
     sys.stderr.write(
         f"recording {len(flows)} value-flows ({origin}) against {args.base_url} ...\n"
     )
-    fixtures, observations = record_session(adapter, flows)
+    session = record_session_result(adapter, flows)
+    fixtures, observations = session.fixtures, session.observations
 
     out = Path(args.out_dir)
     fx_path = out / "fixtures.jsonl"
@@ -118,7 +120,7 @@ def run(args: argparse.Namespace) -> int:
 
     issues = [i for fx in fixtures for i in validate_fixture(fx)]
     sys.stderr.write(
-        f"\n  flows recorded      : {len(fixtures)}\n"
+        f"\n  flows recorded      : {len(fixtures)}/{len(flows)}\n"
         f"  fixtures distilled  : {n_fx}\n"
         f"  observations logged : {n_obs}\n"
         f"  validation issues   : {len(issues)}\n"
@@ -127,4 +129,19 @@ def run(args: argparse.Namespace) -> int:
     )
     for i in issues:
         sys.stderr.write(f"  [{i.severity}] {i.where}: {i.message}\n")
-    return 1 if issues else 0
+
+    # A flow that produced no fixture is never silently dropped: a pack that
+    # recorded 11 of 12 is NOT a pack of 11.
+    if session.unrecorded:
+        sys.stderr.write(
+            f"\n  UNRECORDED FLOWS    : {len(session.unrecorded)} "
+            f"— these produced NO fixture and are not in the pack\n"
+        )
+        for u in session.unrecorded:
+            sys.stderr.write(f"    - {u.key}: {u.error}\n")
+            sys.stderr.write(f"      ({u.title})\n")
+        sys.stderr.write(
+            "  If the source REFUSED the write, that refusal is a semantic worth\n"
+            "  recording: set expect_refusal on the flow and re-run.\n"
+        )
+    return 1 if (issues or session.unrecorded) else 0

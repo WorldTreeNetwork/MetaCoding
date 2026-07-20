@@ -108,6 +108,14 @@ _PROBES: tuple[ProbeSpec, ...] = (
               doc="Whether one animal is delivered as another's parent."),
     ProbeSpec("birth_record_count", "birth_record_count", (),
               doc="How many birth records claim an animal as issue."),
+    # Answered by the ATTEMPT itself: there is no method to call, because the
+    # value IS whether the `when` was refused. Bound here so the vocabulary stays
+    # closed (contract_gaps covers glossary and table against each other), and
+    # flagged so no dispatcher tries to invoke an empty method name.
+    ProbeSpec("refused", "", (), subject_kind="attempt",
+              doc="Whether the system REFUSED the attempted write. A refusal is a "
+                  "delivered semantic ('this animal already has a birth log'), not "
+                  "an absence of one."),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

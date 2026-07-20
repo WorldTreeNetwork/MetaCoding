@@ -93,6 +93,22 @@ def resolve_probe_args(
     return args
 
 
+def _evaluate_refusal(t: ThenAssertion, refused: bool) -> AssertionResult:
+    """Judge a `refused` assertion from the ATTEMPT, not from a probe call.
+
+    There is nothing to read back: the value under test is whether the write was
+    allowed. An implementation that ACCEPTS what the source refused fails here —
+    which is the point, since silently permitting a forbidden write is the kind
+    of divergence a read-side probe can never see.
+    """
+    return AssertionResult(
+        passed=compare_values(t.op, refused, t.value),
+        assertion=t.assert_, subject=t.subject, op=t.op,
+        expected=t.value, actual=refused,
+        detail="" if refused else "the write was ACCEPTED where the source refused it",
+    )
+
+
 def _evaluate(
     adapter: ImplementationAdapter,
     t: ThenAssertion,
@@ -138,13 +154,25 @@ def run_fixture(
 ) -> FixtureResult:
     """Execute one fixture against an adapter and collect per-assertion results."""
     handles: dict[str, Handle] = {}
+    # A fixture asserting `refused` is verified by the ATTEMPT: the implementation
+    # must refuse the same write the source refused. An AdapterError is then the
+    # expected outcome, not a run failure (MetaCoding-o8b).
+    expects_refusal = any(t.assert_ == "refused" and t.value is True for t in fx.then)
+    refused = False
     try:
         now = flow_now()
         for g in fx.given:
             handles[g.alias] = apply_given(adapter, g)
         for w in fx.when:
             apply_when(adapter, w, handles, now)
-    except (AdapterError, KeyError) as exc:
+    except AdapterError as exc:
+        if not expects_refusal:
+            return FixtureResult(
+                fixture_id=fx.fixture_id or fx.content_id(), title=fx.title,
+                passed=False, error=f"{type(exc).__name__}: {exc}",
+            )
+        refused = True
+    except KeyError as exc:
         return FixtureResult(
             fixture_id=fx.fixture_id or fx.content_id(), title=fx.title,
             passed=False, error=f"{type(exc).__name__}: {exc}",
@@ -156,7 +184,11 @@ def run_fixture(
             error=f"unexpected {type(exc).__name__}: {exc}\n{traceback.format_exc()}",
         )
 
-    results = [_evaluate(adapter, t, handles) for t in fx.then]
+    results = [
+        _evaluate_refusal(t, refused) if t.assert_ == "refused"
+        else _evaluate(adapter, t, handles)
+        for t in fx.then
+    ]
     return FixtureResult(
         fixture_id=fx.fixture_id or fx.content_id(), title=fx.title,
         passed=all(r.passed for r in results) and bool(results),

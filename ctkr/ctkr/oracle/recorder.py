@@ -28,7 +28,7 @@ from typing import Any
 from blake3 import blake3
 from pydantic import BaseModel
 
-from ctkr.oracle.adapter import Handle
+from ctkr.oracle.adapter import AdapterError, Handle
 from ctkr.oracle.farmos_adapter import FarmOSAdapter, FarmOSClient
 from ctkr.oracle.fixtures import (
     GivenStep,
@@ -63,7 +63,23 @@ class RecordingClient(FarmOSClient):
     def request(
         self, method: str, path: str, doc: dict | None = None
     ) -> dict[str, Any]:
-        resp = super().request(method, path, doc)
+        try:
+            resp = super().request(method, path, doc)
+        except AdapterError as exc:
+            # A REFUSED write is evidence, and it used to be the one thing the
+            # recorder threw away: the exception propagated before any
+            # observation was appended, so the source's own words ("Kid Fennel
+            # already has a birth log") never reached the provenance file.
+            self._seq += 1
+            self.observations.append(
+                Observation(
+                    obs_id=blake3(f"{self._seq}:{method}:{path}".encode()).hexdigest()[:16],
+                    method=method, path=path, request=doc,
+                    response_status="refused",
+                    response_excerpt={"refusal": str(exc)[:600]},
+                )
+            )
+            raise
         self._seq += 1
         obs_id = blake3(f"{self._seq}:{method}:{path}".encode()).hexdigest()[:16]
         # keep a compact excerpt — ids/type of the primary resource only
@@ -110,6 +126,15 @@ class FlowSpec:
     given: list[GivenStep]
     when: list[WhenStep]
     probes: list[Probe] = field(default_factory=list)
+    #: This flow attempts something the source is expected to REFUSE, and the
+    #: refusal is the semantic under test (MetaCoding-o8b). Recording used to die
+    #: on the first AdapterError, so the sharpest signal a source can give —
+    #: "you may not do that" — killed the run instead of becoming evidence. The
+    #: wave-0 pilot lost farmOS's UniqueBirthLog 422 exactly this way.
+    #:
+    #: The expectation is NOT the observation: if the source ACCEPTS the write,
+    #: that is recorded as a contradiction, never quietly turned into a fixture.
+    expect_refusal: bool = False
 
 
 def _q(measure: str, value: float, unit: str, label: str = "") -> QuantitySpec:
@@ -540,11 +565,41 @@ def record_flow(
     now = flow_now()
     for g in flow.given:
         handles[g.alias] = apply_given(adapter, g)
+
+    refusal: AdapterError | None = None
     for w in flow.when:
-        apply_when(adapter, w, handles, now)
+        try:
+            apply_when(adapter, w, handles, now)
+        except AdapterError as exc:
+            if not flow.expect_refusal:
+                raise
+            # The refusal IS the observation. Stop here: everything after this
+            # step was predicated on a write that did not happen.
+            refusal = exc
+            break
+
+    if flow.expect_refusal and refusal is None:
+        # Never fabricate the expected answer. The source accepted what the pack
+        # said it would refuse — a real finding about the source, and the pack.
+        raise RefusalNotObserved(
+            f"flow {flow.key!r} expected the source to REFUSE, but it accepted "
+            f"the write. That is a finding about the source, not a fixture: "
+            f"either the invariant does not exist or the flow does not violate it."
+        )
 
     then: list[ThenAssertion] = []
+    if refusal is not None:
+        then.append(
+            ThenAssertion(
+                assert_="refused", subject=flow.when[-1].ref or flow.when[-1].alias,
+                op="==", value=True,
+            )
+        )
     for probe in flow.probes:
+        if refusal is not None:
+            # A probe after a refused write would read state the write never
+            # produced. Refusal flows assert the refusal, nothing more.
+            break
         observed = _observe_probe(adapter, probe, handles)
         then.append(
             ThenAssertion(
@@ -574,21 +629,72 @@ def record_flow(
     return fixture, observations
 
 
+class RefusalNotObserved(RuntimeError):
+    """A flow declared ``expect_refusal`` but the source accepted the write."""
+
+
+@dataclass
+class UnrecordedFlow:
+    """A flow that produced no fixture, and why. Never silently dropped."""
+
+    key: str
+    title: str
+    error: str
+
+
+@dataclass
+class SessionResult:
+    """Everything a recording run produced, including what it could NOT record."""
+
+    fixtures: list[SemanticFixture] = field(default_factory=list)
+    observations: list[Observation] = field(default_factory=list)
+    unrecorded: list[UnrecordedFlow] = field(default_factory=list)
+
+
+def record_session_result(
+    adapter: FarmOSAdapter,
+    flows: list[FlowSpec] | None = None,
+    source_version: str = "4.x",
+) -> SessionResult:
+    """Run the whole scripted session, surviving individual flow failures.
+
+    The recorder used to abort the entire run on the first :class:`AdapterError`,
+    so one unrecordable flow cost every flow after it (the wave-0 pilot lost a
+    whole pack's tail that way). A failing flow is now recorded as
+    :class:`UnrecordedFlow` and the session continues — but it is never treated
+    as a pass: the caller must report the list, and the CLI exits non-zero.
+    """
+    flows = flows if flows is not None else core_flows()
+    result = SessionResult()
+    adapter.open()
+    for flow in flows:
+        obs_start = len(getattr(adapter.client, "observations", []))
+        try:
+            fx, obs = record_flow(adapter, flow, source_version)
+        except (AdapterError, RefusalNotObserved, KeyError, ValueError) as exc:
+            # Keep whatever the boundary said before it failed — for a refusal
+            # that excerpt IS the finding.
+            result.observations.extend(
+                list(getattr(adapter.client, "observations", []))[obs_start:]
+            )
+            result.unrecorded.append(
+                UnrecordedFlow(key=flow.key, title=flow.title,
+                               error=f"{type(exc).__name__}: {exc}")
+            )
+            continue
+        result.fixtures.append(fx)
+        result.observations.extend(obs)
+    return result
+
+
 def record_session(
     adapter: FarmOSAdapter,
     flows: list[FlowSpec] | None = None,
     source_version: str = "4.x",
 ) -> tuple[list[SemanticFixture], list[Observation]]:
-    """Run the whole scripted session; return distilled fixtures + all observations."""
-    flows = flows if flows is not None else core_flows()
-    fixtures: list[SemanticFixture] = []
-    all_obs: list[Observation] = []
-    adapter.open()
-    for flow in flows:
-        fx, obs = record_flow(adapter, flow, source_version)
-        fixtures.append(fx)
-        all_obs.extend(obs)
-    return fixtures, all_obs
+    """Back-compatible shape: fixtures + observations only."""
+    r = record_session_result(adapter, flows, source_version)
+    return r.fixtures, r.observations
 
 
 def write_observations(observations: list[Observation], path: Any) -> int:

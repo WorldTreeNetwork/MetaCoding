@@ -101,6 +101,12 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "parent_count",  # how many parents an animal is delivered with
         "has_parent",  # whether one animal is delivered as another's parent
         "birth_record_count",  # how many birth records claim an animal as issue
+        # --- refusal (B3) ---------------------------------------------------
+        "refused",  # whether the system REFUSED the attempted write. A refusal
+                    # is a delivered answer, not an absence of one: "you may not
+                    # record a second birth for this animal" is a semantic the
+                    # boundary states. Answered by the ATTEMPT, not by a probe
+                    # method — see probes.ProbeSpec.subject_kind == "attempt".
     }
 )
 

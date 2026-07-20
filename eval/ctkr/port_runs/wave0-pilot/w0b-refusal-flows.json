@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w0b-two-birth-records-one-animal",
+      "title": "A second birth record for an animal that already has one is REFUSED \u2014 the source does not resolve the conflict, it forbids it",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "has_parent",
+        "parent_count",
+        "birth_date",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Kid Fennel",
+          "descriptor": "Goat",
+          "sex": "M"
+        },
+        {
+          "entity": "animal",
+          "alias": "FIRSTMOTHER",
+          "name": "Doe Willow",
+          "descriptor": "Goat",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "SECONDMOTHER",
+          "name": "Doe Rowan",
+          "descriptor": "Goat",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "FIRSTBIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "FIRSTMOTHER"
+          ],
+          "name": "first birth claim for Fennel",
+          "status": "done",
+          "at": "2026-07-13T12:00:00+00:00"
+        },
+        {
+          "action": "record_birth",
+          "alias": "SECONDBIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "SECONDMOTHER"
+          ],
+          "name": "second birth claim for Fennel",
+          "status": "done",
+          "at": "2026-07-14T12:00:00+00:00"
+        }
+      ],
+      "probes": [],
+      "expect_refusal": true
+    }
+  ]
+}

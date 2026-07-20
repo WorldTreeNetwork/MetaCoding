@@ -47,7 +47,11 @@ from ctkr.oracle.recorder import FlowSpec, Probe
 PACK_VERSION: int = 1
 
 _FLOW_KEYS = frozenset(
-    {"key", "title", "feature", "glossary_terms", "given", "when", "probes"}
+    {"key", "title", "feature", "glossary_terms", "given", "when", "probes",
+     # expect_refusal declares that the source is expected to REFUSE this write.
+     # It is NOT an expected value: the refusal is still observed, and a source
+     # that accepts instead is reported as a contradiction, never recorded.
+     "expect_refusal"}
 )
 _GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
 _WHEN_KEYS = frozenset(
@@ -94,6 +98,7 @@ def flow_to_dict(f: FlowSpec) -> dict[str, Any]:
         "given": [_drop_empty(g.model_dump()) for g in f.given],
         "when": [_drop_empty(w.model_dump()) for w in f.when],
         "probes": [probe_to_dict(p) for p in f.probes],
+        **({"expect_refusal": True} if f.expect_refusal else {}),
     }
 
 
@@ -355,16 +360,22 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
                     f"{where}.probes[{i}].{field}: unknown entity alias {ref!r}"
                 )
         probes.append(probe)
-    if not probes:
+    expect_refusal = bool(d.get("expect_refusal", False))
+    if not probes and not expect_refusal:
         raise FlowSpecError(
             f"{where}.probes: a flow with no probe observes nothing and would "
             "distil an empty fixture"
+        )
+    if expect_refusal and not when:
+        raise FlowSpecError(
+            f"{where}.expect_refusal: a refusal flow must attempt something — "
+            "there is no write for the source to refuse"
         )
 
     return FlowSpec(
         key=key, title=_str(d, "title", where), feature=_str(d, "feature", where),
         glossary_terms=_str_list(d, "glossary_terms", where),
-        given=given, when=when, probes=probes,
+        given=given, when=when, probes=probes, expect_refusal=expect_refusal,
     )
 
 

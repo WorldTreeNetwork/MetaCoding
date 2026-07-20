@@ -221,6 +221,10 @@ def test_contract_covers_the_glossary_exactly() -> None:
 
 def test_every_contract_method_exists_on_the_adapter_abc() -> None:
     for spec in PROBE_CONTRACT.values():
+        if spec.subject_kind == "attempt":
+            # Answered by whether the write was refused, not by a read-back call.
+            assert spec.method == "", spec
+            continue
         assert hasattr(ImplementationAdapter, spec.method), spec
     for action in OPERATION_CONTRACT:
         for method in methods_for_action(action, timed=True):
