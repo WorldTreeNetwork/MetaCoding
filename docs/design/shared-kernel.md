@@ -453,24 +453,47 @@ production data exists, so all three are cheaply reversible today.
 
 ---
 
-# Observation contest log — 2026-07-20 (first oracle contact)
+# Re-bind on evidence — 2026-07-20 (MetaCoding-ci2), kernel v1.3
 
-> The OBSERVE bridge shipped and w0a/w0b were recorded against live farmOS for the
-> first time. Every decision above had been bound from **source reading + Duke's
-> elicitation, never observation**. Three lost on first contact. They are listed
-> here as CONTESTED — the re-bind is MetaCoding-ci2 and belongs to Duke. Nothing
-> below has been resolved unilaterally.
+> The OBSERVE bridge shipped and w0a/w0b met the live oracle for the first time.
+> Every decision above had been bound from **source reading + elicitation, never
+> observation**. Three lost on first contact. Duke's instruction: *re-bind
+> according to the evidence.* This section is that re-bind. Each row now says what
+> decided it — OBSERVED, or CHOSEN with the evidence in hand.
 
-| decision | status | what the oracle showed |
+| decision | re-bound to | decided by |
 |---|---|---|
-| **w0b-1** parent lineage = LWW (a correction may overwrite) | ❌ **CONTESTED** | The correcting `PATCH` is accepted and is **inert on lineage**; an existing parent is a hard veto on the birth hook. And `correct_birth` is **asymmetric** — the corrected *time* propagates, the mother does not — so no single LWW rule models the verb. Real LWW does exist, but in `set_parents` (wholesale replace). A re-bind must name **which verb**. |
-| **w0b-2** nicknames = grow-only multiset (`GSet`) | ❌ **CONTESTED** | Ordered ✓, duplicate-preserving ✓, but restatement is **wholesale replace**. `GSet` — shipped in v1.1 partly for this semantic — is the wrong shape; an ordered-list LWW register is what the source implements. |
-| **v1.2** blanket confirmed-only pending gate | ⚠️ **CONTESTED (half right)** | farmOS excludes pending from inventory `stock_on_hand` (port matches) but honours a pending log **fully** for birth lineage and `birth_date` (port diverges, unsanctioned). The gate is **per-projection, not global**. Registry entry demoted `bound → provisional`. |
-| **w0a-2** same-effective-time tie-break = HLC | ✅ decision stands, ❌ **fixture cannot score it** | The corroborating fixture's observed `3.0` is farmOS **insertion-id order's fingerprint** — six permutations of the same events yield four distinct values. It is a false green under this replica ordering and a false failure under any other. Needs a corroboration-only marker the fixture schema does not have. |
-| **5a** birth-uniqueness (earliest-HLC wins, loser demoted) | ⚠️ **unobservable in principle** | farmOS **refuses** the second birth claim at write time (422). No state exists in which two claims coexist, so the resolution rule has no oracle counterpart. It stands as a port choice with zero oracle grounding. |
+| **w0b-1** parent lineage, BIRTH verb | **`GuardedFirstWrite`** — a birth writes parentage iff the child has none | OBSERVED: the correcting `PATCH` is accepted and is **inert on lineage**; an existing parent is a hard veto on the birth hook |
+| **w0b-1b** parent lineage, `set_parents` verb | **`LwwRegister`** — wholesale replace | OBSERVED: `set_parents(FIRST)` then `set_parents(SECOND)` ⇒ only SECOND |
+| **w0b-1c** birth TIME via correction | **`LwwRegister`** — the correction takes | OBSERVED: corrected birth time propagates even though the mother does not |
+| **w0b-2** nicknames | **`LwwRegister<readonly V[]>`** — ordered, duplicate-preserving, wholesale replace. `GSet` is now UNBOUND | OBSERVED: `['Pebble','Slate']` then `['Flint']` ⇒ `['Flint']`, not a union |
+| **v1.2 → v1.3** pending gates | **PER-PROJECTION `STATUS_CONTRACT`**, not one blanket rule | OBSERVED + CHOSEN (below) |
+| **w0a-2** same-effective-time tie-break | **HLC stands**; the corroborating fixture is marked corroboration-only and excluded from scoring | the decision was never contradicted; its FIXTURE encodes farmOS insertion-id order and cannot score either way |
+| **5a** birth-uniqueness | **stands as a FORCED divergence**, with zero oracle grounding | farmOS REFUSES the second claim (422). The port cannot refuse — it has no coordination layer across offline replicas — so it must resolve. Refuse-vs-resolve is imposed by the target architecture, not chosen |
 
-**The structural lesson outranks any individual row: treat every remaining bound
-decision as unvalidated until it has met the oracle.** Source reading and
-elicitation agreed with each other and were wrong three times out of the first
-three tests. Evidence: `eval/ctkr/results/wave1-readiness-2026-07-20.md` §2 and the
-recorded packs under `eval/ctkr/port_runs/wave0-pilot/w0{a,b}-observe/`.
+## The lesson that outlived the individual rows
+
+**A field does not have a convergence rule; a VERB does.** Lineage is
+first-writer-wins through a birth, latest-wins through a restatement, and the same
+correcting verb propagates one field while being vetoed on another. "Lineage is
+LWW" was not merely wrong — it was unstatable. Any future binding names the verb.
+
+**And the status gate is per-projection.** In one system, a pending inventory
+adjustment does not move stock but *is* counted, while a pending birth is fully
+effective for both lineage and date. No blanket rule could have been right.
+
+## What CHOSEN still means
+
+One divergence survived the re-bind untouched: `yieldTotal`/`logCount` remain
+confirmed-only against a source that counts pending harvests (73ed7c69, d8607818).
+Duke made that call with those exact fixtures in hand — a pending row in the
+official total makes the pending state meaningless — and the port surfaces the
+excluded mass through `pending-only` partner projections rather than dropping it.
+That is a *port choice*, properly recorded and still standing. What did not survive
+was silently extending it to projections nobody had ever observed.
+
+**The structural lesson stands: treat every remaining bound decision as
+unvalidated until it has met the oracle.** Source reading and elicitation agreed
+with each other and were wrong three times out of the first three tests. Evidence:
+`eval/ctkr/results/wave1-readiness-2026-07-20.md` §2 and the recorded packs under
+`eval/ctkr/port_runs/wave0-pilot/w0{a,b}-observe/`.

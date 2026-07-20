@@ -5,14 +5,23 @@
  * WHY THIS EXISTS. Two of the wave-0 pilot's fresh-feature semantics
  * (wave0-pilot-2026-07-20.md) are earliest-wins, not latest-wins:
  *
- *   - ~~**Parent lineage (decision w0b-1).**~~ **REVERSED 2026-07-20** (Duke's
- *     elicitation review, MetaCoding-tkj). The source's rule was "append the
- *     mother iff the child has no parent — any existing parent is a complete
- *     veto", which is a guarded first write. Duke chose correctability over source
- *     fidelity: **a birth correction MAY overwrite parentage**, so parent lineage
- *     is an `LwwRegister` (lww.ts), not this module. `GuardedFirstWrite` below is
- *     therefore UNBOUND — retained and tested, but no current feature decision
- *     selects it. Do not reach for it without a bound CM decision naming it.
+ *   - **Parent lineage via the BIRTH verb (decision w0b-1) — RE-BOUND ON EVIDENCE
+ *     2026-07-20 (MetaCoding-ci2).** This decision moved twice in one day, and the
+ *     oracle settled it. Duke reversed it to latest-wins in the morning
+ *     (correctability over source fidelity); observation then showed the source
+ *     does not behave that way at all: a correcting `PATCH` is ACCEPTED and is
+ *     **inert on lineage**, because an existing parent is a hard veto on the birth
+ *     hook (`w0b-birth-correction-restates-mother`,
+ *     `w0b-birth-mother-vetoed-by-existing-parent`). So a birth writes parentage
+ *     iff the child has none — a GUARDED FIRST WRITE, this module. Replay/merge
+ *     must be deterministic, so the winner is the EARLIEST by HLC.
+ *
+ *     **Lineage is not "LWW" or "FWW" — the verb decides.** The same observation
+ *     run found latest-wins alive in a different verb: `set_parents` replaces
+ *     wholesale (`w0b-parents-stated-directly-are-restated-wholesale`), and a birth
+ *     CORRECTION does propagate the corrected TIME even though it cannot touch the
+ *     mother. Any future binding must name the verb, never just the field:
+ *       birth → GuardedFirstWrite (here) · set_parents → LwwRegister · birth time → LwwRegister
  *   - **Birth-uniqueness (kernel-bound decision, sub-decision 5a option A).** At
  *     most one birth log per asset; on merge the earliest by HLC survives and any
  *     later concurrent birth is DEMOTED TO AN OBSERVATION, never silently dropped.
@@ -53,10 +62,10 @@ export function pickEarliest<T>(
  * A guarded-first-write register: it accepts a value only while empty, and any
  * existing value is a complete veto.
  *
- * **UNBOUND (2026-07-20).** Its only binding was parent lineage (w0b-1), which
- * Duke reversed to latest-wins; use `LwwRegister` for that field. This class stays
- * as the tested mirror of the LWW register for a future first-writer-wins
- * decision — but a fan-out builder must not select it without one. Under replay or cross-replica merge the
+ * **BOUND to parent-lineage-via-birth (w0b-1), re-bound on observed evidence
+ * 2026-07-20.** Use it for the BIRTH verb only: a birth names a mother, and the
+ * write takes iff the child has no parent yet. For a direct `set_parents`
+ * restatement use `LwwRegister` — the oracle shows that verb replacing wholesale. Under replay or cross-replica merge the
  * value converges to the EARLIEST write by HLC — so `set` accepts a write iff no
  * write has been seen or the incoming HLC strictly PRECEDES the incumbent. That
  * makes sequential first-write-wins and concurrent earliest-HLC-wins the same

@@ -441,3 +441,35 @@ pilot spend was $0.4166 for both features.
 
 No expected value was authored anywhere. No kernel decision was changed. Nothing
 committed — the caller reviews and commits.
+
+---
+
+## Addendum — B1 is closed: the falsified decisions were re-bound on evidence (same day)
+
+Duke's instruction was *re-bind according to the evidence*. Kernel **v1.3**, recorded
+in `docs/design/shared-kernel.md` §Re-bind on evidence:
+
+| decision | re-bound to | decided by |
+|---|---|---|
+| w0b-1 parentage via BIRTH | `GuardedFirstWrite` (write iff empty) | OBSERVED — the correcting PATCH is inert on lineage |
+| w0b-1b parentage via `set_parents` | `LwwRegister` (wholesale replace) | OBSERVED |
+| w0b-1c birth time via correction | `LwwRegister` | OBSERVED — time propagates where the mother does not |
+| w0b-2 nicknames | `LwwRegister<readonly V[]>`; **`GSet` now UNBOUND** | OBSERVED — restatement replaces, never unions |
+| pending gates (v1.2 → v1.3) | **per-projection `STATUS_CONTRACT`** | OBSERVED + one CHOSEN divergence retained |
+| w0a-2 tie-break | HLC **stands**; its fixture marked corroboration-only | the fixture, not the decision, was the problem |
+| 5a birth-uniqueness | stands as a **forced** divergence, zero oracle grounding | farmOS refuses (422); the port has no coordination layer and must resolve |
+
+Two findings outlived their rows. **A field does not have a convergence rule — a
+verb does**: lineage is first-writer-wins through a birth and latest-wins through a
+restatement, so "lineage is LWW" was not merely wrong, it was unstatable. **And the
+status gate is per-projection**: in one system a pending adjustment does not move
+stock yet is counted, while a pending birth is fully effective. No blanket rule
+could have been right.
+
+The one CHOSEN divergence survived untouched — `yieldTotal`/`logCount` stay
+confirmed-only against a source that counts pending harvests, because Duke made that
+call with those exact fixtures in hand. What did not survive was extending it to
+projections nobody had observed.
+
+**B1 closed. Remaining wave-1 blockers: B3, B4, B5** (B2 shipped and hardened — see
+`port-verify-2026-07-20.md`). Kernel 61/61, repo 475 TS, 571 py.

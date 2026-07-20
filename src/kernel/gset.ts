@@ -2,7 +2,21 @@
  * The ONE grow-only ordered collection primitive (G-Set), keyed on the HLC —
  * kernel v1.1 fold-library element (MetaCoding-9h5.26).
  *
- * WHY THIS EXISTS. The wave-0 pilot (wave0-pilot-2026-07-20.md, decision w0b-2)
+ * ⚠️ **UNBOUND since 2026-07-20 (MetaCoding-ci2). Its justifying use case was
+ * falsified by observation.** Nicknames — the semantic this primitive was built
+ * for — are ordered ✓ and duplicate-preserving ✓, but restatement is **WHOLESALE
+ * REPLACE**, not union: `['Pebble','Slate']` then `['Flint']` delivers `['Flint']`
+ * (`w0b-observe`). That is an `LwwRegister<readonly V[]>` — a latest-wins register
+ * over an ordered array — not a grow-only set. Nicknames now bind to `LwwRegister`.
+ *
+ * `GSet` is retained, tested, and correct for a genuinely grow-only field, but NO
+ * current decision selects it. Do not reach for it without a bound decision naming
+ * it — an unbound primitive next to a bound one is exactly the hand-roll bait the
+ * kernel exists to remove. The lesson is worth more than the primitive: the mined
+ * semantic said "ordered multi-value collection, not a single value that replaces",
+ * source reading agreed, and the live system said otherwise.
+ *
+ * WHY IT WAS BUILT. The wave-0 pilot (wave0-pilot-2026-07-20.md, decision w0b-2)
  * mined the animal-nickname semantic as *"an ordered multi-value collection, not
  * a single value that replaces"* — a grow-only set. `LwwRegister` is the wrong
  * shape (it keeps one newest value and discards the rest); a hand-rolled array is

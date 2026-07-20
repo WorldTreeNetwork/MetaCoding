@@ -88,10 +88,10 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     invariant: "pending-status-gates",
     sensitivity: "soft",
     menuChoice: "supersede-with-port-semantics",
-    convergenceKey: "STATUS_CONTRACT table: yieldTotal/logCount require-confirmed, pendingYieldTotal/pendingLogCount pending-only (partition), currentLocation require-confirmed",
-    status: "provisional",
+    convergenceKey: "STATUS_CONTRACT is PER-PROJECTION: currentInventory require-confirmed + adjustmentCount count-regardless + parentage/birthDate count-regardless (all OBSERVED); yieldTotal/logCount require-confirmed with pending-only partners (the one CHOSEN divergence); location require-confirmed",
+    status: "bound",
     rationale:
-      "CONTESTED BY OBSERVATION — demoted bound->provisional 2026-07-20 pending Duke's re-bind (MetaCoding-ci2). Originally a deliberate source divergence bound by Duke (elicitation review MetaCoding-tkj): official numerics confirmed-only, pending mass surfaced in partner projections. The first oracle observation shows the BLANKET rule is only half right — farmOS excludes pending from inventory stock_on_hand (the port matches) but honours a pending log FULLY for birth lineage and birth_date (the port would report no parent and no date, a divergence v1.2 does not sanction). Evidence: eval/ctkr/port_runs/wave0-pilot/w0b-observe/fixtures.jsonl (w0b-pending-birth-record) and w0a-observe (w0a-pending-adjustment-does-not-move-stock); analysis in eval/ctkr/results/wave1-readiness-2026-07-20.md §2.4. The gate is per-PROJECTION, not global. Still buildable (named convergence key) but NOT settled — do not cite as Duke-approved.",
+      "RE-BOUND ON EVIDENCE 2026-07-20 (Duke, MetaCoding-ci2) as kernel v1.3. The v1.2 blanket confirmed-only rule was falsified on first oracle contact: farmOS is not uniform about pending. Observed — a pending inventory adjustment does NOT move stock but IS counted by adjustment_count (w0a-observe/w0a-pending-adjustment-does-not-move-stock); a pending BIRTH log is FULLY effective, delivering both lineage and birth date (w0b-observe/w0b-pending-birth-record). Same status field, same system, opposite answers, so each projection names its own gate and each cites what decided it. The ONE deliberate divergence survives the re-bind unchanged: yieldTotal/logCount stay confirmed-only against the source (73ed7c69, d8607818), because a pending row in the official total makes the pending state meaningless — Duke chose that with the evidence in hand, and the port surfaces the excluded mass in pending-only partner projections rather than dropping it. What did not survive was extending that choice to projections nobody had observed.",
     recommendedBy: "shared-kernel-v1",
   },
 ];

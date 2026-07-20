@@ -60,13 +60,45 @@ test("log status is reported as-is, never gated away", () => {
 
 test("the contract is a closed, declared table", () => {
   expect(Object.keys(STATUS_CONTRACT).sort()).toEqual([
+    "adjustmentCount",
     "assetsAtLocation",
+    "birthDate",
     "currentGeometry",
+    "currentInventory",
     "currentLocation",
     "logCount",
     "logStatus",
+    "parentage",
+    "pendingInventory",
     "pendingLogCount",
     "pendingYieldTotal",
     "yieldTotal",
   ]);
+});
+
+// --------------------------------------------------------------------------- //
+// v1.3 — the gate is PER-PROJECTION. Each of these was set by observation, and //
+// the pair of them is why the v1.2 blanket rule was falsified: the same status //
+// field means opposite things in the same system.                              //
+// --------------------------------------------------------------------------- //
+test("a pending adjustment does not move stock, but IS counted (observed)", () => {
+  expect(gateFor("currentInventory")).toBe("require-confirmed");
+  expect(admits("currentInventory", "pending")).toBe(false);
+  // adjustment_count == 2 while stock counted only the done one
+  expect(gateFor("adjustmentCount")).toBe("count-regardless");
+  expect(admits("adjustmentCount", "pending")).toBe(true);
+});
+
+test("a pending BIRTH is fully effective — the opposite of inventory (observed)", () => {
+  expect(gateFor("parentage")).toBe("count-regardless");
+  expect(admits("parentage", "pending")).toBe(true);
+  expect(gateFor("birthDate")).toBe("count-regardless");
+  expect(admits("birthDate", "pending")).toBe(true);
+});
+
+test("no single blanket gate could satisfy the contract", () => {
+  const gates = new Set(Object.values(STATUS_CONTRACT));
+  expect(gates.size).toBeGreaterThan(1);
+  // the specific pair that falsified v1.2
+  expect(gateFor("currentInventory")).not.toBe(gateFor("parentage"));
 });
