@@ -56,7 +56,14 @@ class ProbeSpec:
     #: Arguments after the subject handle, in call order.
     params: tuple[Param, ...] = ()
     #: What the ``subject`` alias denotes — an entity or a recorded event.
-    subject_kind: str = "entity"  # "entity" | "event"
+    subject_kind: str = "entity"  # "entity" | "event" | "attempt"
+    #: This probe returns an INSTANT. Such a probe cannot appear in a flow whose
+    #: effective times are relative offsets: the recorded value is an absolute
+    #: instant computed from the recording run's wall clock, so re-running the
+    #: fixture minutes later reads a different one and it cannot self-verify.
+    #: (MetaCoding-bdy — w0b first self-verified at 63.6%, every failure a uniform
+    #: +24s, the gap between the record run and the verify run.)
+    returns_timestamp: bool = False
     doc: str = ""
 
 
@@ -100,7 +107,7 @@ _PROBES: tuple[ProbeSpec, ...] = (
               doc="The sex delivered for an animal."),
     ProbeSpec("nicknames", "nicknames", (),
               doc="The ordered informal names delivered for an animal."),
-    ProbeSpec("birth_date", "birth_date", (),
+    ProbeSpec("birth_date", "birth_date", (), returns_timestamp=True,
               doc="The date of birth delivered for an animal."),
     ProbeSpec("parent_count", "parent_count", (),
               doc="How many parents an animal is delivered with."),

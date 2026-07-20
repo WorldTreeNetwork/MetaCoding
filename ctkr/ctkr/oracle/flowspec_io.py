@@ -35,12 +35,14 @@ from typing import Any
 from ctkr.oracle import glossary
 from ctkr.oracle.fixtures import (
     _ACTION_REQUIRED,
+    _OFFSET_RE,
     GivenStep,
     QuantitySpec,
     WhenStep,
     _is_effective_time,
     _iter_string_values,
 )
+from ctkr.oracle.probes import PROBE_CONTRACT
 from ctkr.oracle.recorder import FlowSpec, Probe
 
 #: Current on-disk pack version.
@@ -51,7 +53,9 @@ _FLOW_KEYS = frozenset(
      # expect_refusal declares that the source is expected to REFUSE this write.
      # It is NOT an expected value: the refusal is still observed, and a source
      # that accepts instead is reported as a contradiction, never recorded.
-     "expect_refusal"}
+     "expect_refusal",
+     # Evidence quality, carried BY THE PACK rather than a caller's side file.
+     "corroboration_only", "corroboration_reason"}
 )
 _GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
 _WHEN_KEYS = frozenset(
@@ -99,6 +103,9 @@ def flow_to_dict(f: FlowSpec) -> dict[str, Any]:
         "when": [_drop_empty(w.model_dump()) for w in f.when],
         "probes": [probe_to_dict(p) for p in f.probes],
         **({"expect_refusal": True} if f.expect_refusal else {}),
+        **({"corroboration_only": True,
+            "corroboration_reason": f.corroboration_reason}
+           if f.corroboration_only else {}),
     }
 
 
@@ -361,6 +368,35 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
                 )
         probes.append(probe)
     expect_refusal = bool(d.get("expect_refusal", False))
+    corroboration_only = bool(d.get("corroboration_only", False))
+    corroboration_reason = str(d.get("corroboration_reason", "") or "")
+    if corroboration_only and not corroboration_reason.strip():
+        raise FlowSpecError(
+            f"{where}.corroboration_reason: excluding a fixture from the value "
+            "score requires a reason"
+        )
+
+    # A relative effective time plus a timestamp-returning probe distils a fixture
+    # that cannot reproduce: the value recorded is an absolute instant derived
+    # from THIS run's wall clock, so a verify minutes later reads a different one.
+    # w0b first self-verified at 63.6% for exactly this reason — every failure a
+    # uniform +24s — and it was caught only because a self-verify happened to be
+    # run twice. The schema now refuses to express it.
+    timestamp_probes = sorted({
+        pr.assert_ for pr in probes
+        if (spec := PROBE_CONTRACT.get(pr.assert_)) and spec.returns_timestamp
+    })
+    relative_steps = sorted({
+        w.at for w in when if w.at and _OFFSET_RE.match(w.at)
+    })
+    if timestamp_probes and relative_steps:
+        raise FlowSpecError(
+            f"{where}: probe(s) {timestamp_probes} return an instant, but this "
+            f"flow dates its events RELATIVE to the run ({relative_steps}). The "
+            "distilled fixture would record an absolute instant computed from the "
+            "recording run's clock and could never self-verify. Use absolute "
+            "ISO-8601 instants for a flow that observes a timestamp."
+        )
     if not probes and not expect_refusal:
         raise FlowSpecError(
             f"{where}.probes: a flow with no probe observes nothing and would "
@@ -376,6 +412,8 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
         key=key, title=_str(d, "title", where), feature=_str(d, "feature", where),
         glossary_terms=_str_list(d, "glossary_terms", where),
         given=given, when=when, probes=probes, expect_refusal=expect_refusal,
+        corroboration_only=corroboration_only,
+        corroboration_reason=corroboration_reason,
     )
 
 

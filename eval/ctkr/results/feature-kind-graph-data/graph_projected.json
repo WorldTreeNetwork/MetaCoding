@@ -1,0 +1,665 @@
+{
+  "features": [
+    "logs+quantities",
+    "location+movement",
+    "asset+group",
+    "logs+birth+input",
+    "quick+movement+inventory",
+    "quantity",
+    "taxonomy",
+    "organization"
+  ],
+  "kinds": [
+    "asset_archived",
+    "asset_created",
+    "geometry_set",
+    "group_assigned",
+    "inventory_adjusted?",
+    "log_recorded",
+    "log_status_changed",
+    "movement_recorded",
+    "term_assigned?"
+  ],
+  "edges": [
+    {
+      "feature": "asset+group",
+      "kind": "asset_archived",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:mutators"
+      ]
+    },
+    {
+      "feature": "asset+group",
+      "kind": "asset_archived",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:projections"
+      ]
+    },
+    {
+      "feature": "asset+group",
+      "kind": "asset_created",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:mutators"
+      ]
+    },
+    {
+      "feature": "asset+group",
+      "kind": "asset_created",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:projections"
+      ]
+    },
+    {
+      "feature": "asset+group",
+      "kind": "group_assigned",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:mutators"
+      ]
+    },
+    {
+      "feature": "asset+group",
+      "kind": "group_assigned",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "asset+group:projections"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "asset_created",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "createAsset"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "asset_created",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "currentLocations",
+        "hasLocation",
+        "currentGeometry",
+        "hasGeometry",
+        "isFixed",
+        "isLocationAsset",
+        "assetsAtLocation"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "geometry_set",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "setIntrinsicGeometry"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "geometry_set",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "currentGeometry",
+        "hasGeometry"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "log_status_changed",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "setStatus"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "log_status_changed",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "currentLocations",
+        "hasLocation",
+        "currentGeometry",
+        "hasGeometry",
+        "assetsAtLocation"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "movement_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "recordMovement"
+      ]
+    },
+    {
+      "feature": "location+movement",
+      "kind": "movement_recorded",
+      "role": "fold",
+      "status_gated": true,
+      "provenance": "extracted",
+      "via": [
+        "currentLocations",
+        "hasLocation",
+        "currentGeometry",
+        "hasGeometry",
+        "assetsAtLocation"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "asset_created",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:mutators"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "asset_created",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:projections"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "log_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:mutators"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "log_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:projections"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "log_status_changed",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:mutators"
+      ]
+    },
+    {
+      "feature": "logs+birth+input",
+      "kind": "log_status_changed",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "logs+birth+input:projections"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "asset_archived",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "archiveAsset"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "asset_archived",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "assetActive"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "asset_created",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "createAsset"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "group_assigned",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "assignToGroup"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "group_assigned",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "groupMember"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "log_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "recordLog"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "log_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "logStatus",
+        "logCount",
+        "quantityRecorded"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "log_status_changed",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "setStatus"
+      ]
+    },
+    {
+      "feature": "logs+quantities",
+      "kind": "log_status_changed",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "extracted",
+      "via": [
+        "logStatus"
+      ]
+    },
+    {
+      "feature": "organization",
+      "kind": "asset_created",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "organization:projections"
+      ]
+    },
+    {
+      "feature": "organization",
+      "kind": "group_assigned",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "organization:mutators"
+      ]
+    },
+    {
+      "feature": "organization",
+      "kind": "group_assigned",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "organization:projections"
+      ]
+    },
+    {
+      "feature": "quantity",
+      "kind": "log_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quantity:mutators"
+      ]
+    },
+    {
+      "feature": "quantity",
+      "kind": "log_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quantity:projections"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "geometry_set",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:mutators"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "geometry_set",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:projections"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "inventory_adjusted?",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:mutators"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "inventory_adjusted?",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:projections"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "log_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:mutators"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "log_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:projections"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "movement_recorded",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:mutators"
+      ]
+    },
+    {
+      "feature": "quick+movement+inventory",
+      "kind": "movement_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "quick+movement+inventory:projections"
+      ]
+    },
+    {
+      "feature": "taxonomy",
+      "kind": "log_recorded",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "taxonomy:projections"
+      ]
+    },
+    {
+      "feature": "taxonomy",
+      "kind": "term_assigned?",
+      "role": "emit",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "taxonomy:mutators"
+      ]
+    },
+    {
+      "feature": "taxonomy",
+      "kind": "term_assigned?",
+      "role": "fold",
+      "status_gated": false,
+      "provenance": "projected",
+      "via": [
+        "taxonomy:projections"
+      ]
+    }
+  ],
+  "kernel_surface": [
+    {
+      "kind": "asset_created",
+      "degree": 5,
+      "is_kernel": true,
+      "emit_features": [
+        "asset+group",
+        "location+movement",
+        "logs+birth+input",
+        "logs+quantities"
+      ],
+      "fold_features": [
+        "asset+group",
+        "location+movement",
+        "logs+birth+input",
+        "organization"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "log_recorded",
+      "degree": 5,
+      "is_kernel": true,
+      "emit_features": [
+        "logs+birth+input",
+        "logs+quantities",
+        "quantity",
+        "quick+movement+inventory"
+      ],
+      "fold_features": [
+        "logs+birth+input",
+        "logs+quantities",
+        "quantity",
+        "quick+movement+inventory",
+        "taxonomy"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "group_assigned",
+      "degree": 3,
+      "is_kernel": true,
+      "emit_features": [
+        "asset+group",
+        "logs+quantities",
+        "organization"
+      ],
+      "fold_features": [
+        "asset+group",
+        "logs+quantities",
+        "organization"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "log_status_changed",
+      "degree": 3,
+      "is_kernel": true,
+      "emit_features": [
+        "location+movement",
+        "logs+birth+input",
+        "logs+quantities"
+      ],
+      "fold_features": [
+        "location+movement",
+        "logs+birth+input",
+        "logs+quantities"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "asset_archived",
+      "degree": 2,
+      "is_kernel": true,
+      "emit_features": [
+        "asset+group",
+        "logs+quantities"
+      ],
+      "fold_features": [
+        "asset+group",
+        "logs+quantities"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "geometry_set",
+      "degree": 2,
+      "is_kernel": true,
+      "emit_features": [
+        "location+movement",
+        "quick+movement+inventory"
+      ],
+      "fold_features": [
+        "location+movement",
+        "quick+movement+inventory"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "movement_recorded",
+      "degree": 2,
+      "is_kernel": true,
+      "emit_features": [
+        "location+movement",
+        "quick+movement+inventory"
+      ],
+      "fold_features": [
+        "location+movement",
+        "quick+movement+inventory"
+      ],
+      "status_gated_features": [
+        "location+movement"
+      ]
+    },
+    {
+      "kind": "inventory_adjusted?",
+      "degree": 1,
+      "is_kernel": false,
+      "emit_features": [
+        "quick+movement+inventory"
+      ],
+      "fold_features": [
+        "quick+movement+inventory"
+      ],
+      "status_gated_features": []
+    },
+    {
+      "kind": "term_assigned?",
+      "degree": 1,
+      "is_kernel": false,
+      "emit_features": [
+        "taxonomy"
+      ],
+      "fold_features": [
+        "taxonomy"
+      ],
+      "status_gated_features": []
+    }
+  ],
+  "taxonomy_tensions": [
+    {
+      "kind_a": "log_recorded",
+      "kind_b": "movement_recorded",
+      "feature_a": "logs+birth+input",
+      "feature_b": "location+movement",
+      "kind_filtered_by": [
+        "logs+quantities"
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "features": [
+        "asset+group",
+        "location+movement",
+        "logs+birth+input",
+        "logs+quantities",
+        "organization",
+        "quantity",
+        "quick+movement+inventory",
+        "taxonomy"
+      ],
+      "shared_kinds": [
+        "asset_archived",
+        "asset_created",
+        "geometry_set",
+        "group_assigned",
+        "log_recorded",
+        "log_status_changed",
+        "movement_recorded"
+      ]
+    }
+  ]
+}

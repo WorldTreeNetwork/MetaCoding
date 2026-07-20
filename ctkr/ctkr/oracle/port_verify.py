@@ -519,9 +519,33 @@ def verify_port(
     problem — otherwise "it's a sanctioned divergence" is self-certifying.
     """
     fixtures = list(fixtures)
-    marks = _marks_by_id(manifest.fixture_marks)
-    marks.update(_marks_by_id(extra_marks))  # an external marks file wins
-    declaration_problems: list[str] = []
+    declaration_problems_pre: list[str] = []
+    # Precedence, weakest first: the PACK's own evidence class (set by the
+    # recorder from what it observed — the most trustworthy source, since it is
+    # not written by anyone with a stake in the score), then the port's manifest,
+    # then an external marks file. A pack-carried mark cannot be UNDONE by a
+    # later one: a port must not be able to re-admit a fixture the recorder
+    # judged unscoreable.
+    marks = _marks_by_id(
+        FixtureMark(
+            fixture_id=fx.fixture_id,
+            corroboration_only=True,
+            order_sensitive=True,
+            reason=fx.provenance.evidence_note or "recorded as corroboration-only",
+        )
+        for fx in fixtures
+        if fx.provenance.evidence_class == "corroboration-only"
+    )
+    pack_marked = set(marks)
+    for m in (*manifest.fixture_marks, *extra_marks):
+        if m.fixture_id in pack_marked and not m.excluded_from_score:
+            declaration_problems_pre.append(
+                f"fixture {m.fixture_id} was recorded as corroboration-only; a "
+                f"later mark cannot re-admit it to the value score"
+            )
+            continue
+        marks[m.fixture_id] = m
+    declaration_problems: list[str] = list(declaration_problems_pre)
 
     adapter.open()
     try:

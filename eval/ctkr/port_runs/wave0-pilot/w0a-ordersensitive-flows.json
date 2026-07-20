@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w0a-adjustments-sharing-one-effective-time",
+      "title": "Three adjustments sharing one effective time, one of them a reset",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "decrement",
+        "reset",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin eight"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_a",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment addition",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_b",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment count",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 4,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_c",
+          "kind": "decrement",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment draw",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    }
+  ]
+}

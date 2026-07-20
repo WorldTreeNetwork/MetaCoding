@@ -135,6 +135,12 @@ class FlowSpec:
     #: The expectation is NOT the observation: if the source ACCEPTS the write,
     #: that is recorded as a contradiction, never quietly turned into a fixture.
     expect_refusal: bool = False
+    #: This flow's observed value is an artifact of how the SOURCE ordered things
+    #: (e.g. several writes sharing one effective time), so it corroborates a
+    #: decision but must never SCORE an implementation — a port ordering by its
+    #: own rule will legitimately produce a different value (MetaCoding-bdy).
+    corroboration_only: bool = False
+    corroboration_reason: str = ""
 
 
 def _q(measure: str, value: float, unit: str, label: str = "") -> QuantitySpec:
@@ -549,6 +555,38 @@ def _observe_probe(
     raise ValueError(f"unknown probe assertion {probe.assert_!r}")
 
 
+def detect_order_sensitivity(flow: FlowSpec) -> str:
+    """Why this flow's observed value depends on the SOURCE's ordering, if it does.
+
+    Two or more writes sharing one effective time against the same subject leave
+    the outcome to whatever the source uses to break the tie — for farmOS, entity
+    insertion id. The value observed is then that tie-break's fingerprint, not a
+    semantic a correct port must reproduce: w0a's three same-instant adjustments
+    observed 3.0, and the same three events in the six possible orders yield four
+    different values. Scoring a port against it is a false green under one
+    ordering and a false failure under another.
+
+    Detected rather than declared: the author of the w0a pack did not notice, the
+    judges did — after the fixture had already been scored.
+    """
+    seen: dict[tuple[str, str], int] = {}
+    for w in flow.when:
+        if not w.at:
+            continue
+        for subject in (w.against or ([w.ref] if w.ref else [])):
+            key = (subject, w.at)
+            seen[key] = seen.get(key, 0) + 1
+    clashes = sorted(k for k, n in seen.items() if n > 1)
+    if not clashes:
+        return ""
+    return (
+        "two or more writes share one effective time against the same subject "
+        f"({', '.join(f'{s} @ {t}' for s, t in clashes)}), so the observed value "
+        "is decided by the SOURCE's tie-break (entity insertion order), not by a "
+        "semantic every correct implementation must reproduce"
+    )
+
+
 def record_flow(
     adapter: FarmOSAdapter, flow: FlowSpec, source_version: str = "4.x"
 ) -> tuple[SemanticFixture, list[Observation]]:
@@ -610,6 +648,16 @@ def record_flow(
             )
         )
 
+    # Evidence quality travels WITH the fixture. Declared by the flow, or
+    # detected from what the flow does — a caller-supplied side file is not
+    # enough, because the reader of a pack may never see one.
+    detected = detect_order_sensitivity(flow)
+    evidence_class = "scoring"
+    evidence_note = ""
+    if flow.corroboration_only or detected:
+        evidence_class = "corroboration-only"
+        evidence_note = flow.corroboration_reason or detected
+
     observations = list(getattr(client, "observations", []))[obs_start:]
     fixture = SemanticFixture(
         title=flow.title,
@@ -624,6 +672,8 @@ def record_flow(
             flow=flow.key,
             recorded_at=datetime.now(UTC).isoformat(),
             observation_refs=[o.obs_id for o in observations],
+            evidence_class=evidence_class,
+            evidence_note=evidence_note,
         ),
     ).with_id()
     return fixture, observations

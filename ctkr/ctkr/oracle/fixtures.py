@@ -134,6 +134,22 @@ class Provenance(BaseModel):
     recorded_at: str = ""  # ISO-8601 of the recording session (not hashed)
     observation_refs: list[str] = Field(default_factory=list)  # recorded-obs ids
 
+    #: Whether this fixture's VALUE may be used to score an implementation
+    #: (MetaCoding-bdy / blocker B4). `"scoring"` is the default. A fixture is
+    #: `"corroboration-only"` when its observed value is an artifact of how the
+    #: SOURCE happened to order things rather than a semantic any correct port
+    #: must reproduce — w0a's three same-instant adjustments observed 3.0, which
+    #: is farmOS's insertion-id order fingerprint (six permutations of the same
+    #: events give four different values). Scoring a port against it is a false
+    #: green under one replica ordering and a false failure under another.
+    #:
+    #: This travels WITH the pack, where the recorder can set it from what it
+    #: saw, rather than only in a caller-supplied side file that a reader may
+    #: never see.
+    evidence_class: str = "scoring"  # "scoring" | "corroboration-only"
+    #: Why, when the class is not "scoring". Excluding evidence costs a reason.
+    evidence_note: str = ""
+
 
 class SemanticFixture(BaseModel):
     """One value-level given/when/then scenario (D4), storage-free by rule."""
