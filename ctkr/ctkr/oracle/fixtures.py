@@ -29,7 +29,9 @@ it with canned dicts (no Docker).
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,7 @@ class GivenStep(BaseModel):
     alias: str  # logical handle, unique within the fixture ("A")
     name: str  # domain display name ("North Field")
     descriptor: str = ""  # optional domain sub-classification ("paddock"); adapter maps
+    sex: str = ""  # optional domain trait; one of glossary.ANIMAL_SEXES
 
 
 class WhenStep(BaseModel):
@@ -82,10 +85,21 @@ class WhenStep(BaseModel):
     ref: str = ""  # handle of an existing entity the action targets
     name: str = ""  # display name for a created log
     kind: str = ""  # log kind (record_log): one of glossary.LOG_KINDS
+    # record_inventory_adjustment: one of glossary.ADJUSTMENT_KINDS
     status: str = ""  # log status (record_log / set_log_status)
     against: list[str] = Field(default_factory=list)  # asset aliases a log references
     group: str = ""  # group alias (assign_to_group)
     quantities: list[QuantitySpec] = Field(default_factory=list)
+    # --- effective time -----------------------------------------------------
+    # WHEN the recorded event took effect. Two accepted forms, both inputs (never
+    # an expected value): an absolute ISO-8601 instant ("2026-03-01T12:00:00+00:00")
+    # or a signed offset in seconds relative to the moment the flow runs
+    # ("-3600", "+86400"). The relative form is what makes "an event dated in the
+    # future does not count yet" reproducible on every re-run.
+    at: str = ""
+    # --- lineage ------------------------------------------------------------
+    parents: list[str] = Field(default_factory=list)  # aliases of parent animals
+    names: list[str] = Field(default_factory=list)  # ordered informal names
 
 
 class ThenAssertion(BaseModel):
@@ -100,6 +114,7 @@ class ThenAssertion(BaseModel):
     unit: str = ""  # yield_total / quantity_recorded
     kind: str = ""  # log_count
     group: str = ""  # group_member
+    other: str = ""  # second entity alias (has_parent)
     op: str = "=="  # one of glossary.COMPARISON_OPS
     value: Any = None  # expected value (number | bool | status string)
 
@@ -259,12 +274,51 @@ def storage_leaks(fx: SemanticFixture) -> list[ValidationIssue]:
     return issues
 
 
+# --------------------------------------------------------------------------- #
+# Effective time                                                              #
+# --------------------------------------------------------------------------- #
+_OFFSET_RE = re.compile(r"^[+-]\d+$")
+
+
+def _is_effective_time(at: str) -> bool:
+    """True if ``at`` is a legal effective-time input (instant OR signed offset)."""
+    if _OFFSET_RE.match(at):
+        return True
+    try:
+        datetime.fromisoformat(at)
+    except ValueError:
+        return False
+    return True
+
+
+def resolve_effective_time(at: str, now: datetime | None = None) -> datetime:
+    """Resolve an effective-time input to an absolute instant.
+
+    A signed integer string is an offset in seconds from ``now`` (the moment the
+    flow runs) — that relativity is what lets a flow say "dated in the future"
+    or "dated in the past" reproducibly on every re-run. Anything else must be
+    an ISO-8601 instant. This is an INPUT resolution only: no observed value
+    ever passes through here.
+    """
+    now = now or datetime.now(UTC)
+    if _OFFSET_RE.match(at):
+        return now + timedelta(seconds=int(at))
+    parsed = datetime.fromisoformat(at)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
 # Required fields per action / assertion — the DSL contract the runner relies on.
 _ACTION_REQUIRED: dict[str, tuple[str, ...]] = {
     "record_log": ("alias", "kind"),
     "set_log_status": ("ref", "status"),
     "assign_to_group": ("ref", "group"),
     "archive_asset": ("ref",),
+    "record_inventory_adjustment": ("alias", "kind", "against", "quantities"),
+    "set_effective_time": ("ref", "at"),
+    "record_birth": ("alias", "ref"),
+    "correct_birth": ("ref",),
+    "set_parents": ("ref",),
+    "set_nicknames": ("ref",),
 }
 _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     "yield_total": ("measure", "value"),
@@ -273,7 +327,21 @@ _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     "asset_active": ("value",),
     "group_member": ("group", "value"),
     "quantity_recorded": ("measure", "value"),
+    "stock_on_hand": ("measure", "value"),
+    "stock_pair_count": ("value",),
+    "adjustment_count": ("value",),
+    "animal_sex": ("value",),
+    "nicknames": ("value",),
+    "birth_date": ("value",),
+    "parent_count": ("value",),
+    "has_parent": ("other", "value"),
+    "birth_record_count": ("value",),
 }
+
+#: Which actions bind ``alias`` to a *log* handle (as opposed to an asset).
+_LOG_PRODUCING_ACTIONS: frozenset[str] = frozenset(
+    {"record_log", "record_inventory_adjustment", "record_birth"}
+)
 
 
 def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
@@ -298,6 +366,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"given[{i}].alias", f"duplicate alias {g.alias!r}")
         else:
             aliases[g.alias] = g.entity
+        if g.sex and g.sex not in glossary.ANIMAL_SEXES:
+            err(f"given[{i}].sex", f"{g.sex!r} is not a glossary animal sex")
 
     # --- when: action terms legal, refs resolve, required fields present ----
     log_aliases: set[str] = set()
@@ -335,6 +405,57 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         elif w.action == "archive_asset":
             if w.ref and w.ref not in aliases:
                 err(f"when[{i}].ref", f"unknown asset alias {w.ref!r}")
+        elif w.action == "record_inventory_adjustment":
+            if w.kind and w.kind not in glossary.ADJUSTMENT_KINDS:
+                err(f"when[{i}].kind",
+                    f"{w.kind!r} is not a glossary stock adjustment kind")
+            if w.status and w.status not in glossary.LOG_STATUSES:
+                err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
+            for j, a in enumerate(w.against):
+                if a not in aliases:
+                    err(f"when[{i}].against[{j}]", f"unknown asset alias {a!r}")
+            for j, q in enumerate(w.quantities):
+                if q.measure not in glossary.MEASURES:
+                    err(f"when[{i}].quantities[{j}].measure",
+                        f"{q.measure!r} is not a glossary measure")
+            if w.alias:
+                log_aliases.add(w.alias)
+        elif w.action == "set_effective_time":
+            if w.ref and w.ref not in log_aliases:
+                err(f"when[{i}].ref",
+                    f"set_effective_time ref {w.ref!r} is not a recorded-event alias")
+            if w.at and not _is_effective_time(w.at):
+                err(f"when[{i}].at", f"{w.at!r} is neither an instant nor an offset")
+        elif w.action == "record_birth":
+            if w.ref and w.ref not in aliases:
+                err(f"when[{i}].ref", f"unknown animal alias {w.ref!r}")
+            for j, p in enumerate(w.parents):
+                if p not in aliases:
+                    err(f"when[{i}].parents[{j}]", f"unknown animal alias {p!r}")
+            if w.status and w.status not in glossary.LOG_STATUSES:
+                err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
+            if w.at and not _is_effective_time(w.at):
+                err(f"when[{i}].at", f"{w.at!r} is neither an instant nor an offset")
+            if w.alias:
+                log_aliases.add(w.alias)
+        elif w.action == "correct_birth":
+            if w.ref and w.ref not in log_aliases:
+                err(f"when[{i}].ref",
+                    f"correct_birth ref {w.ref!r} is not a recorded-birth alias")
+            for j, p in enumerate(w.parents):
+                if p not in aliases:
+                    err(f"when[{i}].parents[{j}]", f"unknown animal alias {p!r}")
+            if w.at and not _is_effective_time(w.at):
+                err(f"when[{i}].at", f"{w.at!r} is neither an instant nor an offset")
+        elif w.action == "set_parents":
+            if w.ref and w.ref not in aliases:
+                err(f"when[{i}].ref", f"unknown animal alias {w.ref!r}")
+            for j, p in enumerate(w.parents):
+                if p not in aliases:
+                    err(f"when[{i}].parents[{j}]", f"unknown animal alias {p!r}")
+        elif w.action == "set_nicknames":
+            if w.ref and w.ref not in aliases:
+                err(f"when[{i}].ref", f"unknown animal alias {w.ref!r}")
 
     # --- then: assertion terms legal, subjects resolve, required fields -----
     known = set(aliases) | log_aliases
@@ -343,7 +464,12 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"then[{i}].assert", f"{t.assert_!r} is not a glossary assertion term")
             continue
         for req in _ASSERT_REQUIRED.get(t.assert_, ()):
-            if getattr(t, req) in (None, ""):
+            got = getattr(t, req)
+            # `value` is the OBSERVED value. Absence is ``None``; "" / 0 / False /
+            # [] are values the live system genuinely delivered and must survive
+            # distillation intact (an animal with no sex reads back as "").
+            missing = got is None if req == "value" else got in (None, "")
+            if missing:
                 err(f"then[{i}].{req}", f"{t.assert_} requires {req!r}")
         if t.subject and t.subject not in known:
             err(f"then[{i}].subject", f"unknown subject alias {t.subject!r}")
@@ -351,6 +477,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"then[{i}].op", f"{t.op!r} is not a comparison operator")
         if t.assert_ == "group_member" and t.group and t.group not in aliases:
             err(f"then[{i}].group", f"unknown group alias {t.group!r}")
+        if t.assert_ == "has_parent" and t.other and t.other not in aliases:
+            err(f"then[{i}].other", f"unknown animal alias {t.other!r}")
 
     # --- declared glossary_terms are all legal ------------------------------
     for term in fx.glossary_terms:

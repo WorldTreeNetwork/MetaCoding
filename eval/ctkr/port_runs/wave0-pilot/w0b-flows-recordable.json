@@ -1,0 +1,627 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w0b-birth-mother-adopted-by-parentless-child",
+      "title": "A birth record's mother becomes the child's parent when the child had no parent at all",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "has_parent",
+        "parent_count",
+        "birth_date",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Calf Aster",
+          "descriptor": "Cattle",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "MOTHER",
+          "name": "Cow Marigold",
+          "descriptor": "Cattle",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "MOTHER"
+          ],
+          "name": "birth of Aster",
+          "status": "done",
+          "at": "2026-07-13T12:00:00+00:00"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "MOTHER"
+        },
+        {
+          "assert": "birth_date",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-birth-mother-vetoed-by-existing-parent",
+      "title": "An existing parent is a complete veto: a later birth record's mother is not added alongside it",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "set_parents",
+        "record_birth",
+        "has_parent",
+        "parent_count",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Calf Birch",
+          "descriptor": "Cattle",
+          "sex": "M"
+        },
+        {
+          "entity": "animal",
+          "alias": "MOTHER",
+          "name": "Cow Nettle",
+          "descriptor": "Cattle",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "OTHERPARENT",
+          "name": "Cow Sorrel",
+          "descriptor": "Cattle",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "set_parents",
+          "ref": "CHILD",
+          "parents": [
+            "OTHERPARENT"
+          ]
+        },
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "MOTHER"
+          ],
+          "name": "birth of Birch",
+          "status": "done",
+          "at": "2026-07-15T12:00:00+00:00"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "MOTHER"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "OTHERPARENT"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-birth-correction-restates-mother",
+      "title": "Correcting a recorded birth to name a different mother \u2014 is the earlier parent replaced or kept",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "correct_birth",
+        "has_parent",
+        "parent_count",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Lamb Cedar",
+          "descriptor": "Sheep",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "FIRSTMOTHER",
+          "name": "Ewe Heather",
+          "descriptor": "Sheep",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "SECONDMOTHER",
+          "name": "Ewe Juniper",
+          "descriptor": "Sheep",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "FIRSTMOTHER"
+          ],
+          "name": "birth of Cedar",
+          "status": "done",
+          "at": "2026-07-13T12:00:00+00:00"
+        },
+        {
+          "action": "correct_birth",
+          "ref": "BIRTH",
+          "parents": [
+            "SECONDMOTHER"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "FIRSTMOTHER"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "SECONDMOTHER"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-birth-correction-restates-time",
+      "title": "Correcting when a recorded birth took effect \u2014 does the animal's date of birth follow the correction",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "correct_birth",
+        "birth_date",
+        "parent_count",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Lamb Dogwood",
+          "descriptor": "Sheep",
+          "sex": "M"
+        },
+        {
+          "entity": "animal",
+          "alias": "MOTHER",
+          "name": "Ewe Bracken",
+          "descriptor": "Sheep",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "MOTHER"
+          ],
+          "name": "birth of Dogwood",
+          "status": "done",
+          "at": "2026-07-10T12:00:00+00:00"
+        },
+        {
+          "action": "correct_birth",
+          "ref": "BIRTH",
+          "at": "2026-07-18T12:00:00+00:00"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "birth_date",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "MOTHER"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-birth-without-mother",
+      "title": "A birth recorded with no mother named \u2014 what lineage and date of birth the animal is delivered with",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "birth_date",
+        "parent_count",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Kid Elder",
+          "descriptor": "Goat",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "name": "birth of Elder",
+          "status": "done",
+          "at": "2026-07-17T12:00:00+00:00"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "birth_date",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-pending-birth-record",
+      "title": "A birth record left pending \u2014 whether lineage and date of birth are derived before it is confirmed",
+      "feature": "birth",
+      "glossary_terms": [
+        "animal",
+        "record_birth",
+        "pending",
+        "has_parent",
+        "parent_count",
+        "birth_date",
+        "birth_record_count",
+        "birth"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Piglet Gorse",
+          "descriptor": "Pig",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "MOTHER",
+          "name": "Sow Larkspur",
+          "descriptor": "Pig",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_birth",
+          "alias": "BIRTH",
+          "ref": "CHILD",
+          "parents": [
+            "MOTHER"
+          ],
+          "name": "expected birth of Gorse",
+          "status": "pending",
+          "at": "2026-07-19T12:00:00+00:00"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "MOTHER"
+        },
+        {
+          "assert": "birth_date",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "birth_record_count",
+          "subject": "CHILD"
+        }
+      ]
+    },
+    {
+      "key": "w0b-parents-stated-directly-are-restated-wholesale",
+      "title": "Stating an animal's parentage a second time \u2014 whether the earlier parent is kept or displaced",
+      "feature": "animal",
+      "glossary_terms": [
+        "animal",
+        "set_parents",
+        "has_parent",
+        "parent_count"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "CHILD",
+          "name": "Foal Iris",
+          "descriptor": "Horse",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "FIRSTPARENT",
+          "name": "Mare Thistle",
+          "descriptor": "Horse",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "SECONDPARENT",
+          "name": "Mare Yarrow",
+          "descriptor": "Horse",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "set_parents",
+          "ref": "CHILD",
+          "parents": [
+            "FIRSTPARENT"
+          ]
+        },
+        {
+          "action": "set_parents",
+          "ref": "CHILD",
+          "parents": [
+            "SECONDPARENT"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "parent_count",
+          "subject": "CHILD"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "FIRSTPARENT"
+        },
+        {
+          "assert": "has_parent",
+          "subject": "CHILD",
+          "other": "SECONDPARENT"
+        }
+      ]
+    },
+    {
+      "key": "w0b-nicknames-are-an-ordered-collection",
+      "title": "An animal carries several informal names at once, in the order they were stated",
+      "feature": "animal",
+      "glossary_terms": [
+        "animal",
+        "set_nicknames",
+        "nicknames"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "ANIMAL",
+          "name": "Ewe Juniper Two",
+          "descriptor": "Sheep",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "set_nicknames",
+          "ref": "ANIMAL",
+          "names": [
+            "Zephyr",
+            "Amber",
+            "Moss"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "nicknames",
+          "subject": "ANIMAL"
+        }
+      ]
+    },
+    {
+      "key": "w0b-nicknames-restated-wholesale",
+      "title": "Stating an animal's informal names a second time \u2014 grow-only accumulation or wholesale restatement",
+      "feature": "animal",
+      "glossary_terms": [
+        "animal",
+        "set_nicknames",
+        "nicknames"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "ANIMAL",
+          "name": "Ewe Bramble",
+          "descriptor": "Sheep",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "set_nicknames",
+          "ref": "ANIMAL",
+          "names": [
+            "Pebble",
+            "Slate"
+          ]
+        },
+        {
+          "action": "set_nicknames",
+          "ref": "ANIMAL",
+          "names": [
+            "Flint"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "nicknames",
+          "subject": "ANIMAL"
+        }
+      ]
+    },
+    {
+      "key": "w0b-nicknames-repeated-value",
+      "title": "The same informal name stated twice for one animal \u2014 multiset or collapsed to one",
+      "feature": "animal",
+      "glossary_terms": [
+        "animal",
+        "set_nicknames",
+        "nicknames"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "ANIMAL",
+          "name": "Doe Clover",
+          "descriptor": "Goat",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "set_nicknames",
+          "ref": "ANIMAL",
+          "names": [
+            "Daisy",
+            "Daisy",
+            "Rosie"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "nicknames",
+          "subject": "ANIMAL"
+        }
+      ]
+    },
+    {
+      "key": "w0b-animal-sex-is-a-closed-code",
+      "title": "An animal's sex is delivered as the stored code, not the displayed wording",
+      "feature": "animal",
+      "glossary_terms": [
+        "animal",
+        "animal_sex",
+        "asset_active"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "FEMALE",
+          "name": "Ewe Sorrel Two",
+          "descriptor": "Sheep",
+          "sex": "F"
+        },
+        {
+          "entity": "animal",
+          "alias": "MALE",
+          "name": "Ram Alder",
+          "descriptor": "Sheep",
+          "sex": "M"
+        },
+        {
+          "entity": "animal",
+          "alias": "UNSTATED",
+          "name": "Sheep Unstated",
+          "descriptor": "Sheep"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "animal_sex",
+          "subject": "FEMALE"
+        },
+        {
+          "assert": "animal_sex",
+          "subject": "MALE"
+        },
+        {
+          "assert": "animal_sex",
+          "subject": "UNSTATED"
+        },
+        {
+          "assert": "asset_active",
+          "subject": "UNSTATED"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,910 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w0a-reset-assigns-then-deltas-accumulate",
+      "title": "A reset assigns the running stock; only deltas after it accumulate",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "decrement",
+        "reset",
+        "weight",
+        "stock_on_hand",
+        "adjustment_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin one"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_up",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "stock added",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 10,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_reset",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "stock counted",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 4,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_down",
+          "kind": "decrement",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "stock drawn",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-history-before-a-reset-is-discarded",
+      "title": "Adjustments earlier than the reset do not survive it",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "reset",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin two"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_up",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "stock added",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 10,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_reset",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "stock counted empty",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 0,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-latest-reset-is-the-only-base",
+      "title": "With two resets, only the later one seeds the running stock",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "reset",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin three"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_reset_early",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-40000",
+          "status": "done",
+          "name": "first count",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 10,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_mid",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "stock added",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_reset_late",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "second count",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_late",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "stock topped up",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-pending-adjustment-does-not-move-stock",
+      "title": "A pending adjustment is readable but does not move the running stock",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "pending",
+        "done",
+        "weight",
+        "stock_on_hand",
+        "adjustment_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin four"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_done",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "confirmed delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_pending",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "pending",
+          "name": "planned delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        },
+        {
+          "assert": "log_status",
+          "subject": "adj_pending"
+        }
+      ]
+    },
+    {
+      "key": "w0a-future-dated-adjustment-not-yet-counted",
+      "title": "A confirmed adjustment dated ahead of now does not count yet",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "done",
+        "weight",
+        "stock_on_hand",
+        "adjustment_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin five"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_past",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "delivery taken",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_future",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "+86400",
+          "status": "done",
+          "name": "delivery dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-confirming-a-pending-adjustment-admits-it",
+      "title": "Confirming a pending adjustment admits it into the running stock",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "set_log_status",
+        "increment",
+        "pending",
+        "done",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin six"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_pending",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "pending",
+          "name": "delivery awaiting confirmation",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 7,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_log_status",
+          "ref": "adj_pending",
+          "status": "done"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_status",
+          "subject": "adj_pending"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-restating-when-an-adjustment-took-effect",
+      "title": "Restating when an adjustment took effect changes whether it counts",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "set_effective_time",
+        "increment",
+        "done",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin seven"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_ahead",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "+86400",
+          "status": "done",
+          "name": "delivery mis-dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_effective_time",
+          "ref": "adj_ahead",
+          "at": "-10000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-adjustments-sharing-one-effective-time",
+      "title": "Three adjustments sharing one effective time, one of them a reset",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "decrement",
+        "reset",
+        "weight",
+        "stock_on_hand"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin eight"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_a",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment addition",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_b",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment count",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 4,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_c",
+          "kind": "decrement",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "same moment draw",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-stock-kept-apart-per-unit",
+      "title": "Stock in two different units is kept apart, never summed or converted",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "weight",
+        "stock_on_hand",
+        "stock_pair_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin nine"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_metric",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "metric delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_imperial",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "imperial delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "pounds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "pounds"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-a-reset-touches-only-its-own-pair",
+      "title": "A reset in one unit leaves stock held in another unit alone",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "reset",
+        "weight",
+        "stock_on_hand",
+        "stock_pair_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin ten"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_metric",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "metric delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 8,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_imperial",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "imperial delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 6,
+              "unit": "pounds"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_reset_imperial",
+          "kind": "reset",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "imperial count",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1,
+              "unit": "pounds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "pounds"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-drawing-more-than-is-held",
+      "title": "Drawing more than the holding contains",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "record_inventory_adjustment",
+        "increment",
+        "decrement",
+        "weight",
+        "stock_on_hand",
+        "stock_pair_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin twelve"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_up",
+          "kind": "increment",
+          "against": [
+            "bin"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "small delivery",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_inventory_adjustment",
+          "alias": "adj_down",
+          "kind": "decrement",
+          "against": [
+            "bin"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "large draw",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        }
+      ]
+    },
+    {
+      "key": "w0a-a-holding-nobody-has-adjusted",
+      "title": "An asset with no adjustments at all reports no holdings",
+      "feature": "core.inventory",
+      "glossary_terms": [
+        "equipment",
+        "stock_on_hand",
+        "stock_pair_count",
+        "adjustment_count",
+        "weight"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "bin",
+          "name": "feed bin thirteen"
+        }
+      ],
+      "when": [],
+      "probes": [
+        {
+          "assert": "stock_pair_count",
+          "subject": "bin"
+        },
+        {
+          "assert": "adjustment_count",
+          "subject": "bin"
+        },
+        {
+          "assert": "stock_on_hand",
+          "subject": "bin",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    }
+  ]
+}

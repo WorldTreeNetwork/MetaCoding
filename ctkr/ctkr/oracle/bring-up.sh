@@ -34,7 +34,14 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
 step "enable domain modules"
 docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
   farm_land farm_animal farm_plant farm_harvest farm_seeding farm_input \
-  farm_activity farm_observation farm_group farm_structure farm_quantity_standard'
+  farm_activity farm_observation farm_group farm_structure farm_quantity_standard \
+  farm_inventory farm_birth farm_equipment'
+# farm_equipment:  without it POST /api/asset/equipment 404s — w0a's stock flows
+#   hold inventory on equipment assets and cannot record on a fresh oracle.
+# farm_inventory: without it `quantity--standard` has no inventory_adjustment /
+#   inventory_asset and assets carry no `inventory` — the whole stock surface is
+#   invisible at the boundary and every stock flow is unrunnable.
+# farm_birth:     without it /api/log/birth 404s and no lineage flow can run.
 
 step "oauth keys"
 docker exec -u root farmos-oracle-www sh -c \

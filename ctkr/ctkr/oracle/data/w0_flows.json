@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "stock-reset-assigns-a-new-base",
+      "title": "A stock reset assigns a new base that later adjustments build on",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment", "decrement", "reset",
+                         "record_inventory_adjustment", "stock_on_hand",
+                         "stock_pair_count", "adjustment_count"],
+      "given": [{"entity": "planting", "alias": "A", "name": "Seed Store",
+                 "descriptor": "Crop"}],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L1", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["A"], "at": "-14400",
+         "quantities": [{"measure": "count", "value": 10, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L2", "kind": "decrement",
+         "status": "done", "name": "withdrawal", "against": ["A"], "at": "-10800",
+         "quantities": [{"measure": "count", "value": 4, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L3", "kind": "reset",
+         "status": "done", "name": "stocktake", "against": ["A"], "at": "-7200",
+         "quantities": [{"measure": "count", "value": 100, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L4", "kind": "increment",
+         "status": "done", "name": "top up", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 5, "unit": "kilogram"}]}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_pair_count", "subject": "A"},
+        {"assert": "adjustment_count", "subject": "A"}
+      ]
+    },
+    {
+      "key": "stock-counts-only-confirmed-and-already-effective",
+      "title": "Unconfirmed and not-yet-effective adjustments do not move the stock",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment", "pending", "done",
+                         "record_inventory_adjustment", "stock_on_hand",
+                         "adjustment_count"],
+      "given": [{"entity": "planting", "alias": "A", "name": "Mixed Store",
+                 "descriptor": "Crop"}],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L1", "kind": "increment",
+         "status": "done", "name": "confirmed", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 2, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L2", "kind": "increment",
+         "status": "pending", "name": "unconfirmed", "against": ["A"], "at": "-1800",
+         "quantities": [{"measure": "count", "value": 3, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L3", "kind": "increment",
+         "status": "done", "name": "not yet effective", "against": ["A"],
+         "at": "+86400",
+         "quantities": [{"measure": "count", "value": 5, "unit": "kilogram"}]}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "adjustment_count", "subject": "A"},
+        {"assert": "log_status", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "stock-tie-is-broken-by-recording-order",
+      "title": "Two adjustments sharing an effective time resolve in recording order",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment", "reset",
+                         "record_inventory_adjustment", "stock_on_hand"],
+      "given": [
+        {"entity": "planting", "alias": "A", "name": "Reset First Store",
+         "descriptor": "Crop"},
+        {"entity": "planting", "alias": "B", "name": "Increment First Store",
+         "descriptor": "Crop"}
+      ],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L1", "kind": "reset",
+         "status": "done", "name": "stocktake", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 50, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L2", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 7, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L3", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["B"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 7, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L4", "kind": "reset",
+         "status": "done", "name": "stocktake", "against": ["B"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 50, "unit": "kilogram"}]}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_on_hand", "subject": "B", "measure": "count",
+         "unit": "kilogram"}
+      ]
+    },
+    {
+      "key": "stock-pairs-are-independent",
+      "title": "Each measure-and-unit pair carries its own stock, and may go negative",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "volume", "weight", "increment",
+                         "decrement", "record_inventory_adjustment",
+                         "stock_on_hand", "stock_pair_count"],
+      "given": [{"entity": "planting", "alias": "A", "name": "Multi Pair Store",
+                 "descriptor": "Crop"}],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L1", "kind": "decrement",
+         "status": "done", "name": "withdrawal", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 7, "unit": "kilogram"}]},
+        {"action": "record_inventory_adjustment", "alias": "L2", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["A"], "at": "-3500",
+         "quantities": [{"measure": "volume", "value": 2, "unit": "liter"}]},
+        {"action": "record_inventory_adjustment", "alias": "L3", "kind": "increment",
+         "status": "done", "name": "part delivery", "against": ["A"], "at": "-3400",
+         "quantities": [{"measure": "weight", "value": 3.5, "unit": "kilogram"}]}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_on_hand", "subject": "A", "measure": "volume",
+         "unit": "liter"},
+        {"assert": "stock_on_hand", "subject": "A", "measure": "weight",
+         "unit": "kilogram"},
+        {"assert": "stock_pair_count", "subject": "A"}
+      ]
+    },
+    {
+      "key": "stock-retraction-leaves-the-pair-reported",
+      "title": "Retracting an adjustment empties the pair but keeps it reported",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment", "pending",
+                         "record_inventory_adjustment", "set_log_status",
+                         "stock_on_hand", "stock_pair_count"],
+      "given": [{"entity": "planting", "alias": "A", "name": "Retracted Store",
+                 "descriptor": "Crop"}],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 9, "unit": "kilogram"}]},
+        {"action": "set_log_status", "ref": "L", "status": "pending"}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_pair_count", "subject": "A"},
+        {"assert": "log_status", "subject": "L"}
+      ]
+    },
+    {
+      "key": "stock-follows-the-adjusted-asset",
+      "title": "Stock follows the asset an adjustment names, not the one the record cites",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment",
+                         "record_inventory_adjustment", "stock_on_hand",
+                         "stock_pair_count"],
+      "given": [
+        {"entity": "planting", "alias": "A", "name": "Untouched Store",
+         "descriptor": "Crop"},
+        {"entity": "planting", "alias": "B", "name": "Adjusted Store",
+         "descriptor": "Crop"}
+      ],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["B"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 4, "unit": "kilogram"}]}
+      ],
+      "probes": [
+        {"assert": "stock_pair_count", "subject": "A"},
+        {"assert": "stock_on_hand", "subject": "B", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_pair_count", "subject": "B"}
+      ]
+    },
+    {
+      "key": "moving-an-adjustment-out-of-effect",
+      "title": "Redating an adjustment into the future takes it back out of the stock",
+      "feature": "stock-adjustment",
+      "glossary_terms": ["planting", "count", "increment",
+                         "record_inventory_adjustment", "set_effective_time",
+                         "stock_on_hand"],
+      "given": [{"entity": "planting", "alias": "A", "name": "Redated Store",
+                 "descriptor": "Crop"}],
+      "when": [
+        {"action": "record_inventory_adjustment", "alias": "L", "kind": "increment",
+         "status": "done", "name": "delivery", "against": ["A"], "at": "-3600",
+         "quantities": [{"measure": "count", "value": 4, "unit": "kilogram"}]},
+        {"action": "set_effective_time", "ref": "L", "at": "+86400"}
+      ],
+      "probes": [
+        {"assert": "stock_on_hand", "subject": "A", "measure": "count",
+         "unit": "kilogram"},
+        {"assert": "stock_pair_count", "subject": "A"}
+      ]
+    },
+    {
+      "key": "birth-sets-date-of-birth-and-parentage",
+      "title": "Recording a birth dates the animal and gives it its parent",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "birth", "record_birth", "birth_date",
+                         "has_parent", "parent_count", "birth_record_count"],
+      "given": [
+        {"entity": "animal", "alias": "M", "name": "Mother1",
+         "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "C", "name": "Calf1", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "record_birth", "alias": "B", "ref": "C", "parents": ["M"],
+         "name": "birth of Calf1", "status": "done",
+         "at": "2026-03-01T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "birth_date", "subject": "C"},
+        {"assert": "has_parent", "subject": "C", "other": "M"},
+        {"assert": "parent_count", "subject": "C"},
+        {"assert": "birth_record_count", "subject": "C"},
+        {"assert": "animal_sex", "subject": "M"},
+        {"assert": "animal_sex", "subject": "C"}
+      ]
+    },
+    {
+      "key": "birth-correction-moves-the-date-not-the-parent",
+      "title": "Correcting a birth restates the date of birth but not the parentage",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "birth", "record_birth", "correct_birth",
+                         "birth_date", "has_parent", "parent_count"],
+      "given": [
+        {"entity": "animal", "alias": "M1", "name": "Mother1",
+         "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "M2", "name": "Mother2",
+         "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "C", "name": "Calf1", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "record_birth", "alias": "B", "ref": "C", "parents": ["M1"],
+         "name": "birth of Calf1", "status": "done",
+         "at": "2026-03-01T12:00:00+00:00"},
+        {"action": "correct_birth", "ref": "B", "parents": ["M2"],
+         "at": "2026-03-02T09:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "birth_date", "subject": "C"},
+        {"assert": "has_parent", "subject": "C", "other": "M1"},
+        {"assert": "has_parent", "subject": "C", "other": "M2"},
+        {"assert": "parent_count", "subject": "C"}
+      ]
+    },
+    {
+      "key": "parentage-stated-directly-is-replaced-wholesale",
+      "title": "Stating an animal's parentage directly replaces whatever it had",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "set_parents", "has_parent", "parent_count"],
+      "given": [
+        {"entity": "animal", "alias": "M1", "name": "Mother1",
+         "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "M2", "name": "Mother2",
+         "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "C", "name": "Calf1", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "set_parents", "ref": "C", "parents": ["M1"]},
+        {"action": "set_parents", "ref": "C", "parents": ["M2"]}
+      ],
+      "probes": [
+        {"assert": "has_parent", "subject": "C", "other": "M1"},
+        {"assert": "has_parent", "subject": "C", "other": "M2"},
+        {"assert": "parent_count", "subject": "C"}
+      ]
+    },
+    {
+      "key": "nicknames-keep-order-and-repetition",
+      "title": "An animal's informal names keep their order and their repetitions",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "set_nicknames", "nicknames"],
+      "given": [{"entity": "animal", "alias": "A", "name": "Bessie",
+                 "descriptor": "Cattle", "sex": "F"}],
+      "when": [
+        {"action": "set_nicknames", "ref": "A",
+         "names": ["Bessie", "Bess", "Bessie", "Bess"]},
+        {"action": "set_nicknames", "ref": "A", "names": ["Zed", "Ace", "Zed"]}
+      ],
+      "probes": [{"assert": "nicknames", "subject": "A"}]
+    }
+  ]
+}

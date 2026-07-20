@@ -18,9 +18,12 @@ import sys
 from pathlib import Path
 
 from ctkr.oracle.fixtures import validate_fixture, write_fixtures
+from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
 from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
 from ctkr.oracle.recorder import (
     build_client,
+    core_flows,
+    hardening_flows,
     record_session,
     write_observations,
 )
@@ -45,6 +48,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--client-secret", default="")
     p.add_argument("--out-dir", default=".",
                    help="Directory for fixtures.jsonl + observations.jsonl.")
+    p.add_argument("--flows", default="", metavar="FILE",
+                   help=("Record a supplied flow pack (JSON) instead of a "
+                         "built-in pack. The pack says what to DO and what to "
+                         "PROBE; every expected value is filled from what the "
+                         "live system returns. Fails loudly on an unknown "
+                         "action, glossary term, alias, or storage leak."))
+    p.add_argument("--pack", default="core", choices=("core", "hardening", "all"),
+                   help=("Which built-in flow pack to record when --flows is not "
+                         "given (default: %(default)s)."))
     p.add_argument("--preflight-timeout", type=float, default=DEFAULT_TIMEOUT,
                    help="Seconds for the oracle liveness probe (default: %(default)s).")
     p.add_argument("--skip-preflight", action="store_true",
@@ -52,8 +64,27 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.set_defaults(func=run)
 
 
+def _select_flows(args: argparse.Namespace):
+    """Resolve which flows to record. A bad pack fails before the oracle is touched."""
+    if args.flows:
+        return load_flows(args.flows), f"pack {args.flows}"
+    if args.pack == "core":
+        return core_flows(), "built-in core pack"
+    if args.pack == "hardening":
+        return hardening_flows(), "built-in hardening pack"
+    return core_flows() + hardening_flows(), "built-in core + hardening packs"
+
+
 def run(args: argparse.Namespace) -> int:
     from ctkr.oracle.farmos_adapter import FarmOSAdapter
+
+    # Resolve the flows FIRST: a malformed pack must not cost an oracle round-trip,
+    # and must never half-record.
+    try:
+        flows, origin = _select_flows(args)
+    except FlowSpecError as exc:
+        sys.stderr.write(f"\nINVALID FLOW PACK: {exc}\n")
+        return 2
 
     if not args.skip_preflight:
         # Recording against a dead oracle produces nothing but a long wait; and a
@@ -74,8 +105,10 @@ def run(args: argparse.Namespace) -> int:
     )
     adapter = FarmOSAdapter(client)
 
-    sys.stderr.write(f"recording value-flows against {args.base_url} ...\n")
-    fixtures, observations = record_session(adapter)
+    sys.stderr.write(
+        f"recording {len(flows)} value-flows ({origin}) against {args.base_url} ...\n"
+    )
+    fixtures, observations = record_session(adapter, flows)
 
     out = Path(args.out_dir)
     fx_path = out / "fixtures.jsonl"

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
+from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 _OPS = {
     "==": operator.eq,
@@ -94,6 +95,31 @@ def _evaluate(
             actual = adapter.group_member(subject, grp)
         elif t.assert_ == "quantity_recorded":
             actual = adapter.quantity_recorded(subject, t.measure, t.unit)
+        elif t.assert_ == "stock_on_hand":
+            actual = adapter.stock_on_hand(subject, t.measure, t.unit)
+        elif t.assert_ == "stock_pair_count":
+            actual = adapter.stock_pair_count(subject)
+        elif t.assert_ == "adjustment_count":
+            actual = adapter.adjustment_count(subject)
+        elif t.assert_ == "animal_sex":
+            actual = adapter.animal_sex(subject)
+        elif t.assert_ == "nicknames":
+            actual = adapter.nicknames(subject)
+        elif t.assert_ == "birth_date":
+            actual = adapter.birth_date(subject)
+        elif t.assert_ == "parent_count":
+            actual = adapter.parent_count(subject)
+        elif t.assert_ == "has_parent":
+            other = handles.get(t.other)
+            if other is None:
+                return AssertionResult(
+                    passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
+                    expected=t.value, actual=None,
+                    detail=f"animal alias {t.other!r} was never created",
+                )
+            actual = adapter.has_parent(subject, other)
+        elif t.assert_ == "birth_record_count":
+            actual = adapter.birth_record_count(subject)
         else:  # pragma: no cover — validator forbids this
             return AssertionResult(
                 passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
@@ -118,23 +144,11 @@ def run_fixture(
     """Execute one fixture against an adapter and collect per-assertion results."""
     handles: dict[str, Handle] = {}
     try:
+        now = flow_now()
         for g in fx.given:
-            handles[g.alias] = adapter.create_asset(g.entity, g.name, g.descriptor)
+            handles[g.alias] = apply_given(adapter, g)
         for w in fx.when:
-            if w.action == "record_log":
-                asset_handles = [handles[a] for a in w.against if a in handles]
-                h = adapter.record_log(
-                    w.kind, w.name or f"{w.kind} log", w.status or "done",
-                    asset_handles, w.quantities,
-                )
-                if w.alias:
-                    handles[w.alias] = h
-            elif w.action == "set_log_status":
-                adapter.set_log_status(handles[w.ref], w.status)
-            elif w.action == "assign_to_group":
-                adapter.assign_to_group(handles[w.ref], handles[w.group])
-            elif w.action == "archive_asset":
-                adapter.archive_asset(handles[w.ref])
+            apply_when(adapter, w, handles, now)
     except (AdapterError, KeyError) as exc:
         return FixtureResult(
             fixture_id=fx.fixture_id or fx.content_id(), title=fx.title,

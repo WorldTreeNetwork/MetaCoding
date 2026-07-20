@@ -30,6 +30,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 from typing import Any
 
 from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
@@ -196,11 +197,15 @@ class FarmOSAdapter(ImplementationAdapter):
         return rows
 
     # ---- given / when ------------------------------------------------------ #
-    def create_asset(self, entity: str, name: str, descriptor: str = "") -> Handle:
+    def create_asset(
+        self, entity: str, name: str, descriptor: str = "", sex: str = ""
+    ) -> Handle:
         bundle = _ASSET_BUNDLE.get(entity)
         if bundle is None:
             raise AdapterError(f"farmOS has no asset bundle for entity {entity!r}")
         attrs: dict[str, Any] = {"name": name}
+        if sex:
+            attrs["sex"] = sex
         rels: dict[str, Any] = {}
         if bundle == "land":
             # land_type is a required option; only "other" is guaranteed present
@@ -376,6 +381,235 @@ class FarmOSAdapter(ImplementationAdapter):
         grp_ids = {grp["id"]} if isinstance(grp, dict) else {g["id"] for g in grp}
         return gid in grp_ids
 
+    # ---- stock / inventory (w0a) ------------------------------------------- #
+    # farmOS keeps the adjustment on the QUANTITY (`inventory_adjustment` +
+    # `inventory_asset`); the LOG supplies the status and the effective time.
+    # Two writes per adjustment, therefore. Both fields only exist once the
+    # farm_inventory module is installed — a missing module is reported with the
+    # fix rather than silently producing an empty stock reading.
+    _INVENTORY_REMEDY = (
+        "the stock surface is absent at the boundary — enable it with "
+        "`docker exec farmos-oracle-www drush en farm_inventory -y` "
+        "(and add farm_inventory to ctkr/ctkr/oracle/bring-up.sh)"
+    )
+    _BIRTH_REMEDY = (
+        "the birth-record surface is absent at the boundary — enable it with "
+        "`docker exec farmos-oracle-www drush en farm_birth -y` "
+        "(and add farm_birth to ctkr/ctkr/oracle/bring-up.sh)"
+    )
+
+    def _create_adjustment_quantity(
+        self, q: QuantitySpec, adjustment: str, asset: tuple[str, str, str]
+    ) -> str:
+        num, den = _as_fraction(q.value)
+        attrs: dict[str, Any] = {
+            "value": {"numerator": num, "denominator": den},
+            "inventory_adjustment": adjustment,
+        }
+        # Omitting `measure`/`units` is meaningful: farmOS files the adjustment in
+        # a distinct unnamed bucket rather than merging it into a named one.
+        if q.measure:
+            attrs["measure"] = q.measure
+        if q.label:
+            attrs["label"] = q.label
+        _, abundle, aid = asset
+        rels: dict[str, Any] = {
+            "inventory_asset": {"data": {"type": f"asset--{abundle}", "id": aid}},
+        }
+        if q.unit:
+            rels["units"] = {"data": {"type": "taxonomy_term--unit",
+                                      "id": self._ensure_unit(q.unit)}}
+        doc = {"data": {"type": "quantity--standard", "attributes": attrs,
+                        "relationships": rels}}
+        try:
+            return self.client.request(
+                "POST", "/api/quantity/standard", doc
+            )["data"]["id"]
+        except AdapterError as exc:
+            raise AdapterError(f"{exc}\n  {self._INVENTORY_REMEDY}") from exc
+
+    def record_inventory_adjustment(
+        self,
+        adjustment: str,
+        name: str,
+        status: str,
+        asset_handles: list[Handle],
+        quantities: list[QuantitySpec],
+        effective_time: Any = None,
+    ) -> Handle:
+        assets = [self._split(h) for h in asset_handles]
+        qids: list[str] = []
+        for asset in assets:
+            for q in quantities:
+                qids.append(self._create_adjustment_quantity(q, adjustment, asset))
+        attrs: dict[str, Any] = {"name": name, "status": status or "done"}
+        if effective_time is not None:
+            attrs["timestamp"] = _iso(effective_time)
+        rels: dict[str, Any] = {
+            "quantity": {"data": [{"type": "quantity--standard", "id": qid}
+                                  for qid in qids]},
+        }
+        if assets:
+            rels["asset"] = {"data": [{"type": f"asset--{b}", "id": u}
+                                      for _, b, u in assets]}
+        doc = {"data": {"type": "log--activity", "attributes": attrs,
+                        "relationships": rels}}
+        uid = self.client.request("POST", "/api/log/activity", doc)["data"]["id"]
+        return f"log:activity:{uid}"
+
+    def set_effective_time(self, log_handle: Handle, effective_time: Any) -> None:
+        _, kind, uid = self._split(log_handle)
+        doc = {"data": {"type": f"log--{kind}", "id": uid,
+                        "attributes": {"timestamp": _iso(effective_time)}}}
+        self.client.request("PATCH", f"/api/log/{kind}/{uid}", doc)
+
+    def _stock_rows(self, asset_handle: Handle) -> list[dict[str, Any]]:
+        """The per-(measure, unit) stock rows farmOS computes for an asset.
+
+        Read verbatim from the boundary: ``units`` is the unit's NAME and
+        ``value`` a decimal string, both exactly as delivered.
+        """
+        _, bundle, uid = self._split(asset_handle)
+        doc = self.client.request("GET", f"/api/asset/{bundle}/{uid}")
+        rows = doc["data"]["attributes"].get("inventory")
+        if rows is None:
+            raise AdapterError(
+                f"no stock is delivered for asset {bundle}: {self._INVENTORY_REMEDY}"
+            )
+        return list(rows)
+
+    def stock_on_hand(self, asset_handle: Handle, measure: str, unit: str) -> float:
+        """Stock for one (measure, unit) pair; 0.0 when the pair is not delivered.
+
+        The absent-pair case is deliberately NOT conflated with a delivered zero —
+        :meth:`stock_pair_count` is the probe that tells them apart.
+        """
+        for row in self._stock_rows(asset_handle):
+            if (row.get("measure") or "") != measure:
+                continue
+            if (row.get("units") or "") != unit:
+                continue
+            return float(row.get("value") or 0)
+        return 0.0
+
+    def stock_pair_count(self, asset_handle: Handle) -> int:
+        return len(self._stock_rows(asset_handle))
+
+    def adjustment_count(self, asset_handle: Handle) -> int:
+        """How many recorded events carry a stock adjustment against the asset.
+
+        There is no cross-kind event collection at this boundary, so the ledger
+        query is issued once per kind and the rows are summed.
+        """
+        _, _, aid = self._split(asset_handle)
+        total = 0
+        for kind in ("activity", "harvest", "input", "observation", "seeding"):
+            total += len(self._paged(
+                f"/api/log/{kind}?filter[quantity.inventory_asset.id]={aid}"
+                "&sort=timestamp,drupal_internal__id&page[limit]=50"
+            ))
+        return total
+
+    # ---- lineage (w0b) ------------------------------------------------------ #
+    def record_birth(
+        self,
+        child_handle: Handle,
+        parent_handles: list[Handle],
+        name: str,
+        status: str,
+        effective_time: Any = None,
+    ) -> Handle:
+        _, cbundle, cid = self._split(child_handle)
+        attrs: dict[str, Any] = {"name": name, "status": status or "done"}
+        if effective_time is not None:
+            attrs["timestamp"] = _iso(effective_time)
+        rels: dict[str, Any] = {
+            "asset": {"data": [{"type": f"asset--{cbundle}", "id": cid}]},
+        }
+        if parent_handles:
+            # farmOS carries a single birthing parent on the birth record.
+            _, pbundle, pid = self._split(parent_handles[0])
+            rels["mother"] = {"data": {"type": f"asset--{pbundle}", "id": pid}}
+        doc = {"data": {"type": "log--birth", "attributes": attrs,
+                        "relationships": rels}}
+        try:
+            uid = self.client.request("POST", "/api/log/birth", doc)["data"]["id"]
+        except AdapterError as exc:
+            raise AdapterError(f"{exc}\n  {self._BIRTH_REMEDY}") from exc
+        return f"log:birth:{uid}"
+
+    def correct_birth(
+        self,
+        birth_handle: Handle,
+        parent_handles: list[Handle] | None = None,
+        effective_time: Any = None,
+    ) -> None:
+        _, kind, uid = self._split(birth_handle)
+        data: dict[str, Any] = {"type": f"log--{kind}", "id": uid}
+        if effective_time is not None:
+            data["attributes"] = {"timestamp": _iso(effective_time)}
+        if parent_handles is not None:
+            if parent_handles:
+                _, pbundle, pid = self._split(parent_handles[0])
+                ref: Any = {"type": f"asset--{pbundle}", "id": pid}
+            else:
+                ref = None
+            data["relationships"] = {"mother": {"data": ref}}
+        self.client.request("PATCH", f"/api/log/{kind}/{uid}", {"data": data})
+
+    def set_parents(
+        self, animal_handle: Handle, parent_handles: list[Handle]
+    ) -> None:
+        _, bundle, uid = self._split(animal_handle)
+        parents = [self._split(h) for h in parent_handles]
+        doc = {"data": {"type": f"asset--{bundle}", "id": uid,
+                        "relationships": {"parent": {"data": [
+                            {"type": f"asset--{b}", "id": u} for _, b, u in parents
+                        ]}}}}
+        self.client.request("PATCH", f"/api/asset/{bundle}/{uid}", doc)
+
+    def set_nicknames(self, animal_handle: Handle, names: list[str]) -> None:
+        _, bundle, uid = self._split(animal_handle)
+        doc = {"data": {"type": f"asset--{bundle}", "id": uid,
+                        "attributes": {"nickname": list(names)}}}
+        self.client.request("PATCH", f"/api/asset/{bundle}/{uid}", doc)
+
+    def _animal(self, animal_handle: Handle) -> dict[str, Any]:
+        _, bundle, uid = self._split(animal_handle)
+        return self.client.request("GET", f"/api/asset/{bundle}/{uid}")["data"]
+
+    def animal_sex(self, animal_handle: Handle) -> str:
+        return self._animal(animal_handle)["attributes"].get("sex") or ""
+
+    def nicknames(self, animal_handle: Handle) -> list[str]:
+        return list(self._animal(animal_handle)["attributes"].get("nickname") or [])
+
+    def birth_date(self, animal_handle: Handle) -> str:
+        return self._animal(animal_handle)["attributes"].get("birthdate") or ""
+
+    @staticmethod
+    def _parent_ids(animal: dict[str, Any]) -> list[str]:
+        data = ((animal.get("relationships") or {}).get("parent") or {}).get("data")
+        if not data:
+            return []
+        return [data["id"]] if isinstance(data, dict) else [d["id"] for d in data]
+
+    def parent_count(self, animal_handle: Handle) -> int:
+        return len(self._parent_ids(self._animal(animal_handle)))
+
+    def has_parent(self, animal_handle: Handle, parent_handle: Handle) -> bool:
+        _, _, pid = self._split(parent_handle)
+        return pid in self._parent_ids(self._animal(animal_handle))
+
+    def birth_record_count(self, animal_handle: Handle) -> int:
+        _, _, aid = self._split(animal_handle)
+        try:
+            return len(self._paged(
+                f"/api/log/birth?filter[asset.id]={aid}&page[limit]=50"
+            ))
+        except AdapterError as exc:
+            raise AdapterError(f"{exc}\n  {self._BIRTH_REMEDY}") from exc
+
     def quantity_recorded(
         self, log_handle: Handle, measure: str, unit: str
     ) -> float:
@@ -400,6 +634,24 @@ class FarmOSAdapter(ImplementationAdapter):
 # --------------------------------------------------------------------------- #
 # Value helpers                                                                #
 # --------------------------------------------------------------------------- #
+def _iso(effective_time: Any) -> str:
+    """Render an effective time as the ISO-8601 instant farmOS accepts on write.
+
+    Whole seconds only: farmOS rejects a fractional-second instant outright
+    ("not in an accepted format"), and its effective-time resolution is one
+    second anyway — which is exactly what makes an equal-time tie observable.
+    """
+    if isinstance(effective_time, str):
+        return effective_time
+    if isinstance(effective_time, (int, float)):
+        dt = datetime.fromtimestamp(float(effective_time), tz=UTC)
+    else:
+        dt = effective_time
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+    return dt.replace(microsecond=0).isoformat(timespec="seconds")
+
+
 def _as_fraction(value: float) -> tuple[int, int]:
     """Represent a decimal as farmOS's (numerator, denominator) fraction field."""
     if float(value).is_integer():

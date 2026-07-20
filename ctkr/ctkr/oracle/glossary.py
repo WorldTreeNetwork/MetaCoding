@@ -44,13 +44,28 @@ ACTION_TERMS: frozenset[str] = frozenset(
         "set_log_status",  # transition a recorded log pending -> done (or back)
         "assign_to_group",  # place an asset into a group (membership)
         "archive_asset",  # retire an asset from the active set
+        # --- stock / inventory (w0a) ---------------------------------------
+        "record_inventory_adjustment",  # increment/decrement/reset an asset's stock
+        "set_effective_time",  # restate WHEN a recorded event took effect
+        # --- lineage (w0b) --------------------------------------------------
+        "record_birth",  # register the birth of an animal, optionally from a parent
+        "correct_birth",  # restate an already-recorded birth (time and/or parent)
+        "set_parents",  # state an animal's parentage directly
+        "set_nicknames",  # state an animal's ordered list of informal names
     }
 )
 
 # --- Log kinds: the domain sub-type of a recorded event. --------------------
 LOG_KINDS: frozenset[str] = frozenset(
-    {"harvest", "input", "activity", "observation", "seeding"}
+    {"harvest", "input", "activity", "observation", "seeding", "birth"}
 )
+
+# --- Adjustment kinds: how a stock adjustment acts on the running total. ----
+# ``increment``/``decrement`` accumulate; ``reset`` assigns a new base.
+ADJUSTMENT_KINDS: frozenset[str] = frozenset({"increment", "decrement", "reset"})
+
+# --- Animal sexes: the closed domain vocabulary for an animal's sex. --------
+ANIMAL_SEXES: frozenset[str] = frozenset({"F", "M"})
 
 # --- Log status: the value-level lifecycle of a recorded event. -------------
 LOG_STATUSES: frozenset[str] = frozenset({"pending", "done"})
@@ -72,6 +87,20 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "asset_active",  # whether an asset is in the active (non-archived) set
         "group_member",  # whether an asset is a member of a group
         "quantity_recorded",  # a specific measured value recorded on a log
+        # --- stock / inventory (w0a) ---------------------------------------
+        "stock_on_hand",  # the running stock an asset currently holds, per
+                          # (measure, unit) pair, after all effective adjustments
+        "stock_pair_count",  # how many (measure, unit) pairs the asset reports
+                             # stock for — surfaces pairs reported at zero
+        "adjustment_count",  # how many stock adjustments are readable against
+                             # an asset (the reduce INPUT, not its result)
+        # --- lineage (w0b) --------------------------------------------------
+        "animal_sex",  # the sex delivered for an animal
+        "nicknames",  # the ordered list of informal names for an animal
+        "birth_date",  # the date of birth delivered for an animal
+        "parent_count",  # how many parents an animal is delivered with
+        "has_parent",  # whether one animal is delivered as another's parent
+        "birth_record_count",  # how many birth records claim an animal as issue
     }
 )
 
@@ -123,4 +152,5 @@ def all_terms() -> frozenset[str]:
         | LOG_STATUSES
         | MEASURES
         | ASSERTION_TERMS
+        | ADJUSTMENT_KINDS
     )

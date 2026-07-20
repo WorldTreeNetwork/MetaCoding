@@ -38,6 +38,7 @@ from ctkr.oracle.fixtures import (
     ThenAssertion,
     WhenStep,
 )
+from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 
 class Observation(BaseModel):
@@ -94,6 +95,7 @@ class Probe:
     unit: str = ""
     kind: str = ""
     group: str = ""
+    other: str = ""
     op: str = "=="
 
 
@@ -501,6 +503,24 @@ def _observe_probe(
         return adapter.group_member(subject, handles[probe.group])
     if probe.assert_ == "quantity_recorded":
         return adapter.quantity_recorded(subject, probe.measure, probe.unit)
+    if probe.assert_ == "stock_on_hand":
+        return adapter.stock_on_hand(subject, probe.measure, probe.unit)
+    if probe.assert_ == "stock_pair_count":
+        return adapter.stock_pair_count(subject)
+    if probe.assert_ == "adjustment_count":
+        return adapter.adjustment_count(subject)
+    if probe.assert_ == "animal_sex":
+        return adapter.animal_sex(subject)
+    if probe.assert_ == "nicknames":
+        return adapter.nicknames(subject)
+    if probe.assert_ == "birth_date":
+        return adapter.birth_date(subject)
+    if probe.assert_ == "parent_count":
+        return adapter.parent_count(subject)
+    if probe.assert_ == "has_parent":
+        return adapter.has_parent(subject, handles[probe.other])
+    if probe.assert_ == "birth_record_count":
+        return adapter.birth_record_count(subject)
     raise ValueError(f"unknown probe assertion {probe.assert_!r}")
 
 
@@ -517,21 +537,11 @@ def record_flow(
     obs_start = len(getattr(client, "observations", []))
 
     handles: dict[str, Handle] = {}
+    now = flow_now()
     for g in flow.given:
-        handles[g.alias] = adapter.create_asset(g.entity, g.name, g.descriptor)
+        handles[g.alias] = apply_given(adapter, g)
     for w in flow.when:
-        if w.action == "record_log":
-            asset_handles = [handles[a] for a in w.against]
-            handles[w.alias] = adapter.record_log(
-                w.kind, w.name or f"{w.kind} log", w.status or "done",
-                asset_handles, w.quantities,
-            )
-        elif w.action == "set_log_status":
-            adapter.set_log_status(handles[w.ref], w.status)
-        elif w.action == "assign_to_group":
-            adapter.assign_to_group(handles[w.ref], handles[w.group])
-        elif w.action == "archive_asset":
-            adapter.archive_asset(handles[w.ref])
+        apply_when(adapter, w, handles, now)
 
     then: list[ThenAssertion] = []
     for probe in flow.probes:
@@ -540,7 +550,8 @@ def record_flow(
             ThenAssertion(
                 assert_=probe.assert_, subject=probe.subject,
                 measure=probe.measure, unit=probe.unit, kind=probe.kind,
-                group=probe.group, op=probe.op, value=observed,
+                group=probe.group, other=probe.other, op=probe.op,
+                value=observed,
             )
         )
 
