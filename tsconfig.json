@@ -25,5 +25,8 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // The viz/ app targets the browser (DOM/WebWorker libs) and has its own
+  // tsconfig; keep it out of the library-side compile.
+  "exclude": ["node_modules", "viz"]
 }

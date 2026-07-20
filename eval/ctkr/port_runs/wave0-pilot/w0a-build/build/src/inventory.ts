@@ -22,12 +22,21 @@
  *   3. The domain orders adjustments by `occurredAt` (valid time, a payload
  *      field). Same-`occurredAt` ties are broken by the kernel HLC via
  *      `compareHlc` — never by entity id (ids.ts forbids ordering by id).
- *   4. Status filtering is routed through the kernel status contract:
- *      `passesGate(status, "require-confirmed")`. Inventory's gate is
- *      require-confirmed (pending adjustments are inert). STATUS_CONTRACT ships
- *      no `currentInventory` row yet — see PORT_DECISIONS.md; we gate against the
- *      "require-confirmed" StatusGate directly, the same gate `currentLocation`
- *      uses, until the kernel adds the row.
+ *   4. Status filtering is routed through the kernel status contract and the gate
+ *      is READ FROM IT: `gateFor("currentInventory")`. The row exists as of
+ *      kernel v1.3, where observation set it (a pending adjustment does not move
+ *      stock). A feature-local constant here was the exact re-litigation
+ *      `status.ts` exists to forbid.
+ *   5. The projection is KIND-GUARDED: it folds only events of the registered
+ *      adjustment kind, so a composed store carrying other features' events
+ *      cannot leak a foreign payload into this balance.
+ *   6. The adjustment behaviour set is CLOSED: an unrecognized sub-kind throws
+ *      rather than falling through to a silent decrement.
+ *
+ * The kernel is IMPORTED FROM ITS ONE SOURCE (../../src/kernel), never vendored.
+ * This build previously carried its own copy, which had already drifted — it
+ * still held the pre-v1.3 blanket status contract that observation falsified. A
+ * kernel that is copied per build cannot prevent anything at wave scale.
  */
 
 import {
@@ -36,6 +45,7 @@ import {
   HlcClock,
   IdMinter,
   KindRegistry,
+  gateFor,
   passesGate,
   type EntityId,
   type Hlc,
@@ -43,19 +53,22 @@ import {
   type KindSpec,
   type LifecycleStatus,
   type StatusGate,
-} from "./kernel/index.ts";
+} from "../../../../../../../src/kernel/index.ts";
 
 /** The kernel kind under which every inventory adjustment is logged. */
 export const INVENTORY_ADJUSTMENT_KIND = "inventory_adjustment";
 
 /**
- * Inventory's status gate. STATUS_CONTRACT has no `currentInventory` projection
- * row (a required kernel addition, see PORT_DECISIONS.md §status), so we name the
- * gate locally and still route the actual filtering through the kernel's
- * `passesGate`. It is exactly the reading `currentLocation` already uses:
- * pending adjustments are proposed, not yet true, and stay inert.
+ * Inventory's status gate, taken FROM THE KERNEL CONTRACT — not named here.
+ *
+ * This was a feature-local constant, which is the exact re-litigation
+ * `status.ts` exists to forbid: a local constant cannot be re-decided centrally,
+ * and kernel v1.3 proved that matters — observation showed the pending gate is
+ * PER-PROJECTION (a pending adjustment does not move stock but IS counted; a
+ * pending birth is fully effective), so a build holding its own copy of the
+ * answer would have silently kept the falsified one.
  */
-const INVENTORY_GATE: StatusGate = "require-confirmed";
+const INVENTORY_GATE: StatusGate = gateFor("currentInventory");
 
 /**
  * The KindSpec for inventory adjustments. `isLog: true` — an adjustment IS an
@@ -73,6 +86,35 @@ export const INVENTORY_ADJUSTMENT_SPEC: KindSpec = {
 };
 
 export type AdjustmentKind = "increment" | "decrement" | "reset";
+
+/**
+ * The CLOSED set of adjustment behaviours. The fold used to end in a bare
+ * `else running -= value`, so any unrecognized sub-kind silently DECREMENTED —
+ * an unregistered taxonomy hiding inside a registered kind, and precisely the
+ * ad-hoc-kind failure the kernel's KindRegistry exists to make impossible one
+ * level up. A new behaviour must be added here deliberately.
+ */
+export const ADJUSTMENT_KINDS: readonly AdjustmentKind[] = [
+  "reset",
+  "increment",
+  "decrement",
+] as const;
+
+export function isAdjustmentKind(k: string): k is AdjustmentKind {
+  return (ADJUSTMENT_KINDS as readonly string[]).includes(k);
+}
+
+/** Thrown when an adjustment names a behaviour outside the closed set. */
+export class UnknownAdjustmentKind extends Error {
+  constructor(kind: string) {
+    super(
+      `unknown adjustment behaviour ${JSON.stringify(kind)}; ` +
+      `the closed set is ${ADJUSTMENT_KINDS.join(", ")}. A silent fallback here ` +
+      `would apply an arbitrary sign to a real quantity.`,
+    );
+    this.name = "UnknownAdjustmentKind";
+  }
+}
 
 /** A handle to an asset — an opaque kernel entity id (minted by IdMinter). */
 export type AssetHandle = EntityId;
@@ -128,6 +170,15 @@ export interface AdapterOptions {
   replicaId?: string;
   /** injectable wall clock for deterministic tests. */
   now?: () => number;
+  /**
+   * A SHARED kind registry + event log, for a composed store where several
+   * features append to one log. Supplying them is what makes the projection's
+   * kind-guard load-bearing rather than theoretical: with a private log this
+   * feature is the only writer, so nothing foreign could ever be folded and the
+   * guard is untested by construction.
+   */
+  registry?: KindRegistry;
+  log?: EventLog<KernelEvent<string, unknown>>;
 }
 
 /**
@@ -162,9 +213,11 @@ function foldRunningBalance(sorted: readonly InventoryEvent[]): number {
       continue;
     }
     const { kind, value } = e.payload;
+    // No catch-all: an unrecognized behaviour is an error, never a decrement.
     if (kind === "reset") running = value;
     else if (kind === "increment") running += value;
-    else running -= value; // decrement
+    else if (kind === "decrement") running -= value;
+    else throw new UnknownAdjustmentKind(String(kind));
   }
   return running;
 }
@@ -185,8 +238,12 @@ export function makeAssetInventoryAdapter(
 
   // Gate 1: closed kind taxonomy. Register the adjustment kind, then FREEZE so
   // no ad-hoc kind can be introduced later, and route appends through EventLog.
-  const registry = new KindRegistry().register(INVENTORY_ADJUSTMENT_SPEC).freeze();
-  const log = new EventLog<InventoryEvent>(registry);
+  // In a composed store the registry and log are SHARED — this feature registers
+  // its kind into the common taxonomy and appends to the common log.
+  const registry =
+    opts.registry ?? new KindRegistry().register(INVENTORY_ADJUSTMENT_SPEC).freeze();
+  const log = (opts.log ??
+    new EventLog<InventoryEvent>(registry)) as EventLog<InventoryEvent>;
 
   // Gate 2: replica-scoped id minting. One minter for both assets and events.
   const minter = new IdMinter(replicaId);
@@ -222,6 +279,10 @@ export function makeAssetInventoryAdapter(
         .all()
         .filter(
           (e) =>
+            // Kind-guard FIRST: in a composed store the log carries every
+            // feature's events, and an unguarded projection would fold a
+            // foreign kind whose payload happens to have the right shape.
+            e.kind === INVENTORY_ADJUSTMENT_KIND &&
             e.payload.asset === asset &&
             passesGate(e.payload.logStatus, INVENTORY_GATE) &&
             e.payload.occurredAt <= asOf,

@@ -38,7 +38,7 @@ import {
   type AssetHandle,
   type AssetInventoryAdapter,
 } from "./src/inventory.ts";
-import type { LifecycleStatus } from "./src/kernel/index.ts";
+import type { LifecycleStatus } from "../../../../../../src/kernel/index.ts";
 
 const OPERATIONS = ["record_inventory_adjustment"] as const;
 const PROBES = ["stock_on_hand", "stock_pair_count"] as const;

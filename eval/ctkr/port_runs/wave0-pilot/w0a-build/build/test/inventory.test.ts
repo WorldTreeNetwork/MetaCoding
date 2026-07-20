@@ -5,7 +5,7 @@ import {
   type AssetHandle,
   type AdjustmentKind,
 } from "../src/inventory.ts";
-import { isEntityId } from "../src/kernel/index.ts";
+import { isEntityId } from "../../../../../../../src/kernel/index.ts";
 
 const MASS = "measure:mass";
 const KG = "units:kg";
@@ -165,4 +165,82 @@ test("replica ids do not collide across two adapters", () => {
   const a1 = r1.createAsset();
   const a2 = r2.createAsset();
   expect(a1).not.toBe(a2);
+});
+
+// --------------------------------------------------------------------------- //
+// Prevention gates (MetaCoding-3qq / blocker B5). Each of these was OPEN in the
+// build as first judged: gates that pass a conformance check while still
+// permitting the divergence they exist to prevent are worse than absent ones,
+// because they are cited as evidence.
+// --------------------------------------------------------------------------- //
+import {
+  ADJUSTMENT_KINDS,
+  UnknownAdjustmentKind,
+  INVENTORY_ADJUSTMENT_SPEC,
+} from "../src/inventory.ts";
+import {
+  gateFor,
+  EventLog,
+  KindRegistry,
+  STATUS_CONTRACT,
+  type KernelEvent,
+} from "../../../../../../../src/kernel/index.ts";
+
+test("the status gate comes FROM the kernel contract, not a local constant", () => {
+  // If the kernel re-decides this projection's gate, the build must follow.
+  expect(INVENTORY_ADJUSTMENT_SPEC.statusGate).toBe(gateFor("currentInventory"));
+  expect(gateFor("currentInventory")).toBe("require-confirmed");
+  // and the row genuinely exists — this was gated locally because it did not
+  expect(Object.keys(STATUS_CONTRACT)).toContain("currentInventory");
+});
+
+test("an unknown adjustment behaviour throws instead of silently decrementing", () => {
+  const port = makeAssetInventoryAdapter();
+  const asset = port.createAsset();
+  port.appendInventoryAdjustment(asset, {
+    logStatus: "done", occurredAt: 1, measure: "mass", units: "kg",
+    kind: "sideways" as never, value: 5,
+  });
+  expect(() => port.getInventory(asset, 10)).toThrow(UnknownAdjustmentKind);
+});
+
+test("the adjustment behaviour set is closed", () => {
+  expect([...ADJUSTMENT_KINDS].sort()).toEqual(["decrement", "increment", "reset"]);
+});
+
+test("the projection folds only its own kind — a foreign event cannot leak in", () => {
+  // A REAL composed store: one shared registry and one shared log, exactly the
+  // arrangement the wave will build. Another feature's kind is registered
+  // alongside, and its payload deliberately has this projection's shape.
+  const registry = new KindRegistry()
+    .register(INVENTORY_ADJUSTMENT_SPEC)
+    .register({
+      kind: "some_other_feature_event",
+      family: "other",
+      isLog: true,
+      description: "a neighbouring feature's event, same payload shape",
+    })
+    .freeze();
+  const log = new EventLog<KernelEvent<string, never>>(registry);
+  const port = makeAssetInventoryAdapter({ registry, log: log as never });
+
+  const asset = port.createAsset();
+  port.appendInventoryAdjustment(asset, {
+    logStatus: "done", occurredAt: 1, measure: "mass", units: "kg",
+    kind: "increment", value: 4,
+  });
+  log.append({
+    id: "other~1" as never,
+    hlc: { physical: 2, logical: 0, replicaId: "R9" },
+    kind: "some_other_feature_event",
+    payload: {
+      asset, logStatus: "done", occurredAt: 2, measure: "mass", units: "kg",
+      kind: "increment", value: 999,
+    },
+  } as never);
+
+  // Without the kind-guard this reads 1003.
+  expect(port.getInventory(asset, 10)).toEqual([
+    { measure: "mass", units: "kg", value: 4 },
+  ]);
 });
