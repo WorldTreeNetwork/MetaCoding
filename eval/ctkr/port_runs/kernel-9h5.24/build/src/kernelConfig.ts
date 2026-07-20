@@ -51,7 +51,7 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     convergenceKey: "earliest-hlc-wins; later concurrent birth demoted to observation (never dropped)",
     status: "bound",
     rationale:
-      "A birth log is a hard 'at most one per asset' invariant, but this target has no coordination layer, so a central write-time gate is off the menu. Two replicas can each record a birth offline; on merge the earliest by HLC survives and the loser is demoted, not silently dropped. BOUND 2026-07-20 by Duke (elicitation review MetaCoding-tkj): a farmer-visible surfaced duplicate is the desired outcome.",
+      "A birth log is a hard 'at most one per asset' invariant, but this target has no coordination layer, so a central write-time gate is off the menu. Two replicas can each record a birth offline; on merge the earliest by HLC survives and the loser is demoted, not silently dropped. BOUND 2026-07-20 by Duke (elicitation review MetaCoding-tkj): a farmer-visible surfaced duplicate is the desired outcome. OBSERVATION NOTE 2026-07-20: this rule is UNOBSERVABLE against the source — farmOS REFUSES a second birth claim at write time (422 'more than one birth log cannot reference the same child'), so no state exists in which two claims coexist and no oracle value can confirm or refute the resolution rule. The decision stands as a port choice (refuse-vs-resolve is a real semantic divergence); it simply has zero oracle grounding. See wave1-readiness-2026-07-20.md §2.5.",
     recommendedBy: "shared-kernel-v1",
   },
   {
@@ -89,9 +89,9 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     sensitivity: "soft",
     menuChoice: "supersede-with-port-semantics",
     convergenceKey: "STATUS_CONTRACT table: yieldTotal/logCount require-confirmed, pendingYieldTotal/pendingLogCount pending-only (partition), currentLocation require-confirmed",
-    status: "bound",
+    status: "provisional",
     rationale:
-      "DELIBERATE SOURCE DIVERGENCE, bound 2026-07-20 by Duke (elicitation review MetaCoding-tkj). The oracle shows farmOS counting pending harvests in yield_total/log_count (observed fixtures 73ed7c69, d8607818 — kept intact as records of the SOURCE). The port departs: a pending row in the official total makes the pending state meaningless. Official numerics are confirmed-only; the pending mass is surfaced in partner projections (pending-only gate) so it is visible but never blended. Pending movements stay inert (source agrees). Declared once in the kernel's status contract so a fan-out author cannot re-litigate it.",
+      "CONTESTED BY OBSERVATION — demoted bound->provisional 2026-07-20 pending Duke's re-bind (MetaCoding-ci2). Originally a deliberate source divergence bound by Duke (elicitation review MetaCoding-tkj): official numerics confirmed-only, pending mass surfaced in partner projections. The first oracle observation shows the BLANKET rule is only half right — farmOS excludes pending from inventory stock_on_hand (the port matches) but honours a pending log FULLY for birth lineage and birth_date (the port would report no parent and no date, a divergence v1.2 does not sanction). Evidence: eval/ctkr/port_runs/wave0-pilot/w0b-observe/fixtures.jsonl (w0b-pending-birth-record) and w0a-observe (w0a-pending-adjustment-does-not-move-stock); analysis in eval/ctkr/results/wave1-readiness-2026-07-20.md §2.4. The gate is per-PROJECTION, not global. Still buildable (named convergence key) but NOT settled — do not cite as Duke-approved.",
     recommendedBy: "shared-kernel-v1",
   },
 ];
