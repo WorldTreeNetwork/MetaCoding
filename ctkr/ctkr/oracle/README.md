@@ -54,6 +54,19 @@ oracle itself.
 
 ## Bringing up a live farmOS (how the pack was recorded)
 
+**One command:** `./bring-up.sh` (this directory) runs the whole sequence below and
+ends with two health checks. It is idempotent on the network only — remove any
+existing `farmos-oracle-db` / `farmos-oracle-www` containers first. Rebuild takes
+~2 min with the images cached; the instance is ephemeral **by design**, so losing
+it (e.g. an OrbStack reset, 2026-07-20) costs nothing but the rebuild.
+
+After a rebuild, prove equivalence before recording anything new:
+
+```bash
+uv run python -m ctkr oracle-verify ctkr/oracle/data/farmos_core_fixtures.jsonl \
+  --adapter farmos --base-url http://localhost:8095   # must be 7/7
+```
+
 farmOS 4.x (Drupal 11.3, PHP 8.4) in Docker — a fresh, ephemeral instance:
 
 ```bash
