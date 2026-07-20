@@ -249,3 +249,125 @@ no production data exists, so all five are cheaply reversible today).
 | 4 | Single kernel `pickLatest` comparator | decided-for-me | routine (follows from #3) |
 | 5 | Status gates: logs count-regardless / movements require-confirmed | decided-for-me | pinned by live-oracle observations |
 | — | Birth-uniqueness convergence: earliest-HLC-wins, loser **demoted to observation** | decided-for-me | ⚠ **product-feel — review first**: determines whether a farmer sees a surfaced duplicate (observation record) vs nothing; data-preserving, majority-of-builders choice |
+
+---
+
+# Kernel v1.1 — the fold library (MetaCoding-9h5.26)
+
+> Status: **v1.1, three additions all DECIDED-FOR-ME** (Duke's blanket decide-for-me
+> authorization, same regime as the v1 resolution record above). Package:
+> `src/kernel/{fold,gset,fww}.ts` (Bun, zero runtime deps). Validation
+> re-expression: the wave-0 pilot's w0a inventory build folded on `FoldReduce`,
+> 11/11 tests green; plus hermetic per-primitive unit tests
+> (`src/kernel/{fold,gset,fww}.test.ts`) covering replay-determinism and
+> cross-replica merge. Full `bun test`: 54/54 kernel, 427/427 repo, 0 fail.
+
+## Why this exists
+
+The v1 kernel froze exactly ONE projection fold — latest-wins (`pickLatest` /
+`LwwRegister`, element 3) — because that is the axis the first two features
+diverged on. The **wave-0 pilot** (`eval/ctkr/results/wave0-pilot-2026-07-20.md`,
+§Kernel-gap) then ran the port recipe on two FRESH features and found the fold
+vocabulary is the next divergence surface: **3 of the 4 headline fold shapes are
+NOT latest-wins**, and a blind builder had to hand-roll them. Letting 100+ wave-1
+builders each hand-roll a running balance, a grow-only set, or an append-if-empty
+guard re-creates the exact "locally valid, globally divergent" risk the LWW freeze
+killed — "one build folds from 0, another seeds from the reset and mishandles
+ties; one build's grow-only set dedups, another doesn't."
+
+v1.1 promotes the three missing folds to construction-enforced primitives, each as
+sanctioned and HLC-keyed as `pickLatest`, plus the birth-uniqueness demotion
+mechanic that v1 declared only as a `convergenceKey` string. Same philosophy: the
+primitive is the ONLY ergonomic way to express its fold shape, and every one is
+keyed on the kernel HLC total order, so replay and cross-replica merge converge —
+never on entity id (`ids.ts` forbids it).
+
+## The three additions (one-line summary)
+
+| element | primitive | fold shape | pilot decision | file |
+|---|---|---|---|---|
+| 6 | `FoldReduce` | ordered reduce: `reset` ASSIGNS, deltas accumulate, over gate-passing events since the latest reset, keyed (effectiveTime, HLC) | w0a-1 / w0a-2 | `fold.ts` |
+| 7 | `GSet` | grow-only ordered collection (append-only, order-preserving, no replace/remove/dedup), HLC-ordered | w0b-2 | `gset.ts` |
+| 8 | `GuardedFirstWrite` + `demoteToObservation` | first-writer-wins (write iff empty; earliest-HLC across replicas) + bound-uniqueness loser demotion | w0b-1 / sub-decision 5a | `fww.ts` |
+
+## Element 6 — `FoldReduce` (ordered reset/accumulate reduce)
+
+**Question.** How is a running-balance-with-reset — inventory's `getInventory` —
+folded, when it is neither latest-wins nor a plain additive sum?
+
+**Pick (decided-for-me).** `FoldReduce<E, A>` (`fold.ts`): construct once with a
+`FoldReduceSpec` (accessors for effectiveTime, HLC, is-reset, the reset value, the
+delta accumulate, the initial, and an `admits` gate), call `fold(events, asOf)`.
+It keeps events passing `admits` with `effectiveTime <= asOf`, orders them
+(effectiveTime, then HLC — decision **w0a-2**, never id), locates the LATEST
+reset's effectiveTime and drops everything strictly before it (inclusive
+boundary), then left-folds from `initial` with reset-as-assignment. This is
+exactly decision **w0a-1** (inventory-fold-semantics), and folding from `initial`
+rather than seeding at the reset is what makes the same-effectiveTime tie correct
+(a delta sharing the reset's timestamp is applied then overwritten). Replay- and
+merge-deterministic because the (effectiveTime, HLC) order is total.
+
+**Reversal:** an observed fixture showing reset/delta interleaving this ordering
+gets wrong, OR the id-order tie-break (w0a-2) proving domain-observable in a way
+HLC cannot reproduce. No production data exists; cheaply reversible.
+
+## Element 7 — `GSet` (grow-only ordered collection)
+
+**Question.** How is a grow-only multi-value field — animal nicknames — folded,
+when it must append without replacing, dedup, or removing?
+
+**Pick (decided-for-me).** `GSet<V>` (`gset.ts`): `add(value, hlc)` appends,
+`merge(other)` unions, `values()` reads back in HLC order. It does NOT dedup by
+value (nicknames are a multiset — the same nickname twice is kept twice); it
+dedups only by ENTRY IDENTITY (the append's HLC), so a replayed append or a
+re-merged peer is idempotent without collapsing genuine duplicate values. This is
+decision **w0b-2** (nickname-multiset). Order-by-HLC makes two replicas that
+appended in different real-time orders converge on one sequence — a G-Set CRDT.
+
+**Reversal:** an observed fixture showing de-dup or removal (which would make it a
+different CRDT). Routine flag. Cheaply reversible.
+
+## Element 8 — `GuardedFirstWrite` + `demoteToObservation` (first-writer-wins family)
+
+**Question (8a — parent lineage, w0b-1).** How is "append the mother to a child
+iff the child has no parent — any existing parent is a complete veto" folded
+deterministically under replay/merge?
+
+**Pick (decided-for-me).** `GuardedFirstWrite<V>` (`fww.ts`) — the mirror of
+`LwwRegister` with the comparator reversed: `set(value, hlc)` accepts iff empty OR
+the incoming HLC strictly PRECEDES the incumbent, so sequential first-write-wins
+and concurrent earliest-HLC-wins are the same rule. Replaying events in any order
+lands on the same value. This is decision **w0b-1** (parent-lineage-append-if-empty).
+
+**Question (8b — birth-uniqueness demotion, sub-decision 5a option A).** The bound
+birth-uniqueness rule is earliest-HLC-wins with the loser demoted to an
+observation. v1 declared this only as a `convergenceKey` string; no code
+implemented it, so a wave-1 builder would hand-roll it (and the pilot's SURFACE
+stage independently proposed the id-keyed variant option C, which element 2
+forbids — friction F2).
+
+**Pick (decided-for-me).** `demoteToObservation(candidates, hlcOf, toObservation)`
+(`fww.ts`): keeps the earliest-HLC candidate, re-emits every loser through
+`toObservation` (never silently dropped), returns `{ kept, demoted }`. The helper
+owns only the mechanic — who wins, who is demoted — so a feature cannot re-derive
+it as min-UUID or drop the loser; the domain supplies the observation-kind
+transform. `pickEarliest` is exported as the mirror of `pickLatest`.
+
+**Reversal (8a):** oracle shows a birth *correction* can later set a parent
+(product-feel flag). **Reversal (8b):** Duke vetoes earliest-HLC / demote-to-
+observation on morning review (product-feel — same entry as v1's birth-uniqueness
+row). Cheaply reversible; no production data.
+
+## Resolution record — 2026-07-20 (decided-for-me)
+
+Under the same blanket decide-for-me authorization as the v1 record above, the
+three v1.1 additions are hereby **RESOLVED: decided-for-me**. Reversal condition
+for every entry: Duke's morning review — any veto re-opens the decision through the
+decision-registry discipline (recorded re-decision, affected code regenerated). No
+production data exists, so all three are cheaply reversible today.
+
+| # | decision | resolution | flag |
+|---|---|---|---|
+| 6 | `FoldReduce` ordered reduce; reset assigns, ties break on HLC (w0a-1/w0a-2) | decided-for-me | routine — but w0a-2 (HLC vs id tie-break) is ⚠ minor product-feel pending oracle confirmation |
+| 7 | `GSet` grow-only multiset, no dedup by value (w0b-2) | decided-for-me | routine |
+| 8 | `GuardedFirstWrite` (w0b-1) + `demoteToObservation` (sub-decision 5a A) | decided-for-me | ⚠ **product-feel — review first**: w0b-1 decides whether a corrected birth can ever assign parentage; demotion decides duplicate-visible vs dropped |
