@@ -1,0 +1,606 @@
+"""Hermetic tests for ``ctkr port-verify`` — no Docker, no oracle, no network.
+
+Every test drives a FAKE in-process bridge, so what is under test is the judge
+and its honesty rules, not a port and not a live system.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+
+from ctkr.oracle import glossary
+from ctkr.oracle.adapter import ImplementationAdapter
+from ctkr.oracle.fixtures import SemanticFixture
+from ctkr.oracle.port_adapter import PortAdapter, Unanswerable
+from ctkr.oracle.port_contract import (
+    ContractError,
+    Divergence,
+    FixtureMark,
+    PortManifest,
+    load_marks,
+)
+from ctkr.oracle.port_verify import (
+    AssertionStatus,
+    PortScore,
+    PortVerifyReport,
+    score_verdicts,
+    verify_port,
+)
+from ctkr.oracle.probes import (
+    OPERATION_CONTRACT,
+    PROBE_CONTRACT,
+    contract_gaps,
+    methods_for_action,
+)
+
+
+# --------------------------------------------------------------------------- #
+# A fake port: an in-memory running balance with a configurable probe surface  #
+# --------------------------------------------------------------------------- #
+class FakeBridge:
+    """Answers the bridge protocol in-process. ``values`` overrides any probe."""
+
+    def __init__(
+        self,
+        operations: list[str],
+        probes: list[str],
+        overrides: dict[str, Any] | None = None,
+        refuse: set[str] | None = None,
+    ) -> None:
+        self.operations = operations
+        self.probes = probes
+        self.overrides = overrides or {}
+        self.refuse = refuse or set()
+        self.calls: list[str] = []
+        self._assets: list[str] = []
+        self._adj: list[dict[str, Any]] = []
+
+    def start(self) -> None:  # pragma: no cover — protocol parity
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def call(self, op: str, **payload: Any) -> Any:
+        self.calls.append(op)
+        if op in self.refuse:
+            raise _Unsupported(op)
+        if op == "describe":
+            return {"operations": self.operations, "probes": self.probes}
+        if op == "reset":
+            self._assets, self._adj = [], []
+            return True
+        if op == "create_asset":
+            h = f"A{len(self._assets) + 1}"
+            self._assets.append(h)
+            return h
+        if op == "record_inventory_adjustment":
+            for asset in payload["assets"]:
+                for q in payload["quantities"]:
+                    self._adj.append({
+                        "asset": asset, "kind": payload["adjustment"],
+                        "status": payload["status"], "measure": q["measure"],
+                        "unit": q["unit"], "value": q["value"],
+                    })
+            return f"L{len(self._adj)}"
+        if op in self.overrides:
+            return self.overrides[op]
+        if op == "stock_on_hand":
+            total = 0.0
+            for a in self._adj:
+                if (a["asset"], a["measure"], a["unit"]) != (
+                    payload["asset"], payload["measure"], payload["unit"]
+                ) or a["status"] != "done":
+                    continue
+                if a["kind"] == "reset":
+                    total = a["value"]
+                elif a["kind"] == "increment":
+                    total += a["value"]
+                else:
+                    total -= a["value"]
+            return total
+        if op == "stock_pair_count":
+            return len({(a["measure"], a["unit"]) for a in self._adj
+                        if a["asset"] == payload["asset"]})
+        if op == "adjustment_count":
+            return sum(1 for a in self._adj if a["asset"] == payload["asset"])
+        if op == "close":
+            return True
+        raise _Unsupported(op)
+
+
+class _Unsupported(Exception):
+    def __init__(self, op: str) -> None:
+        super().__init__(op)
+
+
+#: An override that makes the fake decline ONE call while still declaring the
+#: probe — mirrors a real bridge answering {"unanswerable": "..."}.
+_PER_CALL_GAP = {"unanswerable": "no holding row for this (measure, unit) pair"}
+
+
+def _bridge_call_wrapper(bridge: FakeBridge) -> FakeBridge:
+    """Translate the fake's refusals into the adapter's FalseDeclaration, and its
+    per-call declines into Unanswerable — the same two channels the real bridge
+    protocol distinguishes."""
+    from ctkr.oracle.port_adapter import FalseDeclaration
+
+    raw = bridge.call
+
+    def call(op: str, **payload: Any) -> Any:
+        try:
+            value = raw(op, **payload)
+            if isinstance(value, dict) and "unanswerable" in value:
+                raise Unanswerable(f"{op}: {value['unanswerable']}")
+            return value
+        except _Unsupported as exc:
+            raise FalseDeclaration(
+                f"port declared {op!r} but its bridge refuses it: {exc}"
+            ) from exc
+
+    bridge.call = call  # type: ignore[method-assign]
+    return bridge
+
+
+def make_manifest(
+    operations: list[str],
+    probes: list[str],
+    divergences: list[Divergence] | None = None,
+    marks: list[FixtureMark] | None = None,
+) -> PortManifest:
+    return PortManifest(
+        port="fake",
+        bridge={"command": ["true"]},
+        capabilities={"operations": operations, "probes": probes},
+        divergences=divergences or [],
+        fixture_marks=marks or [],
+    )
+
+
+def make_adapter(
+    operations: list[str],
+    probes: list[str],
+    manifest: PortManifest | None = None,
+    overrides: dict[str, Any] | None = None,
+    refuse: set[str] | None = None,
+) -> PortAdapter:
+    manifest = manifest or make_manifest(operations, probes)
+    bridge = _bridge_call_wrapper(FakeBridge(operations, probes, overrides, refuse))
+    return PortAdapter(manifest, bridge=bridge)
+
+
+# --------------------------------------------------------------------------- #
+# Fixture builders                                                            #
+# --------------------------------------------------------------------------- #
+def fixture(
+    fid: str,
+    then: list[dict[str, Any]],
+    when: list[dict[str, Any]] | None = None,
+    title: str = "a scenario",
+) -> SemanticFixture:
+    return SemanticFixture.model_validate({
+        "fixture_id": fid,
+        "title": title,
+        "feature": "core.inventory",
+        "given": [{"entity": "equipment", "alias": "bin", "name": "feed bin"}],
+        "when": when if when is not None else [{
+            "action": "record_inventory_adjustment", "alias": "adj",
+            "kind": "increment", "status": "done", "against": ["bin"],
+            "quantities": [{"measure": "weight", "value": 4.0,
+                            "unit": "kilograms"}],
+        }],
+        "then": then,
+        "provenance": {"source_system": "farmOS", "flow": "t"},
+    })
+
+
+def soh(value: float) -> dict[str, Any]:
+    return {"assert": "stock_on_hand", "subject": "bin", "measure": "weight",
+            "unit": "kilograms", "op": "==", "value": value}
+
+
+def adjcount(value: int) -> dict[str, Any]:
+    return {"assert": "adjustment_count", "subject": "bin", "op": "==",
+            "value": value}
+
+
+ALL_OPS = ["record_inventory_adjustment"]
+
+
+# --------------------------------------------------------------------------- #
+# 1. The probe-surface contract itself                                         #
+# --------------------------------------------------------------------------- #
+def test_contract_covers_the_glossary_exactly() -> None:
+    assert contract_gaps() == []
+    assert set(PROBE_CONTRACT) == set(glossary.ASSERTION_TERMS)
+    assert set(OPERATION_CONTRACT) == set(glossary.ACTION_TERMS)
+
+
+def test_every_contract_method_exists_on_the_adapter_abc() -> None:
+    for spec in PROBE_CONTRACT.values():
+        assert hasattr(ImplementationAdapter, spec.method), spec
+    for action in OPERATION_CONTRACT:
+        for method in methods_for_action(action, timed=True):
+            assert hasattr(ImplementationAdapter, method), (action, method)
+
+
+def test_probe_params_name_real_assertion_fields() -> None:
+    from ctkr.oracle.fixtures import ThenAssertion
+
+    for spec in PROBE_CONTRACT.values():
+        for p in spec.params:
+            assert p.field_name in ThenAssertion.model_fields, (spec, p)
+
+
+def test_timed_record_log_needs_the_restatement_verb() -> None:
+    assert methods_for_action("record_log") == ("record_log",)
+    assert methods_for_action("record_log", timed=True) == (
+        "record_log", "set_effective_time",
+    )
+
+
+def test_adapter_never_calls_an_undeclared_probe() -> None:
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"])
+    with pytest.raises(Unanswerable):
+        adapter.adjustment_count("A1")
+    assert "adjustment_count" not in adapter._bridge.calls  # noqa: SLF001
+
+
+# --------------------------------------------------------------------------- #
+# 2. An unanswerable assertion is a declared gap                               #
+# --------------------------------------------------------------------------- #
+def test_unanswerable_probe_is_a_gap_not_a_pass() -> None:
+    fx = fixture("f1", [soh(4.0), adjcount(1)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+
+    statuses = [o.status for o in report.verdicts[0].outcomes]
+    assert statuses == [AssertionStatus.PASSED, AssertionStatus.UNANSWERABLE]
+    # Reported, not dropped: the assertion is still in the output.
+    assert len(report.verdicts[0].outcomes) == 2
+    s = report.score
+    assert (s.assertions_total, s.answered, s.unanswerable) == (2, 1, 1)
+    assert s.scored_answered == 1 and s.scored_passed == 1
+    # The value score's denominator is never the pack size.
+    assert s.value_score == 1.0
+    assert s.coverage == 0.5
+    assert not report.clean  # a gap is never a green
+
+
+def test_an_undeclared_operation_makes_the_whole_fixture_unanswerable() -> None:
+    fx = fixture(
+        "f2", [soh(4.0)],
+        when=[{"action": "set_log_status", "ref": "adj", "status": "done"}],
+    )
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+    v = report.verdicts[0]
+    assert v.ran is False
+    assert [o.status for o in v.outcomes] == [AssertionStatus.UNANSWERABLE]
+    assert "set_log_status" in v.error
+    assert report.score.scored_answered == 0
+
+
+def test_headline_cannot_be_quoted_as_one_number() -> None:
+    fx = fixture("f1", [soh(4.0), adjcount(1)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+    headline = report.score.headline()
+    assert "1/1" in headline and "1/2 unanswerable" in headline
+    dumped = json.loads(report.model_dump_json())
+    assert "pass_rate" not in json.dumps(dumped)
+
+
+# --------------------------------------------------------------------------- #
+# 3. Divergences: declared up front, never inferred                            #
+# --------------------------------------------------------------------------- #
+def _diverging_setup(port_value: float, declared: list[Divergence]):
+    fx = fixture("f3", [soh(4.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                           overrides={"stock_on_hand": port_value})
+    return verify_port(adapter, [fx], manifest)
+
+
+def test_declared_divergence_is_accepted() -> None:
+    report = _diverging_setup(9.0, [Divergence.model_validate({
+        "fixture_id": "f3", "assert": "stock_on_hand", "subject": "bin",
+        "port_value": 9.0, "reason": "pending-bearing numerics, kernel v1.2",
+        "decision_id": "kernel-v1.2",
+    })])
+    o = report.verdicts[0].outcomes[0]
+    assert o.status == AssertionStatus.DIVERGED
+    assert o.decision_id == "kernel-v1.2"
+    assert report.score.scored_failed == 0
+    assert report.score.scored_diverged == 1
+    assert report.score.scored_passed == 0  # counted apart from real passes
+    assert report.declaration_problems == []
+
+
+def test_undeclared_mismatch_fails() -> None:
+    report = _diverging_setup(9.0, [])
+    o = report.verdicts[0].outcomes[0]
+    assert o.status == AssertionStatus.FAILED
+    assert o.detail == "undeclared mismatch"
+    assert report.score.scored_failed == 1
+
+
+def test_a_divergence_covers_one_stated_value_only() -> None:
+    report = _diverging_setup(11.0, [Divergence.model_validate({
+        "fixture_id": "f3", "assert": "stock_on_hand", "subject": "bin",
+        "port_value": 9.0, "reason": "pending-bearing numerics", "decision_id": "pending-status-gates",
+    })])
+    o = report.verdicts[0].outcomes[0]
+    assert o.status == AssertionStatus.FAILED
+    assert "declared divergence expects 9.0" in o.detail
+
+
+def test_a_divergence_cannot_launder_an_unanswerable_assertion() -> None:
+    fx = fixture("f4", [adjcount(1)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=[
+        Divergence.model_validate({
+            "fixture_id": "f4", "assert": "adjustment_count", "subject": "bin",
+            "port_value": 99, "reason": "we would differ here if we had it", "decision_id": "pending-status-gates",
+        })
+    ])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+    assert report.verdicts[0].outcomes[0].status == AssertionStatus.UNANSWERABLE
+    assert report.score.scored_diverged == 0
+
+
+def test_a_divergence_that_did_not_fire_is_a_declaration_problem() -> None:
+    report = _diverging_setup(4.0, [Divergence.model_validate({
+        "fixture_id": "f3", "assert": "stock_on_hand", "subject": "bin",
+        "port_value": 9.0, "reason": "stale sanction", "decision_id": "pending-status-gates",
+    })])
+    assert report.verdicts[0].outcomes[0].status == AssertionStatus.PASSED
+    assert any("stale" in p for p in report.declaration_problems)
+    assert not report.clean
+
+
+def test_a_divergence_for_a_fixture_outside_the_pack_is_reported() -> None:
+    fx = fixture("f3", [soh(4.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=[
+        Divergence.model_validate({
+            "fixture_id": "not-in-pack", "assert": "stock_on_hand",
+            "port_value": 1.0, "reason": "wrong pack", "decision_id": "pending-status-gates",
+        })
+    ])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+    assert any("not in this pack" in p for p in report.declaration_problems)
+
+
+def test_a_divergence_needs_a_reason_and_a_port_value() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Divergence.model_validate({"fixture_id": "f", "assert": "stock_on_hand",
+                                   "reason": "no port_value given", "decision_id": "d"})
+    m = PortManifest(port="p", bridge={"command": ["true"]},
+                     capabilities={"operations": [], "probes": []})
+    m.divergences = [Divergence.model_validate({
+        "fixture_id": "f", "assert": "stock_on_hand", "port_value": 1.0,
+        "reason": "   ", "decision_id": "d",
+    })]
+    with pytest.raises(ContractError):
+        m.check()
+
+
+# --------------------------------------------------------------------------- #
+# 4. Corroboration-only fixtures are reported but never scored                 #
+# --------------------------------------------------------------------------- #
+def test_corroboration_only_fixture_is_reported_but_excluded() -> None:
+    ok = fixture("keep", [soh(4.0)])
+    corroboration = fixture("order", [soh(999.0)], title="order-sensitive")
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], marks=[
+        FixtureMark(fixture_id="order", corroboration_only=True,
+                    order_sensitive=True,
+                    reason="value encodes source insertion order")
+    ])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [ok, corroboration], manifest)
+
+    excluded = report.verdicts[1]
+    assert excluded.scored is False
+    # Still executed and still reported — with its real (failing) comparison.
+    assert len(excluded.outcomes) == 1
+    assert excluded.outcomes[0].status == AssertionStatus.FAILED
+    assert excluded.outcomes[0].scored is False
+
+    s = report.score
+    assert s.assertions_total == 2
+    assert s.answered == 2
+    assert s.excluded_corroboration == 1
+    assert s.scored_answered == 1
+    assert s.scored_failed == 0  # the order-sensitive value condemns nothing
+    assert s.value_score == 1.0
+    assert s.fixtures_excluded == 1
+
+
+def test_an_order_sensitive_fixture_cannot_pass_for_the_wrong_reason() -> None:
+    """Even when it MATCHES, an excluded fixture adds nothing to the score."""
+    fx = fixture("order", [soh(4.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], marks=[
+        FixtureMark(fixture_id="order", corroboration_only=True,
+                    reason="value encodes source insertion order")
+    ])
+    report = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], manifest),
+                         [fx], manifest)
+    assert report.verdicts[0].outcomes[0].status == AssertionStatus.PASSED
+    assert report.score.scored_answered == 0
+    assert report.score.scored_passed == 0
+
+
+def test_marks_file_loads_json_and_jsonl(tmp_path) -> None:
+    row = {"fixture_id": "x", "corroboration_only": True, "reason": "why"}
+    as_json = tmp_path / "m.json"
+    as_json.write_text(json.dumps([row]), encoding="utf-8")
+    as_jsonl = tmp_path / "m.jsonl"
+    as_jsonl.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    assert load_marks(as_json) == load_marks(as_jsonl)
+    assert load_marks(as_json)[0].excluded_from_score
+
+
+def test_excluding_a_fixture_requires_a_reason() -> None:
+    m = PortManifest(port="p", bridge={"command": ["true"]})
+    m.fixture_marks = [FixtureMark(fixture_id="x", corroboration_only=True)]
+    with pytest.raises(ContractError):
+        m.check()
+
+
+# --------------------------------------------------------------------------- #
+# 5. Declarations must be true                                                 #
+# --------------------------------------------------------------------------- #
+def test_manifest_and_bridge_must_agree_about_the_surface() -> None:
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand", "adjustment_count"])
+    adapter = PortAdapter(
+        manifest,
+        bridge=_bridge_call_wrapper(FakeBridge(ALL_OPS, ["stock_on_hand"])),
+    )
+    with pytest.raises(Exception) as exc:
+        adapter.open()
+    assert "disagree about the probe surface" in str(exc.value)
+
+
+def test_a_declared_but_refused_probe_fails_and_is_not_a_gap() -> None:
+    fx = fixture("f5", [soh(4.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                           refuse={"stock_on_hand"})
+    report = verify_port(adapter, [fx], manifest)
+    o = report.verdicts[0].outcomes[0]
+    assert o.status == AssertionStatus.FAILED
+    assert report.score.unanswerable == 0
+    assert any("refuses it" in p for p in report.declaration_problems)
+
+
+def test_capabilities_must_use_glossary_terms() -> None:
+    with pytest.raises(ContractError):
+        make_manifest(["teleport_asset"], ["stock_on_hand"]).check()
+    with pytest.raises(ContractError):
+        make_manifest(ALL_OPS, ["vibes"]).check()
+
+
+def test_missing_manifest_is_a_contract_error(tmp_path) -> None:
+    with pytest.raises(ContractError) as exc:
+        PortManifest.load(tmp_path)
+    assert "must DECLARE its probe surface" in str(exc.value)
+
+
+# --------------------------------------------------------------------------- #
+# 6. Scoring arithmetic                                                        #
+# --------------------------------------------------------------------------- #
+def test_score_buckets_never_overlap() -> None:
+    fx_pass = fixture("a", [soh(4.0), adjcount(1)])
+    fx_fail = fixture("b", [soh(1.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=[])
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest)
+    report = verify_port(adapter, [fx_pass, fx_fail], manifest)
+    s = score_verdicts(report.verdicts)
+    assert s.answered + s.unanswerable == s.assertions_total
+    assert (s.scored_passed + s.scored_diverged + s.scored_failed
+            == s.scored_answered)
+    assert s.scored_answered + s.excluded_corroboration == s.answered
+
+
+# --------------------------------------------------------------------------- #
+# Honesty regressions — each was a live attack that produced a green verdict    #
+# the port had not earned (adversarial review, 2026-07-20).                     #
+# --------------------------------------------------------------------------- #
+def test_a_divergence_must_name_a_decision_id() -> None:
+    """A sanction with only free text is an unbounded blank cheque.
+
+    The attack: a port answering 999 to everything declared one divergence per
+    assertion, reason='kernel v1.2 sanctions this', no decision_id — and scored
+    100%, clean, exit 0.
+    """
+    with pytest.raises(Exception):
+        Divergence.model_validate({
+            "fixture_id": "f", "assert": "stock_on_hand",
+            "port_value": 1.0, "reason": "sanctioned, trust me",
+        })
+
+
+def test_an_unresolvable_decision_id_is_a_declaration_problem() -> None:
+    """A sanction must point at a decision some registry actually knows."""
+    fx = fixture("f3", [soh(4.0)])
+    declared = [Divergence.model_validate({
+        "fixture_id": fx.fixture_id, "assert": "stock_on_hand",
+        "port_value": 9.0, "reason": "sanctioned",
+        "decision_id": "no-such-decision-anywhere",
+    })]
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                           overrides={"stock_on_hand": 9.0})
+    report = verify_port(adapter, [fx], manifest,
+                         known_decision_ids={"pending-status-gates"})
+    assert any("no-such-decision-anywhere" in p for p in report.declaration_problems)
+    assert not report.clean
+
+
+def test_divergences_are_not_counted_as_passes() -> None:
+    """Declaring must never be arithmetically identical to reproducing."""
+    score = PortScore(assertions_total=10, answered=10, scored_answered=10,
+                      scored_passed=0, scored_diverged=10)
+    assert score.value_score == 0.0        # not 1.0
+    assert score.scored_nothing
+    assert "NOT counted as passes" in score.headline()
+
+
+def test_a_run_that_scored_nothing_is_never_clean() -> None:
+    """An empty denominator is absence of evidence, not innocence.
+
+    The attack: a marks file excluding every fixture turned 30 wrong answers
+    into zero failures, zero gaps, exit 0.
+    """
+    report = PortVerifyReport(
+        port="p",
+        score=PortScore(assertions_total=30, answered=30, scored_answered=0,
+                        excluded_corroboration=30, fixtures_excluded=12),
+    )
+    assert not report.clean
+    assert any("NOTHING WAS SCORED" in w for w in report.needs_review)
+
+
+def test_sanctioned_divergences_block_a_clean_verdict() -> None:
+    """A port that deliberately differs is value-equivalent MODULO an exception."""
+    report = PortVerifyReport(
+        port="p",
+        score=PortScore(assertions_total=2, answered=2, scored_answered=2,
+                        scored_passed=1, scored_diverged=1),
+    )
+    assert not report.clean
+    assert any("MODULO" in w for w in report.needs_review)
+
+
+def test_external_marks_require_a_reason(tmp_path) -> None:
+    """The path that WINS must be the best-validated one, not the unvalidated one."""
+    p = tmp_path / "marks.json"
+    p.write_text(json.dumps([{"fixture_id": "x", "corroboration_only": True}]))
+    with pytest.raises(ContractError, match="requires a reason"):
+        load_marks(p)
+
+
+def test_a_bridge_may_declare_a_per_call_gap() -> None:
+    """A port may implement a probe in general yet not answer THIS input.
+
+    Without this channel the only unpunished move was to FABRICATE a value,
+    which is how a real representational divergence (farmOS 0.0 vs the port's
+    absent row) scored as a clean PASS.
+    """
+    fx = fixture("f9", [soh(0.0)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                           overrides={"stock_on_hand": _PER_CALL_GAP})
+    report = verify_port(adapter, [fx], manifest)
+    assert report.score.unanswerable == 1
+    assert report.score.scored_passed == 0
+    assert not report.clean

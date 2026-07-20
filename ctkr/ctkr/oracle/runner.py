@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
+from ctkr.oracle.probes import PROBE_CONTRACT, ProbeSpec
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 _OPS = {
@@ -51,7 +52,8 @@ class FixtureResult(BaseModel):
     assertions: list[AssertionResult] = Field(default_factory=list)
 
 
-def _compare(op: str, actual: object, expected: object) -> bool:
+def compare_values(op: str, actual: object, expected: object) -> bool:
+    """Compare an observed value with an expected one (float-tolerant ``==``)."""
     fn = _OPS[op]
     # Numeric tolerance for float totals.
     if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
@@ -61,6 +63,34 @@ def _compare(op: str, actual: object, expected: object) -> bool:
             return not math.isclose(actual, expected, rel_tol=1e-9, abs_tol=_FLOAT_TOL)
         return fn(actual, expected)
     return fn(actual, expected)
+
+
+class UnresolvedAlias(LookupError):
+    """A probe argument names an alias the fixture never created."""
+
+
+def resolve_probe_args(
+    spec: ProbeSpec, t: ThenAssertion, handles: dict[str, Handle]
+) -> list[object]:
+    """Bind a probe's declared params to call arguments (aliases -> handles).
+
+    Shared by the oracle runner and ``port-verify`` so both build the same call
+    from the same contract row. Raises :class:`UnresolvedAlias` when an alias
+    argument was never created.
+    """
+    args: list[object] = []
+    for p in spec.params:
+        raw = getattr(t, p.field_name)
+        if p.is_alias:
+            handle = handles.get(raw)
+            if handle is None:
+                raise UnresolvedAlias(
+                    f"{p.alias_noun} alias {raw!r} was never created"
+                )
+            args.append(handle)
+        else:
+            args.append(raw)
+    return args
 
 
 def _evaluate(
@@ -75,63 +105,28 @@ def _evaluate(
             expected=t.value, actual=None,
             detail=f"subject alias {t.subject!r} was never created",
         )
+    spec = PROBE_CONTRACT.get(t.assert_)
+    if spec is None:  # pragma: no cover — validator forbids this
+        return AssertionResult(
+            passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
+            expected=t.value, actual=None,
+            detail=f"unknown assertion {t.assert_!r}",
+        )
     try:
-        if t.assert_ == "yield_total":
-            actual: object = adapter.asset_yield_total(subject, t.measure, t.unit)
-        elif t.assert_ == "log_status":
-            actual = adapter.log_status(subject)
-        elif t.assert_ == "log_count":
-            actual = adapter.log_count(subject, t.kind)
-        elif t.assert_ == "asset_active":
-            actual = adapter.asset_active(subject)
-        elif t.assert_ == "group_member":
-            grp = handles.get(t.group)
-            if grp is None:
-                return AssertionResult(
-                    passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
-                    expected=t.value, actual=None,
-                    detail=f"group alias {t.group!r} was never created",
-                )
-            actual = adapter.group_member(subject, grp)
-        elif t.assert_ == "quantity_recorded":
-            actual = adapter.quantity_recorded(subject, t.measure, t.unit)
-        elif t.assert_ == "stock_on_hand":
-            actual = adapter.stock_on_hand(subject, t.measure, t.unit)
-        elif t.assert_ == "stock_pair_count":
-            actual = adapter.stock_pair_count(subject)
-        elif t.assert_ == "adjustment_count":
-            actual = adapter.adjustment_count(subject)
-        elif t.assert_ == "animal_sex":
-            actual = adapter.animal_sex(subject)
-        elif t.assert_ == "nicknames":
-            actual = adapter.nicknames(subject)
-        elif t.assert_ == "birth_date":
-            actual = adapter.birth_date(subject)
-        elif t.assert_ == "parent_count":
-            actual = adapter.parent_count(subject)
-        elif t.assert_ == "has_parent":
-            other = handles.get(t.other)
-            if other is None:
-                return AssertionResult(
-                    passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
-                    expected=t.value, actual=None,
-                    detail=f"animal alias {t.other!r} was never created",
-                )
-            actual = adapter.has_parent(subject, other)
-        elif t.assert_ == "birth_record_count":
-            actual = adapter.birth_record_count(subject)
-        else:  # pragma: no cover — validator forbids this
-            return AssertionResult(
-                passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
-                expected=t.value, actual=None,
-                detail=f"unknown assertion {t.assert_!r}",
-            )
+        args = resolve_probe_args(spec, t, handles)
+    except UnresolvedAlias as exc:
+        return AssertionResult(
+            passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
+            expected=t.value, actual=None, detail=str(exc),
+        )
+    try:
+        actual: object = getattr(adapter, spec.method)(subject, *args)
     except AdapterError as exc:
         return AssertionResult(
             passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
             expected=t.value, actual=None, detail=f"adapter error: {exc}",
         )
-    passed = _compare(t.op, actual, t.value)
+    passed = compare_values(t.op, actual, t.value)
     return AssertionResult(
         passed=passed, assertion=t.assert_, subject=t.subject, op=t.op,
         expected=t.value, actual=actual,

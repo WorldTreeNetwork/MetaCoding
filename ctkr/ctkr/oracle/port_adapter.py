@@ -1,0 +1,401 @@
+"""Drive a BUILT PORT through a line-delimited JSON bridge process.
+
+The port is not Python. It is whatever the build produced — a Bun/TypeScript
+module, a Rust binary, a Go service. So the adapter for a port is a *process*
+adapter: it starts the port's own bridge (declared in ``port.manifest.json``),
+speaks one JSON object per line over stdin/stdout, and maps
+:class:`~ctkr.oracle.adapter.ImplementationAdapter` calls onto it. The bridge is
+part of the port, written once by whoever built it, and is the only code that
+knows the port's internals.
+
+Protocol — request, one line of JSON on stdin::
+
+    {"id": 7, "op": "stock_on_hand", "asset": "h1", "measure": "weight",
+     "unit": "kilograms"}
+
+Response, one line of JSON on stdout::
+
+    {"id": 7, "ok": true, "value": 3.0}
+    {"id": 7, "ok": false, "error": "...", "unsupported": true}
+
+Three ops are protocol-level rather than domain-level: ``describe`` (the port
+states its capabilities at run time), ``reset`` (drop all state — fixtures are
+independent), and ``close``.
+
+**The honesty rule this module enforces:** a method whose glossary term the port
+did not declare is never called and never guessed. It raises
+:class:`Unanswerable`, which ``port-verify`` records as a declared gap. A method
+the port DID declare but whose bridge answers ``unsupported`` is a different and
+worse thing — a false declaration — and raises :class:`FalseDeclaration`, which
+is a failure, not a gap.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from datetime import datetime
+from typing import Any
+
+from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
+from ctkr.oracle.fixtures import QuantitySpec
+from ctkr.oracle.port_contract import PortCapabilities, PortManifest
+from ctkr.oracle.probes import PROBE_CONTRACT
+
+
+class Unanswerable(RuntimeError):
+    """The port declared no surface able to answer this — a gap, never a pass.
+
+    Deliberately NOT an :class:`AdapterError`: an adapter error is a failure of
+    an operation the implementation claims to support, while this is the absence
+    of a claim. Conflating them is exactly how thirteen unanswerable assertions
+    became part of a "24/30".
+    """
+
+
+class FalseDeclaration(AdapterError):
+    """The port declared a capability its bridge then refused to perform."""
+
+
+class BridgeError(AdapterError):
+    """The bridge process died, timed out, or spoke nonsense."""
+
+
+def _epoch_ms(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, (int, float)):
+        return int(value)
+    raise BridgeError(f"cannot express effective time {value!r} as an instant")
+
+
+class PortBridge:
+    """A line-delimited JSON conversation with the port's bridge process."""
+
+    def __init__(self, manifest: PortManifest) -> None:
+        self.manifest = manifest
+        self._proc: subprocess.Popen[str] | None = None
+        self._next_id = 0
+
+    def start(self) -> None:
+        if self._proc is not None:
+            return
+        spec = self.manifest.bridge
+        try:
+            self._proc = subprocess.Popen(  # noqa: S603 — command is declared data
+                spec.command,
+                cwd=str(self.manifest.bridge_cwd()),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                env=self._env(),
+            )
+        except OSError as exc:
+            raise BridgeError(
+                f"could not start port bridge {spec.command!r} in "
+                f"{self.manifest.bridge_cwd()}: {exc}"
+            ) from exc
+
+    def _env(self) -> dict[str, str] | None:
+        if not self.manifest.bridge.env:
+            return None
+        import os
+
+        return {**os.environ, **self.manifest.bridge.env}
+
+    def call(self, op: str, **payload: Any) -> Any:
+        self.start()
+        proc = self._proc
+        assert proc is not None and proc.stdin is not None and proc.stdout is not None
+        self._next_id += 1
+        req = {"id": self._next_id, "op": op, **payload}
+        try:
+            proc.stdin.write(json.dumps(req) + "\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, ValueError) as exc:
+            raise BridgeError(f"port bridge closed its input during {op!r}: {exc}") from exc
+        line = proc.stdout.readline()
+        if not line:
+            err = proc.stderr.read() if proc.stderr else ""
+            raise BridgeError(
+                f"port bridge produced no answer to {op!r} "
+                f"(exit={proc.poll()}): {err.strip()[:2000]}"
+            )
+        try:
+            resp = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise BridgeError(f"port bridge answered {op!r} with non-JSON: {line!r}") from exc
+        if resp.get("id") not in (None, req["id"]):
+            raise BridgeError(
+                f"port bridge answered id {resp.get('id')!r} to request {req['id']}"
+            )
+        if not resp.get("ok"):
+            msg = str(resp.get("error", "unspecified bridge error"))
+            if resp.get("unanswerable"):
+                # PER-CALL gap: the port implements this probe in general but
+                # cannot answer THIS input (e.g. it has no row for an asset that
+                # was never adjusted, where the source reports 0.0). Without this
+                # channel the only unpunished move was to FABRICATE a value —
+                # every honest alternative scored as a failure or a false
+                # declaration — which reproduced, one level down, exactly the
+                # silent-pass this tool exists to eliminate.
+                raise Unanswerable(f"{op}: {msg}")
+            if resp.get("unsupported"):
+                raise FalseDeclaration(
+                    f"port declared {op!r} but its bridge refuses it: {msg}"
+                )
+            raise AdapterError(f"{op}: {msg}")
+        return resp.get("value")
+
+    def stop(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        try:
+            if proc.stdin:
+                try:
+                    proc.stdin.write(json.dumps({"op": "close"}) + "\n")
+                    proc.stdin.flush()
+                except (BrokenPipeError, ValueError):
+                    pass
+                proc.stdin.close()
+            proc.wait(timeout=self.manifest.bridge.timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        finally:
+            for stream in (proc.stdout, proc.stderr):
+                if stream:
+                    stream.close()
+
+
+class PortAdapter(ImplementationAdapter):
+    """An :class:`ImplementationAdapter` over a declared, bridged port.
+
+    Every method first asks the declaration "did the port claim this?" and, when
+    it did not, raises :class:`Unanswerable` *without touching the bridge*. There
+    is no code path from an undeclared capability to a value.
+    """
+
+    def __init__(self, manifest: PortManifest, bridge: Any | None = None) -> None:
+        self.manifest = manifest
+        self.name = f"port:{manifest.port}"
+        self._bridge = bridge if bridge is not None else PortBridge(manifest)
+        self._declared: PortCapabilities = manifest.capabilities
+        self.runtime_capabilities: PortCapabilities | None = None
+
+    # ---- lifecycle --------------------------------------------------------- #
+    def open(self) -> None:  # noqa: A003
+        described = self._bridge.call("describe")
+        if not isinstance(described, dict):
+            # A bridge that cannot describe itself is unusable — fail as a bridge
+            # error rather than an AttributeError three frames deep.
+            raise BridgeError(
+                f"port bridge answered 'describe' with {type(described).__name__} "
+                f"{described!r}; expected an object with 'operations' and 'probes'"
+            )
+        runtime = PortCapabilities.model_validate(
+            {
+                "operations": list(described.get("operations", [])),
+                "probes": list(described.get("probes", [])),
+            }
+        )
+        unknown = runtime.unknown_terms()
+        if unknown:
+            raise BridgeError(
+                f"port bridge describes terms outside the glossary: {'; '.join(unknown)}"
+            )
+        m_ops, m_probes = self._declared.as_sets()
+        r_ops, r_probes = runtime.as_sets()
+        if (m_ops, m_probes) != (r_ops, r_probes):
+            raise BridgeError(
+                "port manifest and running bridge disagree about the probe surface "
+                f"(manifest operations={sorted(m_ops)} probes={sorted(m_probes)}; "
+                f"bridge operations={sorted(r_ops)} probes={sorted(r_probes)}). "
+                "Refusing to pick one: a capability claim must be unambiguous."
+            )
+        self.runtime_capabilities = runtime
+
+    def close(self) -> None:
+        self._bridge.stop()
+
+    def reset(self) -> None:
+        """Drop all port state — called between fixtures so they cannot interact."""
+        self._bridge.call("reset")
+
+    # ---- declaration gate --------------------------------------------------- #
+    def declares_operation(self, action: str) -> bool:
+        return action in set(self._declared.operations)
+
+    def declares_probe(self, assertion: str) -> bool:
+        return assertion in set(self._declared.probes)
+
+    def _need_operation(self, action: str) -> None:
+        if not self.declares_operation(action):
+            raise Unanswerable(
+                f"port {self.manifest.port!r} declares no operation {action!r}"
+            )
+
+    def _need_probe(self, assertion: str) -> None:
+        if self.declares_probe(assertion):
+            return
+        spec = PROBE_CONTRACT.get(assertion)
+        needs = f" (would need adapter method {spec.method!r})" if spec else ""
+        raise Unanswerable(
+            f"port {self.manifest.port!r} declares no probe {assertion!r}{needs}"
+        )
+
+    # ---- given / when ------------------------------------------------------- #
+    def create_asset(
+        self, entity: str, name: str, descriptor: str = "", sex: str = ""
+    ) -> Handle:
+        # create_asset backs every `given`; a port that cannot make entities
+        # cannot be verified at all, so this is not gated on an action term.
+        return str(
+            self._bridge.call(
+                "create_asset", entity=entity, name=name,
+                descriptor=descriptor, sex=sex,
+            )
+        )
+
+    def record_log(
+        self, kind: str, name: str, status: str,
+        asset_handles: list[Handle], quantities: list[QuantitySpec],
+    ) -> Handle:
+        self._need_operation("record_log")
+        return str(self._bridge.call(
+            "record_log", kind=kind, name=name, status=status,
+            assets=list(asset_handles),
+            quantities=[q.model_dump() for q in quantities],
+        ))
+
+    def set_log_status(self, log_handle: Handle, status: str) -> None:
+        self._need_operation("set_log_status")
+        self._bridge.call("set_log_status", log=log_handle, status=status)
+
+    def assign_to_group(self, asset_handle: Handle, group_handle: Handle) -> None:
+        self._need_operation("assign_to_group")
+        self._bridge.call("assign_to_group", asset=asset_handle, group=group_handle)
+
+    def archive_asset(self, asset_handle: Handle) -> None:
+        self._need_operation("archive_asset")
+        self._bridge.call("archive_asset", asset=asset_handle)
+
+    def record_inventory_adjustment(
+        self, adjustment: str, name: str, status: str,
+        asset_handles: list[Handle], quantities: list[QuantitySpec],
+        effective_time: Any = None,
+    ) -> Handle:
+        self._need_operation("record_inventory_adjustment")
+        return str(self._bridge.call(
+            "record_inventory_adjustment", adjustment=adjustment, name=name,
+            status=status, assets=list(asset_handles),
+            quantities=[q.model_dump() for q in quantities],
+            effective_time=_epoch_ms(effective_time),
+        ))
+
+    def set_effective_time(self, log_handle: Handle, effective_time: Any) -> None:
+        self._need_operation("set_effective_time")
+        self._bridge.call(
+            "set_effective_time", log=log_handle,
+            effective_time=_epoch_ms(effective_time),
+        )
+
+    def record_birth(
+        self, child_handle: Handle, parent_handles: list[Handle],
+        name: str, status: str, effective_time: Any = None,
+    ) -> Handle:
+        self._need_operation("record_birth")
+        return str(self._bridge.call(
+            "record_birth", child=child_handle, parents=list(parent_handles),
+            name=name, status=status, effective_time=_epoch_ms(effective_time),
+        ))
+
+    def correct_birth(
+        self, birth_handle: Handle, parent_handles: list[Handle] | None = None,
+        effective_time: Any = None,
+    ) -> None:
+        self._need_operation("correct_birth")
+        self._bridge.call(
+            "correct_birth", birth=birth_handle,
+            parents=None if parent_handles is None else list(parent_handles),
+            effective_time=_epoch_ms(effective_time),
+        )
+
+    def set_parents(self, animal_handle: Handle, parent_handles: list[Handle]) -> None:
+        self._need_operation("set_parents")
+        self._bridge.call("set_parents", animal=animal_handle,
+                          parents=list(parent_handles))
+
+    def set_nicknames(self, animal_handle: Handle, names: list[str]) -> None:
+        self._need_operation("set_nicknames")
+        self._bridge.call("set_nicknames", animal=animal_handle, names=list(names))
+
+    # ---- then: probes ------------------------------------------------------- #
+    def asset_yield_total(self, asset_handle: Handle, measure: str, unit: str) -> float:
+        self._need_probe("yield_total")
+        return float(self._bridge.call(
+            "yield_total", asset=asset_handle, measure=measure, unit=unit))
+
+    def log_status(self, log_handle: Handle) -> str:
+        self._need_probe("log_status")
+        return str(self._bridge.call("log_status", log=log_handle))
+
+    def log_count(self, asset_handle: Handle, kind: str) -> int:
+        self._need_probe("log_count")
+        return int(self._bridge.call("log_count", asset=asset_handle, kind=kind))
+
+    def asset_active(self, asset_handle: Handle) -> bool:
+        self._need_probe("asset_active")
+        return bool(self._bridge.call("asset_active", asset=asset_handle))
+
+    def group_member(self, asset_handle: Handle, group_handle: Handle) -> bool:
+        self._need_probe("group_member")
+        return bool(self._bridge.call(
+            "group_member", asset=asset_handle, group=group_handle))
+
+    def quantity_recorded(self, log_handle: Handle, measure: str, unit: str) -> float:
+        self._need_probe("quantity_recorded")
+        return float(self._bridge.call(
+            "quantity_recorded", log=log_handle, measure=measure, unit=unit))
+
+    def stock_on_hand(self, asset_handle: Handle, measure: str, unit: str) -> float:
+        self._need_probe("stock_on_hand")
+        return float(self._bridge.call(
+            "stock_on_hand", asset=asset_handle, measure=measure, unit=unit))
+
+    def stock_pair_count(self, asset_handle: Handle) -> int:
+        self._need_probe("stock_pair_count")
+        return int(self._bridge.call("stock_pair_count", asset=asset_handle))
+
+    def adjustment_count(self, asset_handle: Handle) -> int:
+        self._need_probe("adjustment_count")
+        return int(self._bridge.call("adjustment_count", asset=asset_handle))
+
+    def animal_sex(self, animal_handle: Handle) -> str:
+        self._need_probe("animal_sex")
+        return str(self._bridge.call("animal_sex", animal=animal_handle))
+
+    def nicknames(self, animal_handle: Handle) -> list[str]:
+        self._need_probe("nicknames")
+        return [str(n) for n in self._bridge.call("nicknames", animal=animal_handle)]
+
+    def birth_date(self, animal_handle: Handle) -> str:
+        self._need_probe("birth_date")
+        return str(self._bridge.call("birth_date", animal=animal_handle))
+
+    def parent_count(self, animal_handle: Handle) -> int:
+        self._need_probe("parent_count")
+        return int(self._bridge.call("parent_count", animal=animal_handle))
+
+    def has_parent(self, animal_handle: Handle, parent_handle: Handle) -> bool:
+        self._need_probe("has_parent")
+        return bool(self._bridge.call(
+            "has_parent", animal=animal_handle, parent=parent_handle))
+
+    def birth_record_count(self, animal_handle: Handle) -> int:
+        self._need_probe("birth_record_count")
+        return int(self._bridge.call("birth_record_count", animal=animal_handle))

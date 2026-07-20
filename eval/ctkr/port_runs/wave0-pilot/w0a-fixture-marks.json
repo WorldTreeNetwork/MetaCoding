@@ -1,0 +1,8 @@
+[
+  {
+    "fixture_id": "d9778c65f3cf293cf114b94570cb3b4b",
+    "corroboration_only": true,
+    "order_sensitive": true,
+    "reason": "w0a-adjustments-sharing-one-effective-time observed stock_on_hand == 3.0 with three adjustments at ONE effective time. That value is farmOS entity-id insertion order's fingerprint: the six permutations of the same three events yield four different totals. It is evidence that same-time adjustments are sequenced by something, not evidence of WHICH value is correct, so it must not score for or against a port whose replica ordering differs. Reported, never counted."
+  }
+]
