@@ -65,7 +65,17 @@ async function cached(key: string, build: () => Promise<unknown>): Promise<Respo
 }
 
 async function buildGraph() {
-  const nodes = (await readJsonl(join(EXPORT, "nodes.jsonl"))).map((n) => ({
+  // The current export includes stale .claude/worktrees/** copies of src
+  // files (MetaCoding indexer bug, tracked in beads). Serving them would
+  // fill the twins list with literal duplicates, so drop them here — loudly.
+  const raw = await readJsonl(join(EXPORT, "nodes.jsonl"));
+  const kept = raw.filter((n) => !n.file?.startsWith(".claude/"));
+  if (kept.length !== raw.length) {
+    console.log(
+      `[graph] dropped ${raw.length - kept.length}/${raw.length} symbols under .claude/ (agent-worktree duplicates)`,
+    );
+  }
+  const nodes = kept.map((n) => ({
     id: n.id,
     kind: n.kind,
     name: n.short_name,
@@ -73,12 +83,15 @@ async function buildGraph() {
     file: n.file,
     line: n.line,
   }));
-  const edges = (await readJsonl(join(EXPORT, "edges.jsonl"))).map((e) => ({
-    s: e.src_id,
-    t: e.dst_id,
-    k: e.kind,
-    c: e.count ?? 1,
-  }));
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = (await readJsonl(join(EXPORT, "edges.jsonl")))
+    .filter((e) => ids.has(e.src_id) && ids.has(e.dst_id))
+    .map((e) => ({
+      s: e.src_id,
+      t: e.dst_id,
+      k: e.kind,
+      c: e.count ?? 1,
+    }));
   return { nodes, edges };
 }
 
@@ -128,6 +141,7 @@ async function buildProfiles() {
   const ids: string[] = [];
   const vecs: number[] = [];
   for (const r of rows) {
+    if (r.qualified_name?.startsWith(".claude/")) continue; // worktree dupes, see buildGraph
     ids.push(r.symbol_id);
     for (const v of r.profile_vec) vecs.push(Number(v));
   }
@@ -176,11 +190,25 @@ async function buildPort() {
   return { real, projected, decisions };
 }
 
+async function buildWorker(): Promise<string> {
+  const result = await Bun.build({
+    entrypoints: [join(import.meta.dir, "worker.ts")],
+    target: "browser",
+    minify: false,
+  });
+  return result.outputs[0]!.text();
+}
+
 const server = Bun.serve({
   port: 4177,
   idleTimeout: 120,
   routes: {
     "/": index,
+    "/favicon.ico": () => new Response(null, { status: 204 }),
+    "/worker.js": async () =>
+      new Response(await memo("worker", buildWorker), {
+        headers: { "content-type": "text/javascript" },
+      }),
     "/api/graph": () => cached("graph", buildGraph),
     "/api/layout": () => cached("layout", buildLayout),
     "/api/profiles": () => cached("profiles", buildProfiles),

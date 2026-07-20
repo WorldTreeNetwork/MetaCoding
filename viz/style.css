@@ -122,6 +122,12 @@ header.bar .sub { color: var(--muted); font-size: 12px; }
 .inspector h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 14px 0 6px; font-weight: 650; }
 .inspector h3:first-child { margin-top: 0; }
 .inspector .empty { color: var(--muted); font-size: 12.5px; }
+.searchbox {
+  width: 100%; padding: 6px 9px; border-radius: 7px; font: inherit;
+  border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+}
+.searchbox:focus { outline: 2px solid var(--series-1); outline-offset: -1px; }
+.searchhits { max-height: 260px; overflow-y: auto; margin-top: 4px; }
 .sym .name { font-weight: 650; font-size: 14px; word-break: break-all; }
 .sym .meta { color: var(--muted); font-size: 12px; word-break: break-all; }
 .kindchip {

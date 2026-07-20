@@ -86,10 +86,29 @@ function TerritoryView() {
   // selection
   const [selected, setSelected] = useState<NodeRec | null>(null);
   const [twins, setTwins] = useState<{ id: string; sim: number; margin: number }[] | null>(null);
+  const [search, setSearch] = useState("");
+
+  function select(rec: NodeRec | null) {
+    setSelected(rec);
+    setTwins(null);
+    if (rec) {
+      workerRef.current?.postMessage({ type: "twins", id: rec.id });
+      const s = sigmaRef.current;
+      const d = s?.getNodeDisplayData(rec.id);
+      if (s && d) {
+        s.getCamera().animate(
+          { x: d.x, y: d.y, ratio: Math.min(s.getCamera().ratio, 0.25) },
+          { duration: 500 },
+        );
+      }
+    }
+  }
 
   // refs mirroring state for the sigma reducers (avoid re-instantiating sigma)
   const styleRef = useRef({ colorMode, communities, roles, alphabet, membership, selected });
   styleRef.current = { colorMode, communities, roles, alphabet, membership, selected };
+  const selectRef = useRef(select);
+  selectRef.current = select;
 
   useEffect(() => {
     let dead = false;
@@ -172,17 +191,12 @@ function TerritoryView() {
           return { ...attrs, color: EDGE_COLOR, size: 0.4 };
         },
       });
-      sigma.on("clickNode", ({ node }) => {
-        const rec = byId.get(node) ?? null;
-        setSelected(rec);
-        setTwins(null);
-        if (rec) workerRef.current?.postMessage({ type: "twins", id: rec.id });
-      });
+      sigma.on("clickNode", ({ node }) => selectRef.current(byId.get(node) ?? null));
       sigma.on("clickStage", () => setSelected(null));
       sigmaRef.current = sigma;
 
       // worker
-      const w = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+      const w = new Worker("/worker.js", { type: "module" });
       workerRef.current = w;
       w.onmessage = (ev) => {
         const m = ev.data;
@@ -262,6 +276,19 @@ function TerritoryView() {
     const rest = total - top.reduce((a, b) => a + b.n, 0);
     return { top, rest };
   }, [communitySizes]);
+
+  const searchHits = useMemo(() => {
+    if (!search.trim() || !nodesById) return [];
+    const q = search.trim().toLowerCase();
+    const hits: NodeRec[] = [];
+    for (const n of nodesById.values()) {
+      if (n.name.toLowerCase().includes(q) || n.qn.toLowerCase().includes(q)) {
+        hits.push(n);
+        if (hits.length >= 20) break;
+      }
+    }
+    return hits.sort((a, b) => a.name.length - b.name.length);
+  }, [search, nodesById]);
 
   const selMembership = selected && membership?.get(selected.id);
 
@@ -442,8 +469,26 @@ function TerritoryView() {
       </div>
 
       <aside className="inspector">
+        <h3>Find symbol</h3>
+        <input
+          className="searchbox"
+          placeholder="search by name…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {searchHits.length > 0 && (
+          <div className="searchhits">
+            {searchHits.map((n) => (
+              <div key={n.id} className="twin" onClick={() => { select(n); setSearch(""); }}>
+                <div className="name">{n.name}</div>
+                <div className="meta">{n.kind} · {n.file}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <h3>Symbol</h3>
-        {!selected && <div className="empty">Click a node to inspect it and find its name-blind twins.</div>}
+        {!selected && <div className="empty">Click a node (or search above) to inspect it and find its name-blind twins.</div>}
         {selected && (
           <div className="sym">
             <div className="name">{selected.name}</div>
@@ -468,13 +513,7 @@ function TerritoryView() {
                 <div
                   key={t.id}
                   className={`twin${ambiguous ? " ambiguous" : ""}`}
-                  onClick={() => {
-                    if (rec) {
-                      setSelected(rec);
-                      setTwins(null);
-                      workerRef.current?.postMessage({ type: "twins", id: rec.id });
-                    }
-                  }}
+                  onClick={() => rec && select(rec)}
                 >
                   <div className="name">
                     {rec?.name ?? t.id} {ambiguous && <span className="amb">⚠ coin-flip tie</span>}
