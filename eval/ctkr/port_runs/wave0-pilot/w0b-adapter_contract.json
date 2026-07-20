@@ -1,0 +1,134 @@
+{
+  "adapter_name": "AnimalLifecycleAdapter",
+  "factory_signature": "makeAnimalLifecycleAdapter(): AnimalLifecycleAdapter",
+  "mutators": [
+    {
+      "name": "registerAnimal",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "draft",
+          "type": "AnimalRegistration",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<AnimalHandle>",
+      "as_of_time": false,
+      "semantics": "Appends an AnimalRegistered event and returns its animal handle; draft requires one animal_type taxonomy reference (an unknown supplied term name is created/reused as an animal_type term), accepts only sex code 'F' or 'M', retains nickname values in supplied order, and stores only canonical isSterile values plus any supplied parent handles.",
+      "derived_from": "Animal::buildFieldDefinitions; FieldHooks::entityBundleFieldInfo"
+    },
+    {
+      "name": "recordBirth",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "birth",
+          "type": "BirthRegistration",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<BirthHandle>",
+      "as_of_time": false,
+      "semantics": "Appends one atomic BirthRecorded event for its children, optional mother, and occurrence data; locally rejects a child already claimed by another visible birth, while independently created remote claims are retained for deterministic convergence rather than globally rejected.",
+      "derived_from": "Birth::buildFieldDefinitions; EntityHooks::logInsert; EntityHooks::syncBirthChildren; UniqueBirthLogConstraintValidator::validate"
+    },
+    {
+      "name": "correctBirthRecord",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "birth",
+          "type": "BirthHandle",
+          "optional": false
+        },
+        {
+          "name": "correction",
+          "type": "BirthCorrection",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<BirthRevisionHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a BirthCorrected event that supersedes the named birth's prior birth fields/child claims for later projections and reruns the same derived maternal-lineage and per-child uniqueness rules.",
+      "derived_from": "EntityHooks::logUpdate; EntityHooks::syncBirthChildren; UniqueBirthLogConstraintValidator::validate"
+    },
+    {
+      "name": "migrateLegacyCastrationRows",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "rows",
+          "type": "ReadonlyArray<LegacyCastrationRow>",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<SterilityMigrationHandle>",
+      "as_of_time": false,
+      "semantics": "Appends canonical is_sterile migration events for every supplied legacy is_castrated row, preserving its animal, legacy revision, language, delta, and boolean value; no canonical is_castrated field is emitted.",
+      "derived_from": "invented: the historical is_castrated-to-is_sterile field-row migration must be representable as replayable events, but no single listed source method names that migration."
+    }
+  ],
+  "projections": [
+    {
+      "name": "getAnimalLifecycle",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "animal",
+          "type": "AnimalHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Instant",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<AnimalLifecycleView | null>",
+      "as_of_time": true,
+      "semantics": "Projects the animal at or before asOf: its required AnimalTypeRef, sex code, ordered nickname array, canonical sterility values (including preserved revision/language/delta migration contexts), parent handles, and rendered birthSummary; a birth mother is appended to a child only when that child had no parent handle, while any existing parent list is an unchanged complete veto.",
+      "derived_from": "Animal::buildFieldDefinitions; EntityHooks::syncBirthChildren; ThemeHooks::assetViewAlter; FieldHooks::entityBundleFieldInfo"
+    },
+    {
+      "name": "getBirthRecord",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "birth",
+          "type": "BirthHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Instant",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<BirthRecordView | null>",
+      "as_of_time": true,
+      "semantics": "Projects the latest effective version of a birth at or before asOf, including its mother, occurrence data, and each claimed child marked accepted or displaced; for every child with competing synchronized birth claims, the lexicographically smallest BirthHandle is the sole accepted canonical birth and all other claims are reported as conflicts.",
+      "derived_from": "Birth::buildFieldDefinitions; EntityHooks::logInsert; EntityHooks::logUpdate; UniqueBirthLogConstraint; UniqueBirthLogConstraintValidator::validate"
+    },
+    {
+      "name": "getBirthForAnimal",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "animal",
+          "type": "AnimalHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Instant",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<BirthSummary | null>",
+      "as_of_time": true,
+      "semantics": "Returns the one deterministically accepted birth summary for the animal at or before asOf, or null when none is accepted; concurrent duplicate birth logs converge to the UUID/handle-tiebreak winner rather than assuming a globally serialized uniqueness gate.",
+      "derived_from": "invented: the source exposes birth information through entity hooks and themed asset rendering rather than a single canonical-birth query; the local-first port needs this projection to expose the eventual uniqueness resolution."
+    }
+  ],
+  "rationale": "Animal registration is a domain event rather than a generic asset write and carries the field-definition semantics: required auto-creatable animal_type taxonomy reference, closed F/M codes, ordered multi-value nicknames, canonical is_sterile, and parent references. Birth recording/correction is modeled as an atomic composite event because source insert/update hooks derive child lineage and the target has no multi-write transaction. Animal lifecycle projection exposes that derived lineage and the ThemeHooks birth-facing value. The server-only UniqueBirthLog invariant is adapted to the target profile by replica-local rejection plus deterministic UUID/handle winner selection after sync; losing claims remain observable as conflicts. Legacy castration migration is explicit so every old field-row identity survives as canonical sterility event data."
+}

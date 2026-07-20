@@ -1,0 +1,7 @@
+services:
+  _defaults:
+    autowire: true
+  quantity_event_subscriber:
+    class: Drupal\quantity\EventSubscriber\MapRenderEventSubscriber
+    tags:
+      - { name: 'event_subscriber' }

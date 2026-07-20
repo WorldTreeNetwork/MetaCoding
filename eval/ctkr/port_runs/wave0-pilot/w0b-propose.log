@@ -1,0 +1,20 @@
+loaded 13 fixture candidate(s) from /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0b-fixture_candidates.jsonl
+loading graph from /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/data-dir …
+extracted 7 subsystem member(s) over scope ['/log/birth/', '/asset/animal/']
+synthesizing adapter contract with gpt-5.6-terra …
+
+  contract written : /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0b-adapter_contract.json
+                     /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0b-adapter_contract.md
+  mutators         : 4
+  projections      : 3
+  invented methods : 2
+  synthesis spend  : $0.0678
+{
+  "out_json": "/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0b-adapter_contract.json",
+  "out_md": "/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0b-adapter_contract.md",
+  "adapter_name": "AnimalLifecycleAdapter",
+  "mutators": 4,
+  "projections": 3,
+  "invented": 2,
+  "cost_usd": 0.06776
+}

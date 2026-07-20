@@ -1,0 +1,104 @@
+[
+  {
+    "n": 1,
+    "topic": "log-status-lifecycle",
+    "title": "[source] Only adjustments attached to logs whose status is exactly \"done\" and whose times",
+    "scenario": {
+      "given": [
+        "An asset has a done increment of 5 timestamped after the current/requested cutoff.",
+        "It also has a pending increment of 3 timestamped before the cutoff.",
+        "It has a done increment of 2 before the cutoff."
+      ],
+      "when": [
+        "Inventory is calculated at that cutoff."
+      ],
+      "then": [
+        "Only the done pre-cutoff increment contributes, so the result includes 2 but not 5 or 3."
+      ]
+    },
+    "why": "A materializer could naturally apply every recorded adjustment, or regard future-dated done records as current; both are explicitly excluded.",
+    "cite": "src/AssetInventory.php:253-290",
+    "rank": 0.995
+  },
+  {
+    "n": 2,
+    "topic": "source-rule",
+    "title": "[source] A reset is an ordered assignment, not an additive adjustment: calculation starts",
+    "scenario": {
+      "given": [
+        "An asset has increment +10 at timestamp 100.",
+        "It has reset 4 at timestamp 200.",
+        "It has decrement 1 at timestamp 300."
+      ],
+      "when": [
+        "Inventory is calculated after timestamp 300."
+      ],
+      "then": [
+        "The result is 3: the +10 before the latest reset timestamp is excluded, reset assigns 4, and the later decrement is applied."
+      ]
+    },
+    "why": "The adjustment type might be modeled as a normal event in an additive ledger, and selecting only one latest reset event would miss same-timestamp ordering behavior.",
+    "cite": "src/AssetInventory.php:164-189,212-230",
+    "rank": 0.995
+  },
+  {
+    "n": 3,
+    "topic": "source-rule",
+    "title": "[source] A newly created, unsaved asset returns no inventory summaries at all, rather tha",
+    "scenario": {
+      "given": [
+        "An asset has not yet been persisted and is marked new."
+      ],
+      "when": [
+        "Inventory is requested for the asset."
+      ],
+      "then": [
+        "The result is an empty array."
+      ]
+    },
+    "why": "A read model may initialize an inventory projection for every asset with zero values, but this API distinguishes a new asset from an existing asset with no adjustments.",
+    "cite": "src/AssetInventory.php:27-32",
+    "rank": 0.985
+  },
+  {
+    "n": 4,
+    "topic": "archival-retains-history",
+    "title": "[source] Events sharing the latest reset timestamp are retained and sequenced by ascendin",
+    "scenario": {
+      "given": [
+        "At timestamp 200, log ID 10 increments an asset by 3.",
+        "At timestamp 200, log ID 11 resets it to 4.",
+        "At timestamp 200, log ID 12 decrements it by 1."
+      ],
+      "when": [
+        "Inventory is calculated after timestamp 200."
+      ],
+      "then": [
+        "All three same-timestamp events are processed by ID; the result is 3, because +3 is overwritten by reset 4 and then -1 is applied."
+      ]
+    },
+    "why": "The reset cutoff is timestamp-inclusive rather than a strict event-position cutoff, so timestamp alone does not define the reset boundary.",
+    "cite": "src/AssetInventory.php:223-230,171-186",
+    "rank": 0.975
+  },
+  {
+    "n": 5,
+    "topic": "measure-unit-filter",
+    "title": "[source] Inventory is calculated independently per exact (measure, units) pair; adjustmen",
+    "scenario": {
+      "given": [
+        "An asset has a mass increment in kilograms.",
+        "The same asset has a mass increment in pounds."
+      ],
+      "when": [
+        "Inventory is requested for the asset with no units filter."
+      ],
+      "then": [
+        "Two separate inventory summaries are returned, one per units ID; their values are not summed or converted."
+      ]
+    },
+    "why": "A caller may treat an omitted filter or a measure-only request as a cross-unit total, but the implementation discovers distinct pairs and calculates each separately.",
+    "cite": "src/AssetInventory.php:34-40,85-110,266-279",
+    "rank": 0.97
+  }
+]

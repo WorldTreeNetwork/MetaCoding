@@ -1,0 +1,194 @@
+{
+  "adapter_name": "AssetInventoryAdapter",
+  "factory_signature": "makeAssetInventoryAdapter(): AssetInventoryAdapter",
+  "mutators": [
+    {
+      "name": "appendInventoryAdjustment",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "asset",
+          "type": "AssetHandle",
+          "optional": false
+        },
+        {
+          "name": "adjustment",
+          "type": "InventoryAdjustmentInput /* { id?: AdjustmentHandle; logStatus: string; occurredAt: Timestamp; measure: MeasureHandle; units: UnitHandle; kind: 'increment' | 'decrement' | 'reset'; value: Decimal } */",
+          "optional": false
+        }
+      ],
+      "returns": "InventoryLogHandle",
+      "as_of_time": false,
+      "semantics": "Appends one asset-log adjustment event; resets assign value while increments and decrements are ledger deltas, and the adjustment's stable ID is used as the ascending tie-breaker for equal occurredAt values.",
+      "derived_from": "EntityHooks::logPresave; AssetInventory::getAdjustments"
+    },
+    {
+      "name": "createQuantity",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "draft",
+          "type": "QuantityDraft /* { measure: MeasureHandle; value: Decimal; units: UnitHandle; storedLabel?: string; bundle: QuantityTypeHandle; createdAt?: Timestamp } */",
+          "optional": false
+        }
+      ],
+      "returns": "QuantityHandle",
+      "as_of_time": false,
+      "semantics": "Appends and persists an initial revisioned quantity snapshot and returns its handle; its observable label is its entity ID/handle, never draft.storedLabel.",
+      "derived_from": "Quantity::baseFieldDefinitions; QuantityInterface::getCreatedTime; QuantityInterface::getBundleLabel"
+    },
+    {
+      "name": "appendQuantityRevision",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "quantity",
+          "type": "QuantityHandle",
+          "optional": false
+        },
+        {
+          "name": "snapshot",
+          "type": "QuantityRevisionDraft /* { measure: MeasureHandle; value: Decimal; units: UnitHandle; storedLabel?: string; bundle: QuantityTypeHandle; createdAt: Timestamp } */",
+          "optional": false
+        },
+        {
+          "name": "eventTime",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "QuantityRevisionHandle",
+      "as_of_time": false,
+      "semantics": "Appends an immutable quantity revision rather than overwriting a snapshot; concurrent revisions remain retained and the materialized current fields use deterministic LWW/HLC resolution after sync.",
+      "derived_from": "Quantity::baseFieldDefinitions; QuantityType::setNewRevision"
+    },
+    {
+      "name": "appendQuantityTypeRevision",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "quantityType",
+          "type": "QuantityTypeHandle",
+          "optional": false
+        },
+        {
+          "name": "snapshot",
+          "type": "QuantityTypeRevisionDraft /* { description?: string; label?: string; newRevision?: boolean } */",
+          "optional": false
+        },
+        {
+          "name": "eventTime",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "QuantityTypeRevisionHandle",
+      "as_of_time": false,
+      "semantics": "Appends an immutable quantity-type revision; concurrent revisions are preserved and a deterministic LWW/HLC winner is materialized after replicas converge rather than relying on a serialized revision lock.",
+      "derived_from": "QuantityType::setNewRevision; QuantityType::shouldCreateNewRevision"
+    },
+    {
+      "name": "migrateQuantities",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "source",
+          "type": "unknown",
+          "optional": false
+        },
+        {
+          "name": "configuration",
+          "type": "QuantityMigrationConfiguration /* { staticDefaults: Partial<QuantityDraft>; fieldMappings: Record<string, string>; validation: QuantityValidationRule[] } */",
+          "optional": false
+        }
+      ],
+      "returns": "QuantityHandle[]",
+      "as_of_time": false,
+      "semantics": "If source is iterable, appends one persisted quantity per row after static defaults and then mapped row values are applied; a validation violation raises MigrationSkipRowError and appends no quantity for that row, while non-iterable source returns [] and appends nothing.",
+      "derived_from": "CreateQuantity::transform"
+    }
+  ],
+  "projections": [
+    {
+      "name": "getInventory",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "asset",
+          "type": "AssetHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "InventorySummary[] /* { measure: MeasureHandle; units: UnitHandle; value: Decimal } */",
+      "as_of_time": true,
+      "semantics": "Returns one independent summary for every exact (measure, units) pair with eligible adjustments at or before asOf; only logs whose status is exactly 'done' participate, and from the latest reset timestamp onward events are processed by (occurredAt, adjustment ID ascending), with each reset assigning the running value.",
+      "derived_from": "AssetInventoryInterface::getInventory; AssetInventory::getInventory; AssetInventory::getLatestResetTimestamp; AssetInventory::calculateInventory; AssetInventory::getMeasureUnitsPairs"
+    },
+    {
+      "name": "getQuantitySnapshot",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "quantity",
+          "type": "QuantityHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "QuantitySnapshot /* { id: QuantityHandle; label: string; measure: MeasureHandle; value: Decimal; units: UnitHandle; bundle: QuantityTypeHandle; createdAt: Timestamp; revisions: QuantityRevisionHandle[] } */",
+      "as_of_time": true,
+      "semantics": "Materializes the quantity revision winner at asOf, exposes the retained revision handles, and always sets label to the quantity entity ID rather than the separately stored label field.",
+      "derived_from": "Quantity::label; QuantityInterface::getCreatedTime; QuantityInterface::getBundleLabel; Quantity::baseFieldDefinitions"
+    },
+    {
+      "name": "getQuantityTypeSnapshot",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "quantityType",
+          "type": "QuantityTypeHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "QuantityTypeSnapshot /* { id: QuantityTypeHandle; description?: string; label?: string; revisions: QuantityTypeRevisionHandle[] } */",
+      "as_of_time": true,
+      "semantics": "Materializes the deterministic converged quantity-type revision at asOf while retaining concurrent revision handles, so a losing concurrent update is not erased from history.",
+      "derived_from": "QuantityType::shouldCreateNewRevision; QuantityType::getDescription"
+    },
+    {
+      "name": "renderQuantityPlainText",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "quantity",
+          "type": "QuantityHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Timestamp",
+          "optional": false
+        }
+      ],
+      "returns": "string",
+      "as_of_time": true,
+      "semantics": "Renders the quantity in plain_text mode from its as-of snapshot, then strips rendered markup, decodes entities, trims, and replaces every whitespace run with one space.",
+      "derived_from": "QuantityViewBuilder::plainText; QuantityViewBuilder::view"
+    }
+  ],
+  "rationale": "Inventory adjustments are append-only log events and inventory is an as-of projection: it filters non-done and future-dated records, partitions exact measure/unit pairs, and implements timestamp-inclusive reset replay with ID ordering. Quantity and quantity-type edits are immutable revision events with deterministic eventual LWW/HLC materialization while retaining competing history. Quantity creation, label behavior, migration precedence/skip behavior, and rendered plain-text normalization are exposed because the mined fixtures observe them directly."
+}

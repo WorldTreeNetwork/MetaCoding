@@ -1,0 +1,6 @@
+services:
+  _defaults:
+    autowire: true
+  asset.inventory:
+    class: Drupal\farm_inventory\AssetInventory
+  Drupal\farm_inventory\AssetInventoryInterface: '@asset.inventory'

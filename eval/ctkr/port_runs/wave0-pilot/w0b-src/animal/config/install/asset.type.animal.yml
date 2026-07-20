@@ -1,0 +1,10 @@
+langcode: en
+status: true
+dependencies:
+  enforced:
+    module:
+      - farm_animal
+id: animal
+label: Animal
+description: ''
+new_revision: true

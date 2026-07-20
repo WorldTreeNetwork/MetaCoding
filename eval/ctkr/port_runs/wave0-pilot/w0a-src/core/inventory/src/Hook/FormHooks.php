@@ -1,0 +1,85 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Drupal\farm_inventory\Hook;
+
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Hook\Attribute\Hook;
+
+/**
+ * Form hook implementations for farm_inventory.
+ */
+class FormHooks {
+
+  /**
+   * Implements hook_inline_entity_form_entity_form_alter().
+   */
+  #[Hook('inline_entity_form_entity_form_alter')]
+  public function inlineEntityFormEntityFormAlter(array &$entity_form, FormStateInterface &$form_state) {
+
+    // Bail if not a quantity inline entity form.
+    if ($entity_form['#entity_type'] !== 'quantity') {
+      return;
+    }
+
+    // Specify special validation for the inventory values.
+    // Validation is needed because we cannot solely rely on FAPI #states,
+    // partially because it is hard to target the entity browser form widget.
+    $entity_form['#element_validate'][] = [self::class, 'quantityEntityInlineFormValidate'];
+
+    // Set the inventory_adjustment default value to N/A unless already
+    // provided.
+    if (empty($entity_form['inventory_adjustment']['widget']['#default_value'])) {
+      $entity_form['inventory_adjustment']['widget']['#default_value'] = '_none';
+    }
+
+    // Build a selector for the inventory adjustment input.
+    // This is complicated because the input name depends on the delta value,
+    // and whether or not it is an existing entity in the inline entity form.
+    $parents = $entity_form['#parents'];
+    $adjustment_identifier = $parents[0] . '[' . implode('][', array_slice($parents, 1)) . '][inventory_adjustment]';
+    $inventory_adjustment_selector = ":input[name=\"{$adjustment_identifier}\"]";
+
+    // Hide the inventory asset selector until an adjustment is selected.
+    $entity_form['inventory_asset']['#states']['invisible'] = [
+      $inventory_adjustment_selector => [
+        'value' => '_none',
+      ],
+    ];
+  }
+
+  /**
+   * Custom validation callback for the quantity inline form.
+   *
+   * @param array $form
+   *   The entity form array.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The entity form state.
+   */
+  public static function quantityEntityInlineFormValidate(array &$form, FormStateInterface $form_state): void {
+
+    // Get the inline entity form values out of the entire entity form state.
+    $quantity_form_values = $form_state->getValue($form['#parents']);
+
+    // If a quantity was provided, validate correct inventory values are
+    // provided.
+    if (!empty($quantity_form_values)) {
+      $adjustment = $quantity_form_values['inventory_adjustment'];
+      $asset = $quantity_form_values['inventory_asset']['target_id'];
+
+      // Set error if an adjustment is provided without an asset.
+      if (!empty($adjustment) && empty($asset)) {
+        // Error is set on the inventory_adjustment field because form errors
+        // are not highlighted when set on the entity browser widget.
+        $form_state->setError($form['inventory_adjustment']['widget'], t('Inventory asset is required if an inventory adjustment is selected.'));
+      }
+
+      // Set error if an asset is provided without an adjustment.
+      if (empty($adjustment) && !empty($asset)) {
+        $form_state->setError($form['inventory_adjustment']['widget'], t('Inventory adjustment is required if an inventory asset is selected.'));
+      }
+    }
+  }
+
+}

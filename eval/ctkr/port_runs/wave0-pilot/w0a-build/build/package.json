@@ -1,0 +1,10 @@
+{
+  "name": "asset-inventory-w0a",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Blind port of the Asset Inventory feature, built on the shared kernel v1.",
+  "scripts": {
+    "test": "bun test"
+  }
+}

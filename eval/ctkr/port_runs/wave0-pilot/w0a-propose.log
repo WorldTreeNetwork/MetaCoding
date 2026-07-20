@@ -1,0 +1,48 @@
+loaded 50 fixture candidate(s) from /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0a-fixture_candidates.jsonl
+loading graph from /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/data-dir …
+extracted 34 subsystem member(s) over scope ['/inventory/', '/quantity/']
+synthesizing adapter contract with gpt-5.6-terra …
+structured AdapterContract failed validation; issuing one repair retry: 9 validation errors for AdapterContract
+mutators.0.kind
+  Field required [type=missing, input_value={'name': 'appendInventory...ntityHooks::logPresave'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+mutators.1.kind
+  Field required [type=missing, input_value={'name': 'createQuantity'...erface::getBundleLabel'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+mutators.2.kind
+  Field required [type=missing, input_value={'name': 'appendQuantityR...ionable entity updates'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+mutators.3.kind
+  Field required [type=missing, input_value={'name': 'appendQuantityT...houldCreateNewRevision'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+mutators.4.kind
+  Field required [type=missing, input_value={'name': 'migrateQuantiti...ateQuantity::transform'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+projections.0.kind
+  Field required [type=missing, input_value={'name': 'getInventory', ...ry::calculateInventory'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+projections.1.kind
+  Field required [type=missing, input_value={'name': 'getQuantitySnap...::baseFieldDefinitions'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+projections.2.kind
+  Field required [type=missing, input_value={'name': 'getQuantityType...houldCreateNewRevision'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+projections.3.kind
+  Field required [type=missing, input_value={'name': 'renderQuantityP...ViewBuilder::plainText'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+  contract written : /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0a-adapter_contract.json
+                     /private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0a-adapter_contract.md
+  mutators         : 5
+  projections      : 4
+  invented methods : 0
+  synthesis spend  : $0.0700
+{
+  "out_json": "/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0a-adapter_contract.json",
+  "out_md": "/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/7c92fede-1c0d-4716-b9e4-8b2c97e4f0b0/scratchpad/wave0/w0a-adapter_contract.md",
+  "adapter_name": "AssetInventoryAdapter",
+  "mutators": 5,
+  "projections": 4,
+  "invented": 0,
+  "cost_usd": 0.070038
+}
