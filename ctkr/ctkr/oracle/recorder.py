@@ -594,9 +594,9 @@ def write_observations(observations: list[Observation], path: Any) -> int:
 
 def build_client(
     base_url: str, username: str, password: str, *, recording: bool = True,
-    client_id: str = "farm", client_secret: str = "",
+    client_id: str = "farm", client_secret: str = "", timeout: float = 30.0,
 ) -> FarmOSClient:
     """Construct a (recording) farmOS client for the CLI + tests."""
     cls = RecordingClient if recording else FarmOSClient
     return cls(base_url, username, password, client_id=client_id,
-              client_secret=client_secret)
+              client_secret=client_secret, timeout=timeout)

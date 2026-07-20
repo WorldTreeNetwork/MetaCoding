@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from ctkr.oracle.fixtures import validate_fixture, write_fixtures
+from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
 from ctkr.oracle.recorder import (
     build_client,
     record_session,
@@ -44,11 +45,28 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--client-secret", default="")
     p.add_argument("--out-dir", default=".",
                    help="Directory for fixtures.jsonl + observations.jsonl.")
+    p.add_argument("--preflight-timeout", type=float, default=DEFAULT_TIMEOUT,
+                   help="Seconds for the oracle liveness probe (default: %(default)s).")
+    p.add_argument("--skip-preflight", action="store_true",
+                   help="Skip the oracle liveness probe (not recommended).")
     p.set_defaults(func=run)
 
 
 def run(args: argparse.Namespace) -> int:
     from ctkr.oracle.farmos_adapter import FarmOSAdapter
+
+    if not args.skip_preflight:
+        # Recording against a dead oracle produces nothing but a long wait; and a
+        # half-installed instance would silently record WRONG values.
+        try:
+            require_oracle(
+                args.base_url, username=args.username, password=args.password,
+                client_id=args.client_id, client_secret=args.client_secret,
+                timeout=args.preflight_timeout,
+            )
+        except OracleDown as exc:
+            sys.stderr.write(f"\n{exc}\n")
+            return 2
 
     client = build_client(
         args.base_url, args.username, args.password, recording=True,

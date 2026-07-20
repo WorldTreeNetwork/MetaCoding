@@ -57,8 +57,12 @@ class FarmOSClient:
         client_id: str = "farm",
         client_secret: str = "",
         transport: Any = None,
+        timeout: float = 30.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        # Never inherit urllib's no-timeout default: an oracle that dies mid-run
+        # must fail in seconds, not hang the fan-out (MetaCoding-9h5.28).
+        self.timeout = timeout
         self.username = username
         self.password = password
         self.client_id = client_id
@@ -100,7 +104,7 @@ class FarmOSClient:
         )
         for k, v in headers.items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return resp.read().decode()
 
     def request(
