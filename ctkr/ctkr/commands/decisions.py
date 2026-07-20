@@ -24,6 +24,7 @@ import json
 import sys
 from pathlib import Path
 
+from ctkr import inflight
 from ctkr.commands._common import (
     DEFAULT_LLM_PROVIDER,
     GPT56_STRONG_MODEL,
@@ -72,6 +73,46 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     lst.add_argument("--json", dest="as_json", action="store_true", help="Emit JSON.")
     lst.set_defaults(func=run_list)
+
+    # --- emit (an in-flight agent reporting a decision it needs) ---
+    em = sub.add_parser(
+        "emit",
+        help="Append an in-flight decision signal (punt / invented / conflict / "
+             "blocked) to the wave ledger, from a RUNNING agent.",
+        description=(
+            "A running agent reports the moment it defers, invents, or hits a "
+            "conflict — rather than at the end, when the wave has already built "
+            "on it. The ledger is append-only JSONL; an agent in any language may "
+            "append a line directly instead of using this command."
+        ),
+    )
+    em.add_argument("--data-dir", default=None, help="Path to .metacoding/ (auto-detected).")
+    em.add_argument("--agent", required=True, help="Agent label or build id (an interrupt needs to find you).")
+    em.add_argument("--feature", required=True, help="The feature being ported.")
+    em.add_argument("--topic", required=True,
+                    help="STABLE slug for what is being decided — prefer an existing "
+                         "invariant name, since punt-promotion counts by this.")
+    em.add_argument("--kind", required=True, choices=sorted(inflight.KINDS))
+    em.add_argument("--statement", required=True, help="One sentence: what is at stake.")
+    em.add_argument("--event-kinds", default="", help="Comma-separated event kinds touched (blast radius).")
+    em.add_argument("--assumption", default="", help="What you did meanwhile. An honest punt says so.")
+    em.add_argument("--kernel", default="", help="Kernel pin you are running against.")
+    em.add_argument("--at", default="", help="ISO-8601 timestamp.")
+    em.set_defaults(func=run_emit)
+
+    # --- inflight (the orchestrator polling) ---
+    inf = sub.add_parser(
+        "inflight",
+        help="Read the in-flight ledger: what running agents need, what to promote.",
+    )
+    inf.add_argument("--data-dir", default=None, help="Path to .metacoding/ (auto-detected).")
+    inf.add_argument("--threshold", type=int, default=2,
+                     help="Distinct agents on one topic before it is a kernel candidate.")
+    inf.add_argument("--touching", default="",
+                     help="Comma-separated event kinds: list the agents an interrupt "
+                          "would target.")
+    inf.add_argument("--json", dest="as_json", action="store_true", help="Emit JSON.")
+    inf.set_defaults(func=run_inflight)
 
     # --- resolve ---
     r = sub.add_parser(
@@ -219,6 +260,75 @@ def _load_port_verify_reports(data_dir: Path, ctkr_dir: Path, explicit: str | No
             except json.JSONDecodeError:
                 sys.stderr.write(f"  warning: {d} is not valid JSON; skipped.\n")
     return reports
+
+
+def run_emit(args: argparse.Namespace) -> int:
+    data_dir = resolve_data_dir(args.data_dir)
+    record = inflight.InflightRecord(
+        agent=args.agent, feature=args.feature, topic=args.topic,
+        kind=args.kind, statement=args.statement,
+        event_kinds=tuple(k.strip() for k in args.event_kinds.split(",") if k.strip()),
+        assumption=args.assumption, kernel=args.kernel, at=args.at,
+    )
+    path = inflight.emit(record, data_dir)
+    sys.stderr.write(f"  emitted {args.kind} on {args.topic!r} -> {path}\n")
+    return 0
+
+
+def run_inflight(args: argparse.Namespace) -> int:
+    data_dir = resolve_data_dir(args.data_dir)
+    read = inflight.read(data_dir)
+    attention = inflight.needs_attention(read.records)
+    promotions = inflight.promotion_candidates(read.records, args.threshold)
+    targeted = (
+        inflight.affected_agents(
+            read.records,
+            {k.strip() for k in args.touching.split(",") if k.strip()},
+        )
+        if args.touching
+        else []
+    )
+
+    if args.as_json:
+        sys.stdout.write(json.dumps({
+            "records": [json.loads(r.to_json()) for r in read.records],
+            "malformed": read.malformed,
+            "needs_attention": [json.loads(r.to_json()) for r in attention],
+            "promotion_candidates": [
+                {"topic": t, "agents": sorted({r.agent for r in rs}),
+                 "records": [json.loads(r.to_json()) for r in rs]}
+                for t, rs in promotions
+            ],
+            "affected_agents": targeted,
+        }, indent=2) + "\n")
+        return 0
+
+    w = sys.stderr.write
+    w(f"\n  in-flight records : {len(read.records)}\n")
+    if read.malformed:
+        # Never silently dropped: a malformed report is still a report.
+        w(f"  MALFORMED         : {len(read.malformed)} (an agent tried to tell us something)\n")
+        for m in read.malformed:
+            w(f"    ! {m}\n")
+    if attention:
+        w(f"\n  NEEDS ATTENTION NOW ({len(attention)}) — conflicts and blocked agents:\n")
+        for r in attention:
+            w(f"    [{r.kind}] {r.agent} · {r.topic}: {r.statement}\n")
+    if promotions:
+        w(f"\n  KERNEL CANDIDATES ({len(promotions)}) — >= {args.threshold} distinct agents deferred:\n")
+        for topic, rs in promotions:
+            agents = sorted({r.agent for r in rs})
+            w(f"    {topic} — {len(agents)} agents: {', '.join(agents)}\n")
+            for r in rs:
+                w(f"      · {r.agent}: {r.statement}\n")
+                if r.assumption:
+                    w(f"        assumed meanwhile: {r.assumption}\n")
+    if targeted:
+        w(f"\n  AN INTERRUPT WOULD TARGET: {', '.join(targeted)}\n")
+    if not (attention or promotions or read.malformed):
+        w("  nothing needs a decision right now\n")
+    w("\n")
+    return 0
 
 
 def run_collect(args: argparse.Namespace) -> int:

@@ -36,6 +36,15 @@ export {
   replicaOf,
 } from "./ids.ts";
 
+export {
+  type KernelPin,
+  KERNEL_VERSION,
+  KernelStalenessError,
+  kernelFingerprint,
+  currentKernel,
+  requireKernel,
+} from "./version.ts";
+
 export { pickLatest, LwwRegister } from "./lww.ts";
 
 export { type FoldReduceSpec, FoldReduce } from "./fold.ts";

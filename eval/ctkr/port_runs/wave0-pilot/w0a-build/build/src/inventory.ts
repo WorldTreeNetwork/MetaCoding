@@ -47,6 +47,8 @@ import {
   KindRegistry,
   gateFor,
   passesGate,
+  requireKernel,
+  type KernelPin,
   type EntityId,
   type Hlc,
   type KernelEvent,
@@ -165,6 +167,22 @@ export interface AssetInventoryAdapter {
   getInventory(asset: AssetHandle, asOf: number): InventorySummary[];
 }
 
+/**
+ * The kernel this build was written and VALIDATED against (MetaCoding-9h5.22).
+ *
+ * Not decoration: this build previously carried a private copy of the kernel that
+ * had drifted to a status contract observation later falsified, and nothing said
+ * so — its tests passed and its conformance claim stood. The pin turns "silently
+ * running on a re-bound decision" into a refusal at construction.
+ *
+ * Re-pinning is a claim that the build's values were re-checked against the new
+ * surface. Bumping it to make an error go away is the one thing it forbids.
+ */
+export const KERNEL_PIN: KernelPin = {
+  version: "1.3.0",
+  fingerprint: "0335ef15",
+};
+
 export interface AdapterOptions {
   /** replica identity for the id minter + HLC clock (default "R1"). */
   replicaId?: string;
@@ -234,6 +252,10 @@ function byOccurredThenHlc(a: InventoryEvent, b: InventoryEvent): number {
 export function makeAssetInventoryAdapter(
   opts: AdapterOptions = {},
 ): AssetInventoryAdapter {
+  // Refuse to run on a kernel this build has not been validated against, exactly
+  // as it would refuse an unresolved CM decision.
+  requireKernel(KERNEL_PIN, "w0a-asset-inventory");
+
   const replicaId = opts.replicaId ?? "R1";
 
   // Gate 1: closed kind taxonomy. Register the adjustment kind, then FREEZE so
