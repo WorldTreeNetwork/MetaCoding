@@ -34,6 +34,7 @@ keeping those out of the ``--glossary`` / artifact paths it passes.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -99,6 +100,198 @@ class AdapterContract(BaseModel):
         description="Brief: how the surface was decomposed into events vs reads, and which "
         "fixture candidates drove which method.",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Bound CM-decision registry (F2 / MetaCoding-9h5.27)                          #
+# --------------------------------------------------------------------------- #
+#
+# The SURFACE stage must consume the kernel's bound CM-decision registry
+# (src/kernel/decisions.ts format) as FIXED constraints, so it cannot re-derive a
+# convergence mechanic that contradicts a frozen kernel decision. Wave-0 pilot F2:
+# propose-adapter independently proposed min-UUID/handle-tiebreak for birth-uniqueness,
+# contradicting the bound earliest-HLC-wins rule. This mirrors the kernel's
+# `requireBound` philosophy on the Python side: bound decisions are injected verbatim,
+# and a deterministic post-generation check fails loudly on any re-derived mechanic.
+
+
+class CmConstraint(BaseModel):
+    """One binding CM decision, parsed from the kernel's cm-decisions.jsonl registry.
+
+    Field names mirror ``src/kernel/decisions.ts`` (camelCase in the JSONL)."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    invariant: str
+    sensitivity: str = "none"
+    menu_choice: str = Field(default="", alias="menuChoice")
+    convergence_key: str = Field(default="", alias="convergenceKey")
+    status: str = "unresolved"
+    rationale: str = ""
+
+    @property
+    def is_binding(self) -> bool:
+        """Bound or provisional decisions constrain the surface; unresolved ones do not
+        (they are still open, mirroring `requireBound` which rejects only `unresolved`)."""
+        return self.status in ("bound", "provisional")
+
+
+def load_cm_decisions(path: str | Path) -> list[CmConstraint]:
+    """Load the kernel CM-decision registry (JSONL). Blank lines and ``//`` comment lines
+    are skipped, matching ``loadCmDecisions`` in src/kernel/decisions.ts."""
+    out: list[CmConstraint] = []
+    p = Path(path)
+    for lineno, line in enumerate(p.read_text(encoding="utf-8").splitlines(), start=1):
+        t = line.strip()
+        if not t or t.startswith("//"):
+            continue
+        try:
+            raw = json.loads(t)
+        except json.JSONDecodeError as e:  # pragma: no cover - defensive
+            raise ValueError(f"cm-decisions line {lineno}: JSON parse error — {e}") from e
+        out.append(CmConstraint.model_validate(raw))
+    return out
+
+
+# Convergence-mechanic vocabulary. Each tag maps to regexes that identify a specific
+# way of deciding which concurrent write wins. Deterministic, LM-free: a bound decision
+# and a generated contract are each classified into this tag space, and a generated tag
+# that is absent from the bound decision's tag set for the SAME invariant is a conflict.
+_MECHANIC_VOCAB: dict[str, tuple[str, ...]] = {
+    "hlc-order": (r"\bhlc\b", r"hybrid[- ]logical[- ]clock", r"earliest[- ]hlc", r"latest[- ]hlc"),
+    "uuid-tiebreak": (
+        r"min[- ]?uuid",
+        r"max[- ]?uuid",
+        r"lexicographically[- ](smallest|largest|lowest|highest)",
+        r"smallest\s+\w*\s*(uuid|handle|id\b)",
+        r"largest\s+\w*\s*(uuid|handle|id\b)",
+        r"(uuid|handle|id)[- ]tie[- ]?break",
+    ),
+    "id-order": (r"ascending[- ]id", r"id[- ]ascending", r"lowest[- ]id", r"entity[- ]id[- ]order"),
+    "lww": (r"last[- ]write[- ]wins", r"\blww\b", r"latest[- ]wins"),
+    "random-pick": (r"\brandom\b", r"coin[- ]flip"),
+}
+
+_MECHANIC_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    tag: [re.compile(rx, re.IGNORECASE) for rx in rxs] for tag, rxs in _MECHANIC_VOCAB.items()
+}
+
+
+def classify_mechanics(text: str) -> set[str]:
+    """Return the set of convergence-mechanic tags a piece of text mentions."""
+    return {tag for tag, pats in _MECHANIC_PATTERNS.items() if any(p.search(text) for p in pats)}
+
+
+def _invariant_topic_tokens(invariant: str) -> list[str]:
+    """Significant (len >= 4) tokens of an invariant id, e.g. 'birth-uniqueness' ->
+    ['birth', 'uniqueness']. Used to locate contract text that speaks to the invariant."""
+    return [tok for tok in re.split(r"[-_\s]+", invariant.lower()) if len(tok) >= 4]
+
+
+class CmConflict(BaseModel):
+    """A detected conflict between a generated contract and a bound CM decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invariant: str
+    bound_rule: str
+    bound_mechanics: list[str]
+    conflicting_mechanics: list[str]
+    offending_text: str
+    location: str
+
+    def render(self) -> str:
+        return (
+            "CM-CONFORMANCE FAILURE: the generated surface re-derives a convergence "
+            "mechanic that CONFLICTS with a bound CM decision.\n"
+            f"  invariant        : {self.invariant}\n"
+            f"  bound rule       : {self.bound_rule}\n"
+            f"  bound mechanic   : {', '.join(self.bound_mechanics) or '(none)'}\n"
+            f"  conflicting mech : {', '.join(self.conflicting_mechanics)}\n"
+            f"  in               : {self.location}\n"
+            f"  generated text   : {self.offending_text.strip()[:400]!r}\n"
+            "  → the surface MUST conform to the bound decision; do not re-derive an "
+            "alternative. Use the bound convergence rule verbatim."
+        )
+
+
+def _contract_text_segments(contract: AdapterContract) -> list[tuple[str, str]]:
+    """(location, text) segments of a contract that could carry a convergence claim."""
+    segs: list[tuple[str, str]] = []
+    for m in [*contract.mutators, *contract.projections]:
+        loc = f"method `{m.name}` ({m.kind})"
+        segs.append((loc, f"{m.name} {m.semantics} {m.derived_from}"))
+    if contract.rationale.strip():
+        segs.append(("rationale", contract.rationale))
+    return segs
+
+
+def check_cm_conformance(
+    contract: AdapterContract, constraints: Sequence[CmConstraint]
+) -> list[CmConflict]:
+    """Deterministically check a generated contract against the bound CM-decision registry.
+
+    For every binding decision whose convergence rule names a recognizable mechanic, scan
+    the contract's method semantics/rationale for text that (a) speaks to the same invariant
+    and (b) proposes a DIFFERENT convergence mechanic. Each such conflict is reported. An
+    empty result means the surface conforms (or the registry does not constrain a detectable
+    mechanic). Mirrors the kernel's `requireBound`: fail loudly, never silently warn."""
+    conflicts: list[CmConflict] = []
+    segments = _contract_text_segments(contract)
+    for c in constraints:
+        if not c.is_binding:
+            continue
+        bound_tags = classify_mechanics(c.convergence_key)
+        if not bound_tags:
+            # No recognizable mechanic in the bound rule → nothing deterministic to enforce.
+            continue
+        topic = _invariant_topic_tokens(c.invariant)
+        if not topic:
+            continue
+        for location, text in segments:
+            low = text.lower()
+            if not any(tok in low for tok in topic):
+                continue
+            seg_tags = classify_mechanics(text)
+            conflicting = sorted(seg_tags - bound_tags)
+            if conflicting:
+                conflicts.append(
+                    CmConflict(
+                        invariant=c.invariant,
+                        bound_rule=c.convergence_key,
+                        bound_mechanics=sorted(bound_tags),
+                        conflicting_mechanics=conflicting,
+                        offending_text=text,
+                        location=location,
+                    )
+                )
+    return conflicts
+
+
+def format_cm_constraints_block(constraints: Sequence[CmConstraint]) -> str:
+    """Render the bound decisions as a FIXED-constraints prompt block. Only binding
+    decisions (bound/provisional) are emitted, with the convergence rule VERBATIM."""
+    binding = [c for c in constraints if c.is_binding]
+    if not binding:
+        return ""
+    lines = [
+        "The following invariants are ALREADY DECIDED and frozen in the kernel's "
+        "CM-decision registry. The surface MUST conform to them exactly. Do NOT "
+        "re-derive, propose, or even mention an ALTERNATIVE convergence mechanic for "
+        "these invariants — use the bound rule verbatim. Treat these as fixed inputs, "
+        "not open design questions:",
+        "",
+    ]
+    for c in binding:
+        lines.append(f"- [{c.invariant}] ({c.sensitivity}) menu = {c.menu_choice}")
+        if c.convergence_key:
+            lines.append(
+                f"    bound convergence rule (VERBATIM — use this, propose no alternative): "
+                f"{c.convergence_key}"
+            )
+        if c.rationale:
+            lines.append(f"    rationale: {c.rationale.strip()[:280]}")
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #
@@ -268,6 +461,7 @@ def build_contract_prompt(
     fixture_candidates: Sequence[Mapping[str, Any]],
     target_profile_text: str,
     glossary_text: str = "",
+    cm_constraints: Sequence[CmConstraint] = (),
     target_language: str = "TypeScript",
 ) -> str:
     """Assemble the deterministic synthesis prompt. Pure function of its inputs —
@@ -285,6 +479,13 @@ def build_contract_prompt(
         "## Target profile (local-first architecture + consistency-model menu)",
         target_profile_text.strip(),
     ]
+    constraints_block = format_cm_constraints_block(cm_constraints)
+    if constraints_block:
+        parts += [
+            "",
+            "## FIXED kernel-bound decisions (INVARIANTS ALREADY DECIDED — DO NOT RE-DERIVE)",
+            constraints_block,
+        ]
     if glossary_text.strip():
         parts += ["", "## Domain glossary / intent", glossary_text.strip()]
     parts += [
@@ -381,10 +582,16 @@ __all__ = [
     "AdapterParam",
     "SubsystemMember",
     "SubsystemMethod",
+    "CmConstraint",
+    "CmConflict",
     "CONTRACT_SYS",
     "build_contract_prompt",
     "extract_subsystem_members",
     "synthesize_contract",
     "render_contract_markdown",
     "load_fixture_candidates",
+    "load_cm_decisions",
+    "classify_mechanics",
+    "check_cm_conformance",
+    "format_cm_constraints_block",
 ]
