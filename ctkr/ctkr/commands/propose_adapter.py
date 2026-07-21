@@ -29,6 +29,28 @@ from ctkr.commands._common import (
 )
 
 
+def discover_cm_registry(start: Path | None = None) -> Path | None:
+    """The repo's bound CM-decision registry, discovered from ``start`` upward.
+
+    Mirrors :data:`ctkr.oracle.port_contract.DEFAULT_DECISION_SOURCES` — the
+    same fixed, repo-rooted registry ``port-verify`` resolves sanctions from —
+    so the surface generator and the reader consult ONE set of bound decisions.
+    Walks parents until a match or a ``.git`` root; returns ``None`` if the
+    tree has no registry (the caller must then warn, never proceed silently).
+    """
+    from ctkr.oracle.port_contract import DEFAULT_DECISION_SOURCES
+
+    cur = (start or Path.cwd()).resolve()
+    for parent in (cur, *cur.parents):
+        for rel in DEFAULT_DECISION_SOURCES:
+            cand = parent / rel
+            if cand.exists():
+                return cand
+        if (parent / ".git").exists():
+            break
+    return None
+
+
 def register(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "propose-adapter",
@@ -68,7 +90,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "src/kernel/decisions.ts format). Bound/provisional decisions are injected into "
         "the synthesis prompt as FIXED constraints and enforced by a post-generation "
         "conformance check that fails loudly if the surface re-derives a conflicting "
-        "convergence mechanic (F2 / MetaCoding-9h5.27).",
+        "convergence mechanic (F2 / MetaCoding-9h5.27). When omitted, the repo's own "
+        "bound registry is discovered and used; generating with zero constraints "
+        "warns loudly (MetaCoding-sag).",
     )
     p.add_argument("--target-language", default="TypeScript")
     p.add_argument("--out-json", default=None, help="Output contract JSON path.")
@@ -113,9 +137,18 @@ def run(args: argparse.Namespace) -> int:
 
     # Bound CM-decision registry (F2 / MetaCoding-9h5.27): fixed constraints the surface
     # must conform to. Injected verbatim into the prompt AND enforced post-generation.
+    # The coupling used to be opt-in: a runner that forgot the flag silently
+    # regenerated the exact contradiction 9h5.27 fixed (MetaCoding-sag). Omitting
+    # the flag now discovers the repo's own bound registry, and generating with
+    # ZERO constraints is loud, never silent.
     cm_constraints = []
-    if args.cm_decisions:
-        cmp = Path(args.cm_decisions).expanduser().resolve()
+    cm_arg = args.cm_decisions or discover_cm_registry()
+    if args.cm_decisions is None and cm_arg is not None:
+        sys.stderr.write(
+            f"--cm-decisions not given; using the repo's bound registry {cm_arg}\n"
+        )
+    if cm_arg:
+        cmp = Path(cm_arg).expanduser().resolve()
         if not cmp.exists():
             sys.stderr.write(f"ERROR: --cm-decisions {cmp} does not exist.\n")
             return 2
@@ -123,6 +156,12 @@ def run(args: argparse.Namespace) -> int:
         n_binding = sum(1 for c in cm_constraints if c.is_binding)
         sys.stderr.write(
             f"loaded {len(cm_constraints)} CM decision(s) ({n_binding} binding) from {cmp}\n"
+        )
+    else:
+        sys.stderr.write(
+            "WARNING: generating with ZERO bound CM constraints — no --cm-decisions "
+            "given and no repo registry discovered. A surface generated blind can "
+            "contradict frozen kernel decisions (MetaCoding-sag / 9h5.27).\n"
         )
 
     # Fixture candidates (mine-fixtures output) — the mined non-obvious semantics.

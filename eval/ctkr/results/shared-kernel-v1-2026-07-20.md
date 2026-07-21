@@ -14,6 +14,15 @@
   the 9h5.16 composed store, re-expressed on those primitives with **byte-for-byte
   identical adapter surfaces**, scores **17/17 logs + 10/10 location + 5/5
   cross-probes (27 fixtures + 5 probes)** on the *verbatim committed judges*.
+
+  **Disclosure (added 2026-07-21, MetaCoding-4vh):** 10 of those 27 fixtures —
+  the entire location set — are **synthetic**: every row carries
+  `provenance: null` with zero observation refs, and the current fixture schema
+  rejects them outright. The three location gate picks were later hand-checked
+  against the live oracle (4/4 values agree, 2026-07-20) but **no recorded
+  observation exists**; a location OBSERVE pass is blocked on the flow DSL
+  having no location verbs (MetaCoding-b0s). Read the headline as
+  17 observed-backed + 10 synthetic-but-spot-checked, not 27 observed.
 - **The four observed failure modes are now prevented by construction, not just
   documented.** Five prevention tests demonstrate: an ad-hoc event kind is rejected
   by the log; the store mints only replica-scoped ids (two replicas' first assets

@@ -44,6 +44,12 @@ from ctkr.oracle.fixtures import QuantitySpec
 from ctkr.oracle.port_contract import PortCapabilities, PortManifest
 from ctkr.oracle.probes import PROBE_CONTRACT
 
+#: The reader-side ceiling on ``BridgeSpec.timeout``, in seconds. The manifest's
+#: timeout is written by the port; a port may ask the reader to wait LESS than
+#: this, never more (MetaCoding-i48). 30s is the BridgeSpec default and an order
+#: of magnitude above every observed honest bridge answer.
+PATIENCE_CAP = 30.0
+
 
 class Unanswerable(RuntimeError):
     """The port declared no surface able to answer this — a gap, never a pass.
@@ -149,14 +155,15 @@ class PortBridge:
             proc.stdin.flush()
         except (BrokenPipeError, ValueError) as exc:
             raise BridgeError(f"port bridge closed its input during {op!r}: {exc}") from exc
-        deadline = self.manifest.bridge.timeout
+        deadline = self._deadline()
         try:
             line = self._lines.get(timeout=deadline)
         except queue.Empty:
             self._kill(
                 f"port bridge did not answer {op!r} within {deadline}s "
-                f"(BridgeSpec.timeout). A silent bridge is NO VERDICT, not a "
-                f"pending one — the judge does not wait on the party it judges."
+                f"(BridgeSpec.timeout, capped at {PATIENCE_CAP}s reader-side). "
+                f"A silent bridge is NO VERDICT, not a pending one — the reader "
+                f"does not wait on the party it reads."
             )
             raise BridgeError(self._dead) from None
         if line is None:
@@ -196,6 +203,17 @@ class PortBridge:
             raise AdapterError(f"{op}: {msg}")
         return resp.get("value")
 
+    def _deadline(self) -> float:
+        """The reader's patience: the port may ask for LESS, never for more.
+
+        ``BridgeSpec.timeout`` lives in the port's own manifest. Uncapped, the
+        reader's patience was a parameter written by the party being read — a
+        bridge declaring ``"timeout": 86400.0`` reproduced the original
+        hang-forever (exit 124, no verdict) that the deadline exists to prevent
+        (MetaCoding-i48). The cap is the reader's, not the manifest's.
+        """
+        return min(self.manifest.bridge.timeout, PATIENCE_CAP)
+
     def _kill(self, reason: str) -> None:
         """Kill the child and remember why. No further call waits on it."""
         self._dead = reason
@@ -221,7 +239,7 @@ class PortBridge:
                 except (BrokenPipeError, ValueError):
                     pass
                 proc.stdin.close()
-            proc.wait(timeout=self.manifest.bridge.timeout)
+            proc.wait(timeout=self._deadline())
         except subprocess.TimeoutExpired:
             proc.kill()
         finally:

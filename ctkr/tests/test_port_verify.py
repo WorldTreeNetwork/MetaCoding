@@ -588,6 +588,55 @@ def test_an_unresolvable_decision_id_is_a_declaration_problem() -> None:
     assert not report.clean
 
 
+def test_a_fabricated_warrant_is_never_softer_than_a_real_one() -> None:
+    """A divergence citing an id no registry resolves must FAIL the assertion.
+
+    The inversion (MetaCoding-8x0): `decision_covers` ran only for ids that
+    RESOLVE, so a real-but-off-topic decision failed the assertion while a
+    fabricated id skipped the check and scored DIVERGED — the milder bucket,
+    exit 3 instead of 1. Property: for the same wrong value, the fabricated
+    warrant's outcome is at least as severe as the real one's.
+    """
+    def outcome_for(decision_id: str) -> AssertionStatus:
+        fx = fixture("f8", [soh(4.0)])
+        declared = [Divergence.model_validate({
+            "fixture_id": fx.fixture_id, "assert": "stock_on_hand",
+            "port_value": 9.0, "reason": "sanctioned",
+            "decision_id": decision_id,
+        })]
+        manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
+        adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                               overrides={"stock_on_hand": 9.0})
+        report = verify_port(adapter, pack([fx]), manifest,
+                             decisions={"birth-uniqueness": "about birth logs"})
+        (verdict,) = [v for v in report.verdicts if v.fixture_id == fx.fixture_id]
+        (out,) = verdict.outcomes
+        return out.status
+
+    fabricated = outcome_for("no-such-decision-anywhere")
+    off_topic = outcome_for("birth-uniqueness")
+    assert off_topic == AssertionStatus.FAILED
+    assert fabricated == AssertionStatus.FAILED  # was DIVERGED — the inversion
+
+
+def test_the_readers_patience_is_capped_reader_side() -> None:
+    """BridgeSpec.timeout is written by the port: it may ask for less, never more.
+
+    The half of C5 that survived the deadline fix (MetaCoding-i48): a bridge
+    declaring `"timeout": 86400.0` re-created the original hang because the
+    reader's patience was a parameter in the port's own manifest.
+    """
+    from ctkr.oracle.port_adapter import PATIENCE_CAP, PortBridge
+
+    def bridge_with_timeout(t: float) -> PortBridge:
+        return PortBridge(PortManifest.model_validate({
+            "port": "p", "bridge": {"command": ["true"], "timeout": t},
+        }))
+
+    assert bridge_with_timeout(86400.0)._deadline() == PATIENCE_CAP
+    assert bridge_with_timeout(2.0)._deadline() == 2.0  # less is honoured
+
+
 def test_divergences_are_not_counted_as_passes() -> None:
     """Declaring must never be arithmetically identical to reproducing."""
     score = PortScore(assertions_total=10, answered=10, scored_answered=10,

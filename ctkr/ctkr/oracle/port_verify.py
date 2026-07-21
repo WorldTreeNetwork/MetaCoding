@@ -582,9 +582,19 @@ def _judge_assertion(
     # A sanction must be TOPICALLY bound. Existence was not enough: five
     # stock-arithmetic divergences all citing `birth-uniqueness` — a real
     # decision, about birth logs — were accepted, and the exit code went 1 → 3.
+    # And non-existence must never be SOFTER than existence: an id the registry
+    # cannot resolve used to skip this check and score DIVERGED, so a fabricated
+    # warrant landed in a milder bucket than a real-but-off-topic one
+    # (MetaCoding-8x0). The unresolvable id itself is already reported as a
+    # declaration problem by verify_port's manifest sweep.
     if decisions:
         did = declared.decision_id.strip()
-        if did in decisions and not decision_covers(decisions[did], t.assert_):
+        if did not in decisions:
+            return out(AssertionStatus.FAILED, actual=actual,
+                       detail=f"divergence cites {did!r}, which no registry "
+                              f"resolves — an unverifiable sanction sanctions "
+                              f"nothing")
+        if not decision_covers(decisions[did], t.assert_):
             declaration_problems.append(
                 f"{fx.fixture_id}/{t.assert_}({t.subject}): decision {did!r} "
                 f"exists but says nothing about {t.assert_!r} — a sanction must "

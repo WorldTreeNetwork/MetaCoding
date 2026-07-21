@@ -68,7 +68,13 @@ export const STATUS_CONTRACT = {
   /** logs: status is REPORTED as-is (the latest-wins value), never gated away. */
   logStatus: "count-regardless",
 
-  // ---- location: source-faithful (observation agrees with the original pick) ----
+  // ---- location: NOT OBSERVED — hand-checked live (4/4, 2026-07-20), never recorded.
+  // The label here used to read "observation agrees with the original pick"; no
+  // recorded observation exists (all ten legacy location fixtures carry
+  // provenance:null, and the flow DSL has no location verbs to record new ones —
+  // MetaCoding-b0s). These three rows are source-read + live spot-check
+  // (MetaCoding-4vh); do not cite them as observation-backed until a location
+  // OBSERVE pass lands. ----
   /** location: a pending movement is proposed, not yet physically true → inert. */
   currentLocation: "require-confirmed",
   /** location: assets-at-location reflects only confirmed movements. */

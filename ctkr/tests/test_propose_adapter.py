@@ -372,3 +372,23 @@ def test_format_cm_constraints_block_omits_unresolved():
     )
     assert format_cm_constraints_block([unresolved]) == ""
     assert format_cm_constraints_block([_BIRTH_BOUND]) != ""
+
+
+# --------------------------------------------------------------------------- #
+# MetaCoding-sag: the CM-registry coupling is discovered, never silently absent #
+# --------------------------------------------------------------------------- #
+def test_cm_registry_is_discovered_from_the_repo(tmp_path) -> None:
+    """Omitting --cm-decisions finds the repo's own bound registry; a tree
+    without one yields None so the caller warns instead of generating blind."""
+    from pathlib import Path
+
+    from ctkr.commands.propose_adapter import discover_cm_registry
+    from ctkr.oracle.port_contract import DEFAULT_DECISION_SOURCES
+
+    repo_root = Path(__file__).resolve().parents[2]
+    found = discover_cm_registry(start=repo_root / "ctkr")
+    assert found is not None
+    assert str(found.relative_to(repo_root)) in DEFAULT_DECISION_SOURCES
+
+    (tmp_path / ".git").mkdir()  # a bare unrelated repo: discovery must stop
+    assert discover_cm_registry(start=tmp_path) is None
