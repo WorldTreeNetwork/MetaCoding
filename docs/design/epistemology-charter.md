@@ -53,13 +53,23 @@ So we keep the laws and retire the courtroom.
 
 ## The stance: friends with ourselves
 
-**Kindness is adopted here as an epistemic virtue, not a mood.** Fear of
-judgment makes error expensive to admit, so error hides and compounds.
-Kindness — to ourselves and to each other — makes error cheap to surface, so
-it surfaces early, when it is small. A method that is exhausting to live
-inside will be abandoned or gamed; a method that is a good place to live will
-be extended. This is a practical claim and it is also simply the world we
-choose to build.
+Two values, adopted as epistemic virtues rather than moods, and they need
+each other (added 2026-07-21; see `../articles/the-infinite-game.md`):
+
+**Kind.** Fear of judgment makes error expensive to admit, so error hides and
+compounds. Kindness — to ourselves and to each other — makes error cheap to
+surface, so it surfaces early, when it is small. A method that is exhausting
+to live inside will be abandoned or gamed; a method that is a good place to
+live will be extended. This is a practical claim and it is also simply the
+world we choose to build.
+
+**Forthright.** Say the true thing plainly and early — "this is weaker than
+it looks," "I don't know," "here is the question this work is avoiding."
+Kindness without candor curdles into flattery: a reading that spares the
+builder and hides the counterexample has abandoned the search as surely as
+prosecution did. Forthrightness without kindness is the courtroom again.
+Together they are the posture of the infinite player: nothing to defend,
+nothing to hide, everything still to find out.
 
 **Deception and error are different problems.** Against deception from
 ourselves there is no internal defense, only external anchors. Against error,
@@ -88,8 +98,10 @@ deliberately.
   believes, with citations.
 - **Antithesis** — the fresh reading: a second mind, unsaturated, reads the
   work against the world and states what it sees — including, freely, the
-  strongest counterexample it can construct. This is the *elenchus*: the
-  question that tests whether an account survives contact.
+  strongest counterexample it can construct. We name this phase the
+  **Elenchus**, after the Socratic examination: its product is the *pith* —
+  the one antithesis question that says what a dozen scattered findings were
+  trying to say, and that tests whether the account survives contact.
 - **Synthesis** — neither side "wins." The friction reveals what was hidden
   beneath — usually a better-posed question replacing several patches (the
   refactor step of the iteration loop already knows this: four findings
