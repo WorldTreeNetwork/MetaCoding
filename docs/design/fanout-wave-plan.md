@@ -5,6 +5,15 @@
 > `eval/ctkr/results/` (cited inline). Status: kernel v1 frozen; wave-0 pilot
 > in flight; wave 1 pending Duke's morning review of the decided-for-me record
 > (`shared-kernel.md` §Resolution record).
+>
+> Re-read against `epistemology-charter.md` on 2026-07-21. Most of this plan
+> already was the charter, written before it was spoken: observation before
+> assertion (step 4), the shared kernel, decisions-with-reversal-conditions,
+> goalpost discipline, and punt-promotion — the rules evolving through play,
+> the infinite game in miniature. The re-read changed vocabulary
+> (judge→reader, verdict→reading), restated fresh-reading's rationale as
+> saturation rather than suspicion, and added the one thing missing: the
+> Elenchus at the wave boundary.
 
 ## Preconditions — all met
 
@@ -32,8 +41,9 @@
 6. **Build**: one blind builder per feature ON the kernel (KindRegistry, ids/HLC,
    `pickLatest`, status gates, bound CM registry — the primitives make the
    observed failure modes unrepresentable).
-7. **Judge**: independent per-feature runner + composition smoke against the
+7. **Read**: independent per-feature runner + composition smoke against the
    accumulated store + prevention checks (no ad-hoc kinds, no ordinal ids).
+   (Formerly "Judge" — vocabulary per `epistemology-charter.md`.)
 
 Per-feature LLM cost, measured: **≈ $0.30–0.60** (surface ~$0.13, mining ~$0.16,
 adjudication ~$0.01, builder ~$0.25). 147 features ≈ **< $100 total LLM spend**.
@@ -43,8 +53,9 @@ review, not tokens.
 ## Wave structure
 
 - **Wave 0 (pilot, in flight)** — 2 fresh clean-slice features through the full
-  recipe; deliverable is the friction log (wave 1's automation backlog) and a
-  wave-readiness verdict.
+  recipe; deliverable is the friction log — read twice: as wave 1's automation
+  backlog, and as Elenchus material (what one question do these frictions add
+  up to?) — and a wave-readiness reading.
 - **Wave 1** — first domain cluster(s), ~10–15 clean-slice features. Clusters
   come from the feature×kind graph: features sharing only kernel kinds
   parallelize; features sharing NEW (non-kernel) kinds serialize through one
@@ -73,8 +84,11 @@ review, not tokens.
 - **Wave-builders**: each owns a cluster of kind-sharing features sequentially
   (one-mind coherence where it pays — the 27/27 lesson). Fresh builders across
   clusters.
-- **Judges & oracle observers: always fresh, never the builder.** The invariant
-  the entire evidence line rests on.
+- **Readers & oracle observers: always fresh, never the builder.** Not
+  suspicion — saturation: a builder is too deep in its own weeds to see, and a
+  fresh reading is the gift that catches what the builder cannot (charter,
+  principle 5). The practice is unchanged from the courtroom era; the rationale
+  determines what we build next, so it is stated correctly here.
 - **Punt-promotion**: deferred-with-dependency decisions are extracted from every
   build (`ctkr decisions` extraction — bead 9h5.22); N punts on one topic
   auto-promote it to a kernel candidate on the wave-boundary elicitation menu.
@@ -83,8 +97,21 @@ review, not tokens.
   checkpoint and pause; its decisions are extracted, not lost.
 - **Wave-boundary ritual**: full cross-pack regression (all accumulated packs
   against the accumulated store) + target-side coherence check (hom-profile/role
-  consistency across the growing codebase — second-opinion R4) + elicitation
-  menu to Duke + kernel version freeze.
+  consistency across the growing codebase — second-opinion R4) + **the
+  Elenchus** + elicitation menu to Duke + kernel version freeze.
+
+  **The Elenchus (added 2026-07-21, per the charter).** Before the elicitation
+  menu is drawn up, one fresh interlocutor — not a builder, not the
+  kernel-keeper — reads the wave WHOLE: every build's extracted decisions and
+  punts (the thesis material), the friction log, and the regression results.
+  Its deliverable is not a finding list but the **pith**: the one to three
+  antithesis questions that say what the wave's scattered frictions were
+  trying to say. The synthesis of those questions shapes the elicitation menu
+  and the kernel-freeze agenda — so promotion into kernel v1.1 is informed by
+  *significance*, not only by the punt-promotion count (frequency catches the
+  common punt; the Elenchus catches the important punt that occurred once).
+  Kind and forthright: the reading is addressed to colleagues, and it names
+  the question the wave's work is avoiding, plainly.
 
 ## Standing policies
 
