@@ -60,6 +60,17 @@ a number. The residual gap is narrowed, not closed, and it is not closed by
 that live under a tree containing one, and a forger works elsewhere. What the
 registry buys is that a pack shipped from THIS repo cannot be quietly re-sealed
 or truncated without a visible diff in a file the party being judged does not own.
+
+**THE POSTURE (2026-07-21, closes MetaCoding-fmw).** The residual gap above is
+closed by decision, not by escalation. This harness ASSUMES GOOD FAITH: its
+machinery defends against error, saturation, and drift — the failure modes of
+honest work — not against a determined forger among ourselves, because no
+internal machinery can (every defense here is built by the hands it would
+defend against; there is no fixed point inside the system). Its authorities
+are external and named: the live source, reviewed history, human eyes. The
+seal IDENTIFIES a pack; the witness CITES an observation; the ledger REMEMBERS
+what was recorded; none of them prosecutes. Further tamper-resistance against
+ourselves is out of scope — see docs/design/epistemology-charter.md.
 """
 
 from __future__ import annotations

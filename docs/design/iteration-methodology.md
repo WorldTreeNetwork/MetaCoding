@@ -115,15 +115,40 @@ exact pure-LLM failure this method exists to refute.
 Corollary, learned the hard way: **judges are always fresh, never the builder** —
 and a judge must prove which tree it tested before its findings count.
 
+> **Reframe (2026-07-21): the courtroom is retired.** See
+> `epistemology-charter.md`. The loop stands — red-as-property, green, the
+> fake-it question as *calibration*, refactor — but its purpose is dialectic,
+> not prosecution: friction in service of revealing what is hidden, between
+> parties assumed to be in good faith. "Judge" becomes **reader**, "adversary"
+> becomes **interlocutor**, "attack" becomes **counterexample**, migrating as
+> code is touched. Defenses target error, saturation, and drift; escalations
+> whose only purpose is tamper-resistance against ourselves are out of scope
+> by decision. This reframe was decided by Duke, outside the loop — consistent
+> with "no account certifies itself."
+
 ## The standing reds
 
 Closed:
 - *A port that is wrong about farmOS cannot score better than one that is right.*
   (the GO test — was inverted, now 100.0% vs 71.4%)
-
-Open:
 - **No artifact in the pipeline can endorse a claim its own witnesses contradict.**
-  (MetaCoding-96q) **PARTIALLY closed — the naive forms only.**
+  (MetaCoding-96q / MetaCoding-fmw) **Closed by posture, not by construction —
+  and the distinction is recorded, not hidden.** The error-shaped forms are
+  blocked by construction (witness values checked, orphans refused, evidence
+  class re-derived, no public sealing verb). The deception-shaped residue —
+  edit value + witness, call `seal_recording()`, full GO-test re-inversion,
+  two field edits and a library call — is closed by the charter's stated
+  assumption: the harness assumes good faith, its authorities are external
+  (live source, reviewed history, human eyes), and no internal machinery can
+  defend a system against its own hands. See the posture paragraph in
+  `ctkr/ctkr/oracle/pack.py` and `epistemology-charter.md`. The
+  history-anchoring red formerly proposed below is superseded by the same
+  decision: the `PACKS.jsonl` ledger stays as **citation** (provenance a
+  reader can consult), and is not escalated into a prosecution mechanism.
+
+Historical record of the partial closure (kept because the loop's first outing
+is itself evidence):
+- (MetaCoding-96q) **was PARTIALLY closed — the naive forms only.**
 
   Real progress, blocked BY CONSTRUCTION: the recorder now writes a WITNESS
   observation carrying the VALUE each probe read, bound to its assertion inside
@@ -152,14 +177,22 @@ Open:
   first use. It is not an argument for skipping step 3; it is the reason step 3
   can never be the last step.
 
+Open:
 - **A witness proves what the RECORDER saw, not what farmOS said.** The witness
   is filled from the same `_observe_probe` call that fills the assertion, so a
   wrong adapter produces a wrong fixture and a wrong witness that agree. This
   closes post-hoc editing and does nothing about a mis-derived value — that is
   invariant 1's job (authority + derivation stamps), and it is why a derivation
   correction still invalidates every value recorded under the old one.
-- **NEXT RED (proposed): evidence is only what the repository's reviewed history
-  says was recorded.** Every forgery that still works has the same shape — a
+- ~~**NEXT RED (proposed): evidence is only what the repository's reviewed history
+  says was recorded.**~~ **SUPERSEDED by the charter (2026-07-21).** This red was
+  prosecution-shaped: its motivating forger is ourselves, and the charter closes
+  that by stated assumption rather than by mechanism. What survives of it is
+  citation: the ledger already records every seal a recording issued, and a
+  reader may consult it. The original reasoning is kept below because its core
+  observation — an unkeyed digest cannot distinguish a recording from a
+  simulation — is true and worth remembering. Every forgery that still works
+  has the same shape — a
   self-consistent pack built offline, in `/tmp`, by someone who can import the
   sealing library. Chasing that with a stronger hash is the sideways move the
   loop warns about: an unkeyed digest cannot distinguish a recording from a
