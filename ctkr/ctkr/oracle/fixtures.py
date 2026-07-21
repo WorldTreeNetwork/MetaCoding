@@ -117,10 +117,85 @@ class ThenAssertion(BaseModel):
     other: str = ""  # second entity alias (has_parent)
     op: str = "=="  # one of glossary.COMPARISON_OPS
     value: Any = None  # expected value (number | bool | status string)
+    #: The obs_id of the WITNESS observation this value was read from — the
+    #: recorder's note of what the source actually answered for this exact probe.
+    #: It is part of the hashed body, so an assertion cannot be detached from its
+    #: witness without changing the fixture's id. The witness is checked at load
+    #: (:func:`ctkr.oracle.pack._fixture_problems`): a value that contradicts the
+    #: observation it cites is INVALID EVIDENCE, not a pass.
+    witness: str = ""
 
     def dump_aliased(self) -> dict[str, Any]:
         """Serialize with the JSON ``assert`` key (round-trips through JSONL)."""
         return self.model_dump(by_alias=True, exclude_none=False)
+
+
+def order_sensitivity(when: list[WhenStep]) -> str:
+    """Why a flow's observed value depends on the SOURCE's ordering, if it does.
+
+    Two or more writes sharing one effective time against the same subject leave
+    the outcome to whatever the source uses to break the tie — for farmOS, entity
+    insertion id. The value observed is then that tie-break's fingerprint, not a
+    semantic a correct port must reproduce: w0a's three same-instant adjustments
+    observed 3.0, and the same three events in the six possible orders yield four
+    different values.
+
+    It lives HERE, on the ``when`` clause, rather than only on the recorder's
+    flow spec, because the party READING a pack has to be able to re-derive it.
+    A fixture's ``evidence_class`` is otherwise a claim the pack makes about
+    itself — which is exactly the self-marking attack: setting
+    ``corroboration-only`` on the one fixture a port fails scored EXIT=0,
+    "reproduced 100%", while the ``[FAIL]`` line still printed in the body.
+    """
+    seen: dict[tuple[str, str], int] = {}
+    for w in when:
+        if not w.at:
+            continue
+        for subject in (w.against or ([w.ref] if w.ref else [])):
+            key = (subject, w.at)
+            seen[key] = seen.get(key, 0) + 1
+    clashes = sorted(k for k, n in seen.items() if n > 1)
+    if not clashes:
+        return ""
+    return (
+        "two or more writes share one effective time against the same subject "
+        f"({', '.join(f'{s} @ {t}' for s, t in clashes)}), so the observed value "
+        "is decided by the SOURCE's tie-break (entity insertion order), not by a "
+        "semantic every correct implementation must reproduce"
+    )
+
+
+def probe_descriptor(t: ThenAssertion) -> dict[str, Any]:
+    """The QUESTION an assertion asks, in the assertion's own vocabulary.
+
+    A witness observation carries the same dict. Comparing them at load is what
+    stops a witness from being re-pointed at a question it never answered — e.g.
+    citing the ``yield_total(A, weight, kilogram)`` witness from a fixture whose
+    assertion is ``yield_total(A, weight, pound)``.
+    """
+    return {
+        "assert": t.assert_, "subject": t.subject, "measure": t.measure,
+        "unit": t.unit, "kind": t.kind, "group": t.group, "other": t.other,
+        "op": t.op,
+    }
+
+
+def same_value(a: Any, b: Any) -> bool:
+    """Whether two recorded values are the same delivered value.
+
+    Numeric equality is by value (``5`` and ``5.0`` are one number); ``True`` is
+    not ``1``, because a boolean and a count are different answers. Everything
+    else compares by its canonical JSON form, which is how both sides were
+    written to disk.
+    """
+    a_bool, b_bool = isinstance(a, bool), isinstance(b, bool)
+    if a_bool != b_bool:
+        return False
+    if not a_bool and isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return float(a) == float(b)
+    return json.dumps(a, sort_keys=True, default=str) == json.dumps(
+        b, sort_keys=True, default=str
+    )
 
 
 class Provenance(BaseModel):
@@ -190,6 +265,15 @@ class SemanticFixture(BaseModel):
             "when": [w.model_dump() for w in self.when],
             "then": [t.dump_aliased() for t in self.then],
             "schema_version": self.schema_version,
+            # The evidence class is a CLAIM ABOUT THIS FIXTURE, not a recording
+            # timestamp, so it belongs inside the id. Attack (c) — self-marking —
+            # flipped `evidence_class` to "corroboration-only" on exactly the
+            # fixture a port failed and re-sealed: EXIT=0, "reproduced 100%",
+            # while the [FAIL] line still printed. Hashing it here makes that
+            # edit change the fixture's id BY CONSTRUCTION, so the pack no longer
+            # matches its own seal and the fixture no longer hashes its own body.
+            "evidence_class": self.provenance.evidence_class,
+            "evidence_note": self.provenance.evidence_note,
         }
 
     def content_id(self) -> str:
@@ -401,8 +485,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
     if fx.fixture_id and fx.fixture_id != fx.content_id():
         err("fixture_id",
             f"{fx.fixture_id} does not hash this fixture's body "
-            f"({fx.content_id()}) — the scenario or an expected VALUE was edited "
-            f"after recording")
+            f"({fx.content_id()}) — the scenario, an expected VALUE, a "
+            f"witness ref, or the evidence class was edited after recording")
 
     # --- given: entity terms legal, aliases unique --------------------------
     aliases: dict[str, str] = {}  # alias -> entity term

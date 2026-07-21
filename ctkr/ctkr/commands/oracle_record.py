@@ -20,7 +20,7 @@ from pathlib import Path
 from ctkr.oracle.fixtures import validate_fixture, write_fixtures
 from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
 from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
-from ctkr.oracle.pack import PackError, seal_pack
+from ctkr.oracle.pack import PackError, seal_recording
 from ctkr.oracle.recorder import (
     build_client,
     record_session_result,
@@ -115,19 +115,20 @@ def run(args: argparse.Namespace) -> int:
     out = Path(args.out_dir)
     fx_path = out / "fixtures.jsonl"
     obs_path = out / "observations.jsonl"
-    n_fx = write_fixtures(fixtures, fx_path)
-    n_obs = write_observations(observations, obs_path)
 
-    # SEAL the pack the moment it is written, by the party that wrote it. From
-    # here on the pack is a whole artifact: whoever is judged against it can no
-    # longer choose a subset of it, edit an expected value in it, or re-classify
-    # its evidence. See ctkr/oracle/pack.py.
+    # WRITE AND SEAL IN ONE ACT, by the party that made the observations. There
+    # is deliberately no path from "a fixtures.jsonl on disk" to "a seal": the
+    # files and the seal are produced together from what the live source
+    # answered, witnesses included. See ctkr/oracle/pack.py.
     seal = None
     seal_error = ""
+    n_fx, n_obs = len(fixtures), len(observations)
     try:
-        seal = seal_pack(fx_path)
+        seal = seal_recording(fixtures, observations, out)
     except PackError as exc:
         seal_error = str(exc)
+        n_fx = write_fixtures(fixtures, fx_path)
+        n_obs = write_observations(observations, obs_path)
 
     issues = [i for fx in fixtures for i in validate_fixture(fx)]
     sys.stderr.write(

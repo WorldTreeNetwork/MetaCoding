@@ -1,19 +1,19 @@
 {
-  "pack_id": "9297f279cc82",
-  "recorded_at": "2026-07-20T19:41:26.899422+00:00",
+  "pack_id": "0bbedf28cd75",
+  "recorded_at": "2026-07-21T10:07:33.377969+00:00",
   "source_system": "farmOS",
   "source_version": "4.x",
   "fixture_ids": [
-    "bfedf52fa89d650671bc57b42ff350b5",
-    "fa5a7917526b7a1ae18a38e7efc670f0",
-    "2c3257a0a6251185645a636be1b6a4fd",
-    "4f61acc690f79576fabd15ea7f358d2e",
-    "5731bd271549dd0ddc7c552ce349e3d5",
-    "8c412352c77052ed58809d6c1757fddc",
-    "897b0295f9aed3c09db6d876620f53f1"
+    "31b7e600e29e414432ee8bb4190321b0",
+    "898b4b95f71a51d876e1973b805e3e87",
+    "c6b5abdc99c6ec50b926ed7b24ef84cd",
+    "55e5aae5e36a7f128dddb9564d97d3ce",
+    "119fcd62913f50d972755466be8f2912",
+    "dda78d329522a71070c5e91f73ff45b1",
+    "a94a5da1176e7d17c993006a600d7293"
   ],
-  "fixtures_blake3": "266fa5adf364912d5161c6b10e7509fe",
-  "observations_blake3": "bd64c5cfae4ca95ce559ebf26b1c03a7",
+  "fixtures_blake3": "cc870271677a4c002be26eeaf40c7c70",
+  "observations_blake3": "19d28105791164dfea8ef4cd8914b521",
   "derivations": {
     "yield_total": "3f299470a126f329",
     "log_count": "6c6869b9e8a9b6e4",
@@ -26,5 +26,5 @@
     "has_parent": "b72317e3a75bc406",
     "birth_record_count": "dada0d951d78c63e"
   },
-  "seal": "9297f279cc827a7343e473fa596278e0"
+  "seal": "0bbedf28cd75703aee960399120b2236"
 }

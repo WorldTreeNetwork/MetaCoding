@@ -37,13 +37,24 @@ from ctkr.oracle.fixtures import (
     SemanticFixture,
     ThenAssertion,
     WhenStep,
+    order_sensitivity,
+    probe_descriptor,
 )
 from ctkr.oracle.probes import PROBE_CONTRACT
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 
+#: A boundary request/response pair — transport-level provenance.
+BOUNDARY_RECORD = "boundary"
+#: A WITNESS: the recorder's note of the VALUE a probe read from the source.
+#: Until this existed, an Observation's excerpt was ``{"type","id"}`` or
+#: ``{"count":n}`` — the recorder never recorded the value a probe observed, so
+#: the witness that would catch a forged expected value was in the pack and mute.
+WITNESS_RECORD = "witness"
+
+
 class Observation(BaseModel):
-    """One recorded request/response pair at the JSON:API boundary (provenance)."""
+    """One recorded fact — a boundary exchange, or a witnessed probe value."""
 
     obs_id: str
     method: str
@@ -51,6 +62,15 @@ class Observation(BaseModel):
     request: dict[str, Any] | None = None
     response_status: str = "ok"
     response_excerpt: dict[str, Any] | None = None
+    #: :data:`BOUNDARY_RECORD` or :data:`WITNESS_RECORD`.
+    record: str = BOUNDARY_RECORD
+    #: WITNESS only: which probe was asked, in the assertion's own vocabulary.
+    #: Compared field-for-field at load against the assertion that cites it, so a
+    #: witness cannot be re-pointed at a different question than it answered.
+    probe: dict[str, Any] | None = None
+    #: WITNESS only: the value the SOURCE delivered. This is the fact a fixture's
+    #: expected value is checked against.
+    observed: Any = None
 
 
 class RecordingClient(FarmOSClient):
@@ -460,6 +480,41 @@ def hardening_flows() -> list[FlowSpec]:
                 Probe(assert_="group_member", subject="A", group="G1"),
             ],
         ),
+        # 8b. Group membership RECURSES. A in G1 and G1 in G2 makes A a member of
+        #     G2 — farmOS's GroupMembership::getGroupMembers recurses BY DEFAULT
+        #     ($recurse = TRUE). MetaCoding-ck2: no shipped pack discriminated
+        #     the corrected transitive group_member from its regression, because
+        #     core-pack's single direct assertion scores 1/1 for a port that
+        #     recurses and for one that does not. This flow separates them: a
+        #     non-recursive port answers group_member(A, G2) = False where farmOS
+        #     answers True.
+        FlowSpec(
+            key="group-membership-recurses",
+            title="An animal in a group that is itself in a group is a member of both",
+            feature="group-membership",
+            glossary_terms=["animal", "group", "group_member", "assign_to_group"],
+            given=[
+                GivenStep(entity="animal", alias="A", name="Ewe Yarrow",
+                          descriptor="Sheep"),
+                GivenStep(entity="group", alias="G1", name="Inner Flock"),
+                GivenStep(entity="group", alias="G2", name="Outer Flock"),
+                GivenStep(entity="group", alias="G3", name="Unrelated Flock"),
+            ],
+            when=[
+                WhenStep(action="assign_to_group", ref="A", group="G1"),
+                WhenStep(action="assign_to_group", ref="G1", group="G2"),
+            ],
+            probes=[
+                # direct membership — the control every port gets right
+                Probe(assert_="group_member", subject="A", group="G1"),
+                # TRANSITIVE membership — the discriminating value
+                Probe(assert_="group_member", subject="A", group="G2"),
+                # the chain itself
+                Probe(assert_="group_member", subject="G1", group="G2"),
+                # and recursion does not leak into an unrelated group
+                Probe(assert_="group_member", subject="A", group="G3"),
+            ],
+        ),
         # 9. Identical logs are NOT de-duplicated — an append-only history keeps
         #    both. (The birth-log uniqueness scenario, generalized: the live
         #    farmOS bare install has no farm_birth module, so the duplicate
@@ -569,23 +624,12 @@ def detect_order_sensitivity(flow: FlowSpec) -> str:
 
     Detected rather than declared: the author of the w0a pack did not notice, the
     judges did — after the fixture had already been scored.
+
+    The detection itself lives in :func:`ctkr.oracle.fixtures.order_sensitivity`,
+    on the ``when`` clause, so that the party READING a pack re-derives the same
+    answer instead of believing the pack's own label.
     """
-    seen: dict[tuple[str, str], int] = {}
-    for w in flow.when:
-        if not w.at:
-            continue
-        for subject in (w.against or ([w.ref] if w.ref else [])):
-            key = (subject, w.at)
-            seen[key] = seen.get(key, 0) + 1
-    clashes = sorted(k for k, n in seen.items() if n > 1)
-    if not clashes:
-        return ""
-    return (
-        "two or more writes share one effective time against the same subject "
-        f"({', '.join(f'{s} @ {t}' for s, t in clashes)}), so the observed value "
-        "is decided by the SOURCE's tie-break (entity insertion order), not by a "
-        "semantic every correct implementation must reproduce"
-    )
+    return order_sensitivity(flow.when)
 
 
 def record_flow(
@@ -626,28 +670,55 @@ def record_flow(
             f"either the invariant does not exist or the flow does not violate it."
         )
 
+    # Every assertion below is issued together with the WITNESS that produced
+    # its value. The two are minted in the same breath and cannot be separated:
+    # the assertion carries the witness's obs_id inside the fixture's hashed
+    # body, and the witness carries the value the source delivered.
     then: list[ThenAssertion] = []
-    if refusal is not None:
-        then.append(
-            ThenAssertion(
-                assert_="refused", subject=flow.when[-1].ref or flow.when[-1].alias,
-                op="==", value=True,
-            )
+    witnesses: list[Observation] = []
+
+    def _witness(descriptor: dict[str, Any], observed: Any) -> str:
+        obs = Observation(
+            obs_id=blake3(
+                json.dumps(
+                    {"flow": flow.key, "n": len(witnesses), "probe": descriptor},
+                    sort_keys=True, default=str,
+                ).encode("utf-8")
+            ).hexdigest()[:16],
+            method="OBSERVE",
+            path=f"probe/{descriptor['assert']}",
+            record=WITNESS_RECORD,
+            probe=descriptor,
+            observed=observed,
         )
+        witnesses.append(obs)
+        return obs.obs_id
+
+    if refusal is not None:
+        a = ThenAssertion(
+            assert_="refused", subject=flow.when[-1].ref or flow.when[-1].alias,
+            op="==", value=True,
+        )
+        # A refusal is a value the source delivered in its own words, so it is
+        # witnessed like any other — the source's refusal text is the excerpt.
+        a.witness = _witness(probe_descriptor(a), True)
+        then.append(a)
+        witnesses[-1].response_status = "refused"
+        witnesses[-1].response_excerpt = {"refusal": str(refusal)[:600]}
     for probe in flow.probes:
         if refusal is not None:
             # A probe after a refused write would read state the write never
             # produced. Refusal flows assert the refusal, nothing more.
             break
         observed = _observe_probe(adapter, probe, handles)
-        then.append(
-            ThenAssertion(
-                assert_=probe.assert_, subject=probe.subject,
-                measure=probe.measure, unit=probe.unit, kind=probe.kind,
-                group=probe.group, other=probe.other, op=probe.op,
-                value=observed,
-            )
+        a = ThenAssertion(
+            assert_=probe.assert_, subject=probe.subject,
+            measure=probe.measure, unit=probe.unit, kind=probe.kind,
+            group=probe.group, other=probe.other, op=probe.op,
+            value=observed,
         )
+        a.witness = _witness(probe_descriptor(a), observed)
+        then.append(a)
 
     # Evidence quality travels WITH the fixture. Declared by the flow, or
     # detected from what the flow does — a caller-supplied side file is not
@@ -655,7 +726,20 @@ def record_flow(
     detected = detect_order_sensitivity(flow)
     evidence_class = "scoring"
     evidence_note = ""
-    if flow.corroboration_only or detected:
+    if flow.corroboration_only and not detected:
+        # A DECLARED exemption the reader cannot re-derive is exactly the pen the
+        # flow author must not hold — the loader will refuse it (pack.py), so
+        # refuse it HERE, where the author can still fix the flow, rather than
+        # shipping a pack that turns into INVALID EVIDENCE at judging time.
+        raise UnearnedExemption(
+            f"flow {flow.key!r} declares corroboration_only "
+            f"({flow.corroboration_reason or 'no reason given'}), but nothing in "
+            f"its `when` clause makes the observed value order-dependent: no two "
+            f"writes share an effective time against one subject. An exemption "
+            f"from scoring must be re-derivable from the flow by whoever reads "
+            f"the pack, not asserted by whoever wrote it."
+        )
+    if detected:
         evidence_class = "corroboration-only"
         evidence_note = flow.corroboration_reason or detected
 
@@ -673,7 +757,7 @@ def record_flow(
         if t in PROBE_CONTRACT and PROBE_CONTRACT[t].derivation_id
     }
 
-    observations = list(getattr(client, "observations", []))[obs_start:]
+    observations = list(getattr(client, "observations", []))[obs_start:] + witnesses
     fixture = SemanticFixture(
         title=flow.title,
         feature=flow.feature,
@@ -698,6 +782,10 @@ def record_flow(
 
 class RefusalNotObserved(RuntimeError):
     """A flow declared ``expect_refusal`` but the source accepted the write."""
+
+
+class UnearnedExemption(RuntimeError):
+    """A flow declared corroboration-only and nothing in the flow earns it."""
 
 
 @dataclass
@@ -738,7 +826,8 @@ def record_session_result(
         obs_start = len(getattr(adapter.client, "observations", []))
         try:
             fx, obs = record_flow(adapter, flow, source_version)
-        except (AdapterError, RefusalNotObserved, KeyError, ValueError) as exc:
+        except (AdapterError, RefusalNotObserved, UnearnedExemption,
+                KeyError, ValueError) as exc:
             # Keep whatever the boundary said before it failed — for a refusal
             # that excerpt IS the finding.
             result.observations.extend(

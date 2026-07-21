@@ -277,3 +277,191 @@ All attack artifacts are **SANDBOX**, none in the repo, nothing committed. The w
 **Production paths referenced (read-only, unmodified):** `/Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/oracle/data/core-pack/`, `.../data/hardening-pack/`, `/Users/dukejones/work/WorldTree/MetaCoding/eval/ctkr/port_runs/wave1-c1/`, `/Users/dukejones/work/WorldTree/MetaCoding/eval/ctkr/port_runs/kernel-9h5.24/build/cm-decisions.jsonl`, `/Users/dukejones/work/WorldTree/MetaCoding/eval/ctkr/port_runs/PACKS.jsonl`.
 
 **Live oracle:** `http://localhost:8095`, shared. Used for `oracle-record` (creating ordinary test animals and groups), `oracle-verify`, and read-only `drush php:eval` / container file reads against `GroupMembership.php`. `bring-up.sh` and `docker` were never invoked.
+
+---
+---
+
+# Round 2 — 2026-07-21: the witness invariant, adversarially tested
+
+**Tree under test:** git HEAD `444dd532b5b715b6d5bc32b7d57175052d7bbf53` on `main`, with the round-2 change present as **uncommitted working-tree modifications** (13 paths: `D ctkr/ctkr/commands/oracle_seal.py`, `M ctkr/ctkr/oracle/{pack,fixtures,recorder}.py`, `M ctkr/ctkr/commands/oracle_record.py`, `M ctkr/ctkr/oracle/data/{core,hardening}-pack/*`, `M ctkr/tests/test_oracle_invariants.py`, `M docs/design/iteration-methodology.md`). Suites on this exact tree: `uv run pytest` → **633 passed / 3 skipped** (was 626/3); `bun test` → **484 pass / 0 fail**. Two independent adversarial lenses; all attack artifacts **SANDBOX ONLY** under `/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/16b09ed7-6185-46f1-b167-14accfadbd96/scratchpad/`. Nothing written to the repo, nothing committed, `eval/ctkr/port_runs/PACKS.jsonl` untouched.
+
+## 1. Is the red true?
+
+# NO.
+
+**"No artifact in the pipeline can endorse a claim its own witnesses contradict" does not hold.** It is true as literally written — and it is satisfiable in two ways that cost one line each, because the witness is a *second copy*, not a *second source*, and because it covers only `then`.
+
+**The attack that decides it — the `when`-clause exemption forgery.** The round-2 fix for attack (c) replaced *"believe the pack's `evidence_class`"* with *"re-derive the exemption from `fx.when`"* (`ctkr/ctkr/oracle/pack.py:407` → `fixtures.order_sensitivity`). That moved the pen; it did not remove it. `then` is now witnessed assertion-by-assertion. `when` is inside the same hashed body and is witnessed by **nothing** — `_witness_problem` (pack.py:330-368) compares only `probe_descriptor(t)` and the value. So the forger stops forging the label and forges the thing the label is derived from.
+
+Against the re-recorded **shipped** hardening-pack (11 fixtures, seal `8e1665dfba25`), add `at:"-3600"` to two `assign_to_group` steps sharing one `ref` in the two fixtures a non-recursive port fails, set `evidence_class=corroboration-only`, recompute `content_id()`, re-seal via `seal_recording`. Loader result: `valid=11 INVALID=0`. End-to-end against a port that is **wrong** about farmOS:
+
+| | headline | clean |
+|---|---|---|
+| HONEST `8e1665dfba25` | `reproduced 31/33` | **False** — 2 value failures |
+| FORGED `75a039197f87` | `reproduced 27/27 (of 33), 0 sanctioned divergences, 0/33 NO VERDICT, 6 corroboration-only excluded` | **True**, `needs_review: NONE` |
+
+…while `[FAIL] group-membership-recurses group_member expected True got False` is still computed inside the run. That is attack (c)'s exact signature, at full strength, against the hardened tree. **`observations.jsonl` is byte-identical**: no witness edited, no `observation_refs` edited, no orphan created, no witness contradicted. The implementation report's cost claim ("editing the fixture AND its witness AND `observation_refs` AND pruning the orphan set AND both digests") does not apply to this path at all.
+
+**The second decider — attack (a2), the two-edit forgery.** Edit `then[i].value` *and* `r["observed"]` on the observation it already cites. On a GO-test pack recorded from the live oracle minutes earlier, this **fully re-inverted the GO test**: honest portB (matches farmOS) 4/4 = 100.0% EXIT=0 / portA 3/4 = 75.0% EXIT=1, becomes forged portA 4/4 = 100.0% EXIT=0 / portB 3/4 = 75.0% EXIT=1, header `fixtures: 3 (0 could not run, 0 corroboration-only, 0 INVALID EVIDENCE)`, no warning of any kind. `observation_refs` key on `obs_id`, which does not change; the orphan set does not change; `seal_recording` recomputes both file digests and the seal *for the attacker*.
+
+**Why, generally.** The witness is minted from the same `_observe_probe` return as the assertion (`recorder.py:713-720`). It is a duplicate copy inside the same artifact, held by the same writer, under the same unkeyed authority. Such a copy cannot testify against that writer — it catches an editor who *forgets the copy exists*, which was exactly last round's adversary and is not the next one. And it only ever covers `then`: `given`, `when`, `glossary_terms`, `feature` are hashed but unattested. **The recorder wrote down answers, never questions or setup.**
+
+## 2. Attack ledger
+
+### Blocked BY CONSTRUCTION (7)
+
+| Attack | Mechanism that kills it |
+|---|---|
+| **(a) SURGICAL FORGERY** — edit expected value, recompute `content_id()`, re-seal | `same_value(w["observed"], t.value)` at pack.py:362. Reproduced verbatim: *"then[0] expects group_member == False, but its own witness `e90f1332dc7fd7dc` records the source delivering True. INVALID EVIDENCE."* CLI verb `ctkr oracle-seal` is gone (`ctkr --help` → 0 hits; the file does not exist), so the re-seal had to go through the library. |
+| **(b-naive) SUBSET** — drop failing fixtures, re-seal | Orphan-witness rule, `load_pack` pack.py:517-533. `PackError: 6 witness observation(s) are claimed by no assertion in this pack … A pack is judged whole. NO VERDICT.` |
+| **(c) SELF-MARKING** — set `evidence_class` on the failing fixture | Two independent blocks: the class is inside `_body_for_hash` (fixtures.py:275) so the label changes the fixture id, and the loader **re-derives** the exemption via `order_sensitivity(fx.when)`. *"claims evidence_class=corroboration-only, but nothing in the fixture earns it."* (Superseded by the round-2 break above — the re-derivation is itself forgeable.) |
+| **UNWITNESSED ASSERTION** — blank `then[i].witness`, delete the observation | Pre-existing `observation_refs` resolution check fires first. Note: pack.py:337's dedicated "names no witness" message is therefore **unreachable** whenever the recorder also wrote provenance refs. |
+| **WITNESS DETACHED** — blank `then[i].witness`, keep the observation | Orphan rule: *"4 witness observation(s) are claimed by no assertion."* |
+| **EMPTY `then[]`** — delete the failing assertions, keep the fixture | Rejected — but by provenance refs, not by the witness check. `_witness_problem` is genuinely vacuous on an empty `then[]`. |
+| **DEMOTE THE WITNESS** — flip `record="witness"` → `"boundary"` | Citation dangles rather than the check skipping: *"cites witness … which is not in this pack's observations.jsonl."* |
+| **BOUNDARY/DERIVED MISLABELLING** | `PROBE_CONTRACT` lives in `ctkr/ctkr/oracle/probes.py`, which no pack can edit; `current_derivations()` is read from the module, not the pack. The label is not in the artifact. |
+
+`same_value` type handling was measured across a matrix and is careful: `3.0 == 3` True; `True == 1` **False**; `False == 0` **False**; `['a','b'] != ['b','a']` (order significant, correct for `nicknames`); `0.1+0.2 != 0.3`. Exact float comparison is right here — both sides pass through the same recorder's `json.dumps`, so no representational drift exists to tolerate.
+
+### OPEN (6) — full statements
+
+---
+
+**OPEN-A. `when`-CLAUSE EXEMPTION MANUFACTURE — attack (c) reborn through the unwitnessed clause.** *Not blocked, and not by a guard either — there is no check on this path at all.*
+
+Full detail in §1. Scripts `scratchpad/atk/attack_when.py`, `scratchpad/atk/e2e.py`; forged pack `scratchpad/atk/pack2/` (SANDBOX). Verified independently at HEAD: `order_sensitivity(when)` reads `w.at`, `w.against`, `w.ref` and nothing else, and no witness record covers any of them. Verdict flip honest `clean=False` → forged `clean=True` against a port that is wrong about farmOS. Cost: change one string in one `when` step, flip one label, recompute one hash, re-seal. The witnesses, observations, orphan set and both file digests come along for free, because none of them was ever a function of `when`.
+
+---
+
+**OPEN-B. TWO-EDIT FORGERY (a2) — forge the witness alongside the assertion.** *Not blocked.*
+
+Full detail in §1. `scratchpad/invert.py a2` (SANDBOX), run on a pack recorded from the live oracle at `http://localhost:8095`. Full re-inversion of the GO test, reported as "0 INVALID EVIDENCE" — byte-for-byte the same headline the original MetaCoding-96q attack (a) produced. The escalation from the blocked attack (a) costs **one extra line**.
+
+---
+
+**OPEN-C. THE LEDGER IS DEAD ON EXACTLY THE TWO PACKS THAT SHIP.** *Not blocked. This is round-1 defect (C) again, one level of indirection up.*
+
+`registry_for()` walks up from the pack and **breaks at the first parent containing `.git`** (pack.py:243-244). The only `PACKS.jsonl` in the repo is at `/Users/dukejones/work/WorldTree/MetaCoding/eval/ctkr/port_runs/PACKS.jsonl`; the shipped packs are at `/Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/oracle/data/{core,hardening}-pack/`. Measured at HEAD, independently, by both lenses:
+
+```
+ctkr/oracle/data/core-pack/fixtures.jsonl      -> registry_for = None   registry_problem = ''
+ctkr/oracle/data/hardening-pack/fixtures.jsonl -> registry_for = None   registry_problem = ''
+```
+
+`registered_seals()` went from **zero callers** to **one caller that is handed `None` on every artifact the control exists to protect**. The ledger *does* work where a ledger exists — reproduced `STRICT SUBSET of registered pack 0b2c5524b62b (2 of 3 fixtures)` under a copied ledger. But the only test that proves it (`test_attack_b_a_subset_that_also_strips_the_witnesses_is_caught_by_the_ledger`, `ctkr/tests/test_oracle_invariants.py:475`) **writes its own ledger into `tmp_path`** — it proves the guard in a tree configuration the real artifacts are not in. This is precisely the failure mode the methodology names: a guard that passed review and does not run. And `pack.py` currently credits it in prose.
+
+---
+
+**OPEN-D. SEALING ENROLLS THE FORGER — `registry_problem`'s membership clause is vacuous.** *Not blocked.*
+
+`seal_recording(..., register: bool = True)` (pack.py:182) calls `register_seal(seal, registry_for(fx_path))` (pack.py:231-232). The act that issues a seal writes it into the ledger that seal is later checked against. Demonstrated in a purpose-built tree that *does* keep a ledger (`scratchpad/atk/ledgered/`, `scratchpad/led.py`): honest pack registered, then the (a2) forgery re-sealed in the same tree with the default `register=True` → `registry_problem = ''`, `FORGERY UNDER LEDGER: valid 3 invalid 0`, `LOADS CLEAN: 11 valid / 0 invalid`. Any pack that survives the seal-hash check was necessarily produced by this library, and this library enrolls it. The membership clause can only fire on a pack copied in from a tree without a ledger — the `/tmp` case the module already concedes.
+
+---
+
+**OPEN-E. THE SUBSET RULE CATCHES DELETION ONLY.** *Not blocked.*
+
+`registry_problem` flags a pack only when some registered entry is a **strict superset** (`theirs > mine`, pack.py:306). Any *edit* changes a fixture's `content_id`, so the edited pack contains an id no registered pack has and is never a subset. Demonstrated end to end under a live ledger (`scratchpad/atk/led2/`): honest `8e1665dfba25` registered (11 fixtures), forged `75a039197f87` registered over it (11 fixtures) → `LEDGER DID NOT STOP IT -> valid 11 invalid 0 | corroboration-only: 2`. The subset rule is a defence against attack (b) only; (a)- and (c)-shaped edits walk straight past it even where it is wired.
+
+Also: **(b2) subset-completed** is not blocked on the shipped packs, precisely because of OPEN-C. Drop the two failing fixtures *and* prune their now-orphaned witnesses → hardening-pack loads `valid 9 invalid 0`, and nothing in the artifact says it is partial. On the GO-test pack the discriminating fixture vanishes and **both ports tie at 2/2 = 100.0% EXIT=0** — the wrong port becomes indistinguishable from the right one.
+
+---
+
+**OPEN-F. `clean` HAS NO TERM FOR HOW MUCH WAS EXCLUDED — the amplifier.** *Not blocked.*
+
+`PortVerifyReport.clean` (`ctkr/ctkr/oracle/port_verify.py:249-264`, verified at HEAD) tests `scored_failed`, `no_verdict`, `declaration_problems`, `invalid_evidence`, `scored_diverged`, `scored_nothing` — and **not `excluded_corroboration`**. `scored_nothing` fires only at 100% exclusion (`(scored_answered - scored_diverged) <= 0`, line 207). Exclusion is a continuous dial and `clean` inspects only one endpoint of it, so 6/33 assertions can vanish and the run still reads green. This is what converts OPEN-A's shrunken denominator into a false green rather than merely a smaller number. `headline()` prints `6 corroboration-only excluded` as a neutral trailing clause.
+
+Note the symmetry, which is under-attended everywhere in this artifact: exclusion is **silent in both directions**. It makes a *correct* port indistinguishable from an incorrect one just as readily as it makes an incorrect one look clean.
+
+---
+
+**OPEN-G (minor). SILENT SKIP — `None` expectation against a witness row with no `observed` key.** *Not blocked.*
+
+Set 4 `group_member` values to `None` and pop `observed` from their witness rows → `valid 11 INVALID 0`. `w.get("observed")` is `None` and `same_value(None, None)` is **True** (verified at HEAD), so an absent witness value *agrees with* an absent expected value. `load_pack` never calls `validate_fixture`, so the `_ASSERT_REQUIRED` rule that `value` may not be `None` is not enforced on the judging path. Low leverage — a `None` expectation cannot be met by a real port, so it converts a failure into a different failure rather than into a pass — but it is a real hole in "absent values without a silent skip".
+
+---
+
+**OPEN-H (structural, conceded by the implementer). A VALID SEAL WITHOUT THE LIVE ORACLE.**
+
+Every attack above produced a seal `load_pack` accepts as authentic **without touching `http://localhost:8095`**. `seal_recording` checks only that `observations` is non-empty (pack.py:206); it never verifies the objects came from a session, that witnesses exist, or that they are consistent with the fixtures. *"Sealing is part of the act of recording, which requires the live source"* (pack.py:196) is a description of the intended caller, **not an enforced precondition** — the same shape of claim as the old `seal_pack` docstring the refactor was written to fix. Deleting the CLI verb raised the bar from *run one shipped command* to *write six lines of Python*. It did not change what authority is.
+
+## 3. Does the GO test still rank correctly?
+
+**Yes — no regression.** On a pack re-recorded from the live oracle at HEAD+changes (`uv run python -m ctkr oracle-record --flows eval/ctkr/port_runs/wave1-c1/c1-membership-flows.json`, seal `0b2c5524b62b`, 3/3 flows, 23 observations, 0 validation issues), the honest ranking is:
+
+- **portB** (RECURSIVE=1, matches farmOS): **4/4 = 100.0%, clean, EXIT=0**
+- **portA** (RECURSIVE=0, matches the old adapter): **3/4 = 75.0%, NOT A CLEAN PASS, EXIT=1**
+
+The live oracle answered `group_member(A,G1)=True`, `group_member(A,G2)=True` (transitive), `group_member(G1,G2)=True`, `group_member(A,G3)=False`. Both shipped packs re-recorded clean: core-pack 7/7 flows, 54 observations, seal `0bbedf28cd75`, 0 issues; hardening-pack 11/11 flows, 187 observations, seal `8e1665dfba25`, 0 issues. Suites green (633/3 py, 484 TS). **Nothing that worked was broken.** One caveat carried forward from the implementation: every *historical* eval pack is now correctly INVALID EVIDENCE (wave1-c1/observe 0 valid/3 invalid; wave0-pilot/w0a-observe 0/12) — they have no witnesses; any result quoted from them needs re-recording.
+
+## 4. What an attacker must now do — plainly
+
+**It is still cheap.** The declared residual was "hand-write a whole self-consistent recording". The measured cost is:
+
+- **To invert a verdict by value (OPEN-B):** edit `then[i].value`, edit `r["observed"]` on the observation it already cites, call `seal_recording()`. **Two field edits and a library call, all offline.** Refs, orphan set, both file digests and the seal are recomputed for you.
+- **To make failing fixtures disappear from scoring (OPEN-A):** add `at:"-3600"` to two `when` steps sharing a `ref`, set `evidence_class`, recompute `content_id()`, re-seal. **`observations.jsonl` never changes.**
+- **To ship a partial pack (OPEN-E/b2):** drop the fixtures, drop their orphaned witnesses, re-seal. On the shipped packs there is no ledger to catch it; where there is one, `register=True` enrolls the forgery on the forger's behalf.
+
+The one prerequisite for all three is **import access to `ctkr.oracle.pack`** — i.e. anyone who can run the recorder. That is the entire pool of Wave-1 pack producers.
+
+**What is genuinely real from round 2, and will not erode:** post-hoc edits to `then` are dead by construction; deletion leaves a hole the pack cannot close from inside; a self-applied `evidence_class` label is both unwritable and unbelievable. Removing `ctkr oracle-seal` and replacing `seal_pack(path)` with `seal_recording(objects)` is the *right shape* of fix, and the structural test that enumerates the command package and asserts only `oracle_record` reaches the sealer is the right *kind* of evidence.
+
+**How I would fake this fix, stated plainly:** ship exactly what is shipped, run the three archived round-1 attack scripts unchanged, watch them fail, report the red closed. That is what the implementation report's evidence demonstrates. The experiments that distinguish "the forger must re-record" from "the forger types one more line" — the two-edit variant and the `when`-clause variant — were not run.
+
+## 5. The next red, as a property
+
+The current red is closable only in letter, because a self-consistent artifact cannot be refuted from inside itself, and every remaining attack is now exactly that shape. State the next red so that internal consistency is not a defence:
+
+> ### **Every field a verdict depends on must be attested by a party the pack's author cannot impersonate.**
+
+Two corollaries that make it testable:
+
+- **Nothing hashed is unattested.** `when`, `given`, `glossary_terms` are verdict-bearing (OPEN-A proves `when` is) and must carry witnesses, or must not be readable by the loader.
+- **Attestation must be non-reproducible by the recorder alone.** A key the recorder does not hold, or a co-signature from an independent lens — `drush php:eval` against the live service already served as exactly that in the round-1 report and is *not in the artifact*.
+
+The concrete moves, in order of what they buy:
+
+1. **Witness the `when` clause.** The recorder already holds boundary observations of every write it performed; emit the *effective time the source actually accepted* into them, and have `load_pack` re-derive `order_sensitivity` from the **witnessed writes**, not from the pack's own `when`. Then the exemption is a fact about what farmOS did — the only thing an exemption was ever supposed to be. Kills OPEN-A.
+2. **Make sealing require something the forger does not hold** — a key, or a co-signature by a party that is not the recorder. This is the only move that touches OPEN-B and OPEN-H; nothing filesystem-local can.
+3. **Add `excluded_corroboration == 0` to `clean`** (or a recorder-signed exclusion budget), and print exclusions as a not-green in `headline()`. Two lines; kills the amplifier OPEN-F and halves OPEN-A's payoff.
+4. **Drop `register=True` as a default**, so ledger membership means *somebody else vouched*. Kills OPEN-D.
+5. **Make `registry_for` reach the repo root inclusive** (or take a configured path) so the shipped packs are actually bound — and add a test that exercises the *shipped* geometry, not a `tmp_path` fabrication. Kills OPEN-C. Until then, delete the ledger's credit from `pack.py`'s prose: crediting a control that does not run on the packs it ships is the same defect the refactor was written to remove.
+6. **Replace `theirs > mine` with a comparison over `provenance.flow` keys per source** — a pack presenting fewer *flows* than a registered pack for the same source is a subset regardless of fixture ids. Kills OPEN-E.
+7. Enforce `_ASSERT_REQUIRED` on the judging path (`load_pack` → `validate_fixture`), or make `same_value` distinguish an absent `observed` key from a `None` value. Kills OPEN-G.
+
+## 6. Wave-1 recommendation
+
+### **GO — at the same reduced size as round 1, with the size cap now load-bearing rather than precautionary, and two new preconditions.**
+
+**Why still GO.** The GO test passes decisively and for a principled reason, and round 2 did not touch it: the farmOS-matching port ranks strictly better on value score, clean flag and exit code, on a pack recorded from the live service. The port-side invariants remain sound — divergences cannot buy a pass, declines cannot become passes, under-declaration cannot hide failures. Round 2 added three genuinely structural blocks. None of that regressed; 633/3 and 484 green.
+
+**Why the cap is now load-bearing.** Round 1's judgement was *"every remaining open attack requires an adversarial or careless recorder, not an adversarial port."* Round 2 confirms that and sharpens it: **the cost to a recorder is two field edits.** The round-1 mitigation for this — "fix the value-vs-observation cross-check at load, which converts the pack from internally consistent to witnessed" — has now landed and is **not sufficient**, because the witness is a copy, not a source. Therefore:
+
+- **Cap Wave-1 at ports that can be seated around one table, with a single named recorder.**
+- **Do not open pack recording to port authors.**
+- **Do not accept an externally recorded pack in Wave-1 at all.**
+- Recording remains a *trusted* act. Say so in the docs rather than implying the artifact enforces it.
+
+**Preconditions before Wave-1 starts (all four):**
+
+1. **Move #3 above** (`excluded_corroboration` in `clean`, exclusions printed as not-green). Two lines, and without it OPEN-A produces a silent false green in the wild.
+2. **Move #1 above** (witness the `when` clause). Without it the exemption path is a one-string forgery on the artifacts that ship.
+3. **Move #5 above** (bind the shipped packs to a ledger, or delete the claim). Currently `pack.py` credits a control that returns `None` on both shipped packs.
+4. Carried from round 1 and still required: **`derivation_id` binds to code** — an accidental adapter refactor mid-wave silently re-records inverting evidence with a green validation.
+
+Moves #4, #6, #7 can land during the wave.
+
+**New mid-flight abort trigger, added to round 1's five:**
+
+- **Any run reporting `clean=true` with a non-zero `corroboration-only excluded` count.** Until move #3 lands this is invisible in `clean` and is the exact signature of OPEN-A. Halt and diff the pack's `when` clauses against its recorded ancestor.
+- Round 1's trigger *"any port scoring `reproduced 100%` while the body contains a `[FAIL]` line"* still stands and now has a second cause — verify which of OPEN-A or OPEN-B produced it before resuming.
+
+## Appendix — round-2 artifacts and provenance
+
+All attack artifacts are **SANDBOX**, none in the repo, nothing committed. `git status --short --branch` was identical before and after both lenses (the 13 uncommitted implementation paths, and only those). `eval/ctkr/port_runs/PACKS.jsonl` still has its original 5 rows; the copy that was ledger-tested was made into the sandbox.
+
+- `/private/tmp/claude-501/-Users-dukejones-work-WorldTree-MetaCoding/16b09ed7-6185-46f1-b167-14accfadbd96/scratchpad/` — `atk_a.py`, `atk_bc.py`, `atk_d.py`, `atk_h.py`, `invert.py`, `led.py`, and pack copies `a`, `b`, `b2`, `c`, `a2`, `e`, `f`, `h`, `i`, `j`, `go`, `inv_a2`, `inv_b2`, `ledger`
+- `/private/tmp/…/scratchpad/atk/` — `attack_when.py`, `e2e.py`, `pack1/` (honest), `pack2/` (forged `when`), `ledgered/`, `led2/`
+
+**Production paths re-recorded by the implementation** (the locations `port-verify` / `oracle-validate` read by default): `/Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/oracle/data/core-pack/` (seal `0bbedf28cd75`) and `/Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/oracle/data/hardening-pack/` (seal `8e1665dfba25`). The adversarial GO-test re-recording went to `scratchpad/go`, **not** to `eval/ctkr/port_runs/wave1-c1/observe`.
+
+**Live oracle:** `http://localhost:8095`, shared. Touched by `ctkr oracle-record` only, creating ordinary test animals and groups. No `bring-up.sh`, no `docker`, no `drush` mutation. No commit.

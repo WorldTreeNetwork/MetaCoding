@@ -19,8 +19,14 @@ from pathlib import Path
 
 import pytest
 
-from ctkr.oracle.fixtures import SemanticFixture, write_fixtures
-from ctkr.oracle.pack import PackError, load_pack, seal_pack
+from blake3 import blake3
+
+from ctkr.oracle.fixtures import (
+    SemanticFixture,
+    probe_descriptor,
+    write_fixtures,
+)
+from ctkr.oracle.pack import PackError, load_pack, seal_recording
 from ctkr.oracle.port_adapter import BridgeError, PortAdapter, PortBridge
 from ctkr.oracle.port_contract import PortManifest, decision_covers
 from ctkr.oracle.port_verify import (
@@ -239,7 +245,6 @@ def test_a_subset_of_a_pack_is_not_a_pack(tmp_path) -> None:
     fixtures = [_recorded(tmp_path, "stock_on_hand", value=float(i))
                 for i in range(4)]
     _write_pack(tmp_path, fixtures)
-    seal_pack(tmp_path / "fixtures.jsonl", register=False)
     assert len(load_pack(tmp_path / "fixtures.jsonl").fixtures) == 4
 
     lines = (tmp_path / "fixtures.jsonl").read_text(encoding="utf-8").splitlines()
@@ -257,7 +262,6 @@ def test_an_edited_expected_value_is_rejected_by_the_pack_loader(tmp_path) -> No
     """
     fx = _recorded(tmp_path, "stock_on_hand", value=3.0)
     _write_pack(tmp_path, [fx])
-    seal_pack(tmp_path / "fixtures.jsonl", register=False)
 
     path = tmp_path / "fixtures.jsonl"
     row = json.loads(path.read_text(encoding="utf-8"))
@@ -285,7 +289,6 @@ def test_an_edited_seal_is_rejected(tmp_path) -> None:
     """Re-sealing is a visible act; forging a seal in place is not even that."""
     fx = _recorded(tmp_path, "stock_on_hand", value=3.0)
     _write_pack(tmp_path, [fx])
-    seal_pack(tmp_path / "fixtures.jsonl", register=False)
     seal_path = tmp_path / "pack.seal.json"
     body = json.loads(seal_path.read_text(encoding="utf-8"))
     body["fixtures_blake3"] = "0" * 32
@@ -308,7 +311,6 @@ def test_a_provenance_that_names_a_missing_witness_is_invalid(tmp_path) -> None:
     fx = _recorded(tmp_path, "stock_on_hand", value=3.0)
     fx.provenance.observation_refs = ["obs-that-does-not-exist"]
     _write_pack(tmp_path, [fx])
-    seal_pack(tmp_path / "fixtures.jsonl", register=False)
     loaded = load_pack(tmp_path / "fixtures.jsonl")
     assert loaded.fixtures == []
     assert "do not resolve" in loaded.invalid[0].reason
@@ -320,9 +322,234 @@ def test_a_fixture_with_no_witness_at_all_is_invalid(tmp_path) -> None:
     fx = _recorded(tmp_path, "stock_on_hand", value=3.0)
     fx.provenance.observation_refs = []
     _write_pack(tmp_path, [fx])
-    seal_pack(tmp_path / "fixtures.jsonl", register=False)
     loaded = load_pack(tmp_path / "fixtures.jsonl")
     assert "hand-authored" in loaded.invalid[0].reason
+
+
+# --------------------------------------------------------------------------- #
+# THE RED: no artifact can endorse a claim its own witnesses contradict.       #
+#                                                                             #
+# Three attacks, all measured at EXIT=0 / clean=true / "reproduced 100%" on   #
+# 2026-07-20 (MetaCoding-96q). Each is run here in full — including the        #
+# re-hash and the re-seal, which is what defeated the previous generation of   #
+# checks — and each is now blocked BY CONSTRUCTION, named per test.            #
+# --------------------------------------------------------------------------- #
+def test_no_public_verb_issues_a_seal() -> None:
+    """B. ``ctkr oracle-seal`` was a public, unauthenticated verb that re-issued
+    a pack's entire authority, and every one of the three forgeries ended with a
+    call to it. It is REMOVED. The public surface may verify a seal
+    (``oracle-validate``) and never issue one.
+
+    Structural, not a spot-check: the whole command package is enumerated the way
+    the CLI enumerates it, and no module may reach the sealer.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+
+    import ctkr.commands
+
+    issuers = []
+    for info in pkgutil.iter_modules(ctkr.commands.__path__):
+        mod = importlib.import_module(f"ctkr.commands.{info.name}")
+        if getattr(mod, "register", None) is None:
+            continue
+        src = inspect.getsource(mod)
+        if "seal_recording" in src or "seal_pack" in src:
+            issuers.append(info.name)
+    # The recorder alone, because it is the party that made the observations.
+    assert issuers == ["oracle_record"], issuers
+    assert not hasattr(importlib.import_module("ctkr.oracle.pack"), "seal_pack"), (
+        "seal_pack(path) re-issued authority over any file on disk"
+    )
+
+
+def _reseal(tmp_path: Path, rows: list[dict], *, prune: bool = False) -> None:
+    """What an attacker does after editing: re-issue the whole chain of custody.
+
+    The public verb is gone, so this reaches past the CLI into the library —
+    which is the residual gap this repo names rather than pretends away. The
+    point of these tests is that reaching it no longer helps.
+    """
+    from ctkr.oracle.fixtures import load_fixtures
+
+    (tmp_path / "fixtures.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    forged = load_fixtures(tmp_path / "fixtures.jsonl")
+    obs = [json.loads(line) for line
+           in (tmp_path / "observations.jsonl").read_text(encoding="utf-8").splitlines()
+           if line.strip()]
+    if prune:
+        # A competent attacker also removes the witnesses nothing cites, so the
+        # artifact stays internally consistent.
+        claimed = {t.get("witness") for r in rows for t in r["then"]}
+        obs = [o for o in obs
+               if o.get("record") != "witness" or o["obs_id"] in claimed]
+    seal_recording(forged, [_Row(o) for o in obs], tmp_path, register=False)
+
+
+def test_attack_a_surgical_forgery_is_refused_by_the_fixtures_own_witness(
+    tmp_path,
+) -> None:
+    """(a) SURGICAL FORGERY, the attack that fully re-inverted the GO test.
+
+    Edit a fixture's expected value to the diverging port's answer, recompute
+    ``SemanticFixture.content_id()``, re-seal. Measured at HEAD on 2026-07-20:
+    the port that is WRONG about farmOS scored 14/14 clean and the correct one
+    10/14, reported as "0 INVALID EVIDENCE, NO VERDICT 0".
+
+    Blocked BY CONSTRUCTION: the value is now checked against the witness that
+    produced it. The forger keeps the id and the seal consistent and still
+    cannot make the observation say what it did not see.
+    """
+    fx = _recorded(tmp_path, "stock_on_hand", value=3.0)
+    _write_pack(tmp_path, [fx])
+    assert len(load_pack(tmp_path / "fixtures.jsonl").fixtures) == 1
+
+    row = json.loads((tmp_path / "fixtures.jsonl").read_text(encoding="utf-8"))
+    row["then"][0]["value"] = 999.0
+    row["fixture_id"] = ""  # recompute it, exactly as the attack did
+    _reseal(tmp_path, [row])
+
+    # Every earlier layer is now SATISFIED — that is the point of the test.
+    loaded = load_pack(tmp_path / "fixtures.jsonl")
+    assert loaded.fixtures == [], "a forged value must not be scorable"
+    assert len(loaded.invalid) == 1
+    reason = loaded.invalid[0].reason
+    assert "INVALID EVIDENCE" in reason
+    assert "3.0" in reason and "999.0" in reason
+    assert "contradicts" in reason
+
+
+def test_attack_a_variant_repointing_the_witness_does_not_help(tmp_path) -> None:
+    """The obvious next move: cite a DIFFERENT witness that happens to say 999.
+
+    A witness answers one question. Re-pointing an assertion at a witness of
+    another probe is caught by comparing the question, not just the value —
+    otherwise "yield_total in pounds" could be witnessed by "yield_total in
+    kilograms" and the unit filter would be unfalsifiable.
+    """
+    good = _recorded(tmp_path, "stock_on_hand", value=3.0, title="honest")
+    other = _recorded(tmp_path, "group_member", value=True, title="other")
+    _write_pack(tmp_path, [good, other])
+
+    rows = [json.loads(l) for l
+            in (tmp_path / "fixtures.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows[0]["then"][0]["value"] = True
+    rows[0]["then"][0]["witness"] = other.then[0].witness
+    rows[0]["provenance"]["observation_refs"] = ["obs-1", other.then[0].witness]
+    rows[0]["fixture_id"] = ""
+    _reseal(tmp_path, rows, prune=True)
+
+    loaded = load_pack(tmp_path / "fixtures.jsonl")
+    assert len(loaded.invalid) == 1
+    assert "DIFFERENT question" in loaded.invalid[0].reason
+
+
+def test_attack_b_a_subset_pack_is_refused_by_its_own_orphaned_witnesses(
+    tmp_path,
+) -> None:
+    """(b) SUBSET. Drop the fixtures a port fails, re-seal. Measured: clean, and
+    nothing in the artifact said the pack was partial — fresh pack_id, no lineage
+    to the original.
+
+    Blocked BY CONSTRUCTION: the recorder witnessed values this pack no longer
+    asserts. A pack that does not account for its own witnesses is a pack
+    somebody took fixtures out of, and it says so in its own bytes.
+    """
+    fixtures = [_recorded(tmp_path, "stock_on_hand", value=float(i))
+                for i in range(3)]
+    _write_pack(tmp_path, fixtures)
+    assert len(load_pack(tmp_path / "fixtures.jsonl").fixtures) == 3
+
+    rows = [json.loads(l) for l
+            in (tmp_path / "fixtures.jsonl").read_text(encoding="utf-8").splitlines()]
+    _reseal(tmp_path, rows[:2])  # drop the third and re-issue the whole chain
+
+    with pytest.raises(PackError) as exc:
+        load_pack(tmp_path / "fixtures.jsonl")
+    assert "claimed by no assertion" in str(exc.value)
+    assert "judged whole" in str(exc.value)
+
+
+def test_attack_b_a_subset_that_also_strips_the_witnesses_is_caught_by_the_ledger(
+    tmp_path,
+) -> None:
+    """The completion of attack (b): drop the orphans too, so the pack is
+    internally consistent again.
+
+    Nothing inside a self-consistent artifact can refute it — this is the honest
+    limit of local checks. What catches it is the ledger the module has always
+    named and never called: ``registered_seals`` now has a caller, and the
+    original pack's fixture set is on record as a superset of this one.
+    """
+    from ctkr.oracle.pack import REGISTRY_NAME
+
+    (tmp_path / REGISTRY_NAME).write_text("", encoding="utf-8")
+    pack_dir = tmp_path / "pack"
+    fixtures = [_recorded(tmp_path, "stock_on_hand", value=float(i))
+                for i in range(3)]
+    honest = seal_recording(fixtures, [_Row(r) for r in _observations(fixtures)],
+                            pack_dir)
+    assert len(load_pack(pack_dir / "fixtures.jsonl").fixtures) == 3
+
+    kept = fixtures[:2]
+    seal_recording(kept, [_Row(r) for r in _observations(kept)], pack_dir)
+    with pytest.raises(PackError) as exc:
+        load_pack(pack_dir / "fixtures.jsonl")
+    assert "STRICT SUBSET" in str(exc.value)
+    assert honest.pack_id in str(exc.value)
+
+
+def test_attack_c_a_fixture_cannot_mark_its_own_evidence_corroboration_only(
+    tmp_path,
+) -> None:
+    """(c) SELF-MARKING. Set ``evidence_class="corroboration-only"`` on just the
+    failing fixture and re-seal. Measured: EXIT=0, clean, "reproduced 100%",
+    while ``[FAIL] group_member(A) expected == True, got False`` still printed.
+
+    Blocked BY CONSTRUCTION twice over: the class is inside the fixture's hash,
+    so the naive edit breaks the id; and the loader RE-DERIVES the exemption from
+    the flow rather than believing the label, so re-hashing and re-sealing buys
+    nothing either.
+    """
+    fx = _recorded(tmp_path, "group_member", value=True)
+    _write_pack(tmp_path, [fx])
+    assert len(load_pack(tmp_path / "fixtures.jsonl").fixtures) == 1
+
+    row = json.loads((tmp_path / "fixtures.jsonl").read_text(encoding="utf-8"))
+    row["provenance"]["evidence_class"] = "corroboration-only"
+    row["provenance"]["evidence_note"] = "order-sensitive, honest"
+
+    # 1. Without re-hashing: the id no longer hashes its own body.
+    (tmp_path / "fixtures.jsonl").write_text(json.dumps(row) + "\n",
+                                             encoding="utf-8")
+    with pytest.raises(PackError):
+        load_pack(tmp_path / "fixtures.jsonl")
+
+    # 2. With the full attack — re-hash AND re-seal.
+    row["fixture_id"] = ""
+    _reseal(tmp_path, [row])
+    loaded = load_pack(tmp_path / "fixtures.jsonl")
+    assert loaded.fixtures == [], "an unearned exemption must not be honoured"
+    assert "nothing in the fixture earns it" in loaded.invalid[0].reason
+
+
+def test_a_corroboration_mark_the_loader_can_re_derive_still_stands(tmp_path) -> None:
+    """The rule must not be a blanket refusal: the w0a case is genuinely
+    order-sensitive and its exemption survives, because the loader can see the
+    two writes sharing one effective time against one subject."""
+    from ctkr.oracle.fixtures import order_sensitivity
+    from ctkr.oracle.fixtures import WhenStep
+
+    when = [
+        WhenStep(action="record_log", alias="L1", kind="harvest",
+                 against=["bin"], at="+0"),
+        WhenStep(action="record_log", alias="L2", kind="harvest",
+                 against=["bin"], at="+0"),
+    ]
+    assert order_sensitivity(when), "this flow IS order-sensitive"
+    assert not order_sensitivity([]), "and an empty flow is not"
 
 
 def test_invalid_evidence_is_carried_as_no_verdict_never_dropped(tmp_path) -> None:
@@ -541,7 +768,8 @@ class _patched_probe:
         return False
 
 
-def _recorded(tmp_path: Path, assertion: str, value) -> SemanticFixture:
+def _recorded(tmp_path: Path, assertion: str, value, *,
+              title: str = "") -> SemanticFixture:
     """A fixture shaped as the RECORDER writes them — witnesses and stamps."""
     then = {"assert": assertion, "subject": "bin", "op": "==", "value": value}
     if assertion == "stock_on_hand":
@@ -551,27 +779,55 @@ def _recorded(tmp_path: Path, assertion: str, value) -> SemanticFixture:
     given = [{"entity": "equipment", "alias": "bin", "name": "feed bin"}]
     if assertion == "group_member":
         given.append({"entity": "group", "alias": "herd", "name": "herd"})
+    title = title or f"a recorded {assertion}"
+    then["witness"] = blake3(
+        f"w:{title}:{assertion}:{value}".encode()
+    ).hexdigest()[:16]
     fx = SemanticFixture.model_validate({
-        "title": f"a recorded {assertion}",
+        "title": title,
         "feature": "core",
         "given": given,
         "when": [],
         "then": [then],
         "provenance": {
             "source_system": "farmOS", "source_version": "4.x", "flow": "t",
-            "observation_refs": ["obs-1"],
+            "observation_refs": ["obs-1", then["witness"]],
             "derivations": current_derivations(),
         },
     }).with_id()
     return fx
 
 
+def _observations(fixtures: list[SemanticFixture]) -> list[dict]:
+    """The boundary record plus one WITNESS per assertion, as the recorder writes."""
+    rows: list[dict] = [{"obs_id": "obs-1", "method": "GET", "path": "/api",
+                         "record": "boundary"}]
+    for fx in fixtures:
+        for t in fx.then:
+            rows.append({
+                "obs_id": t.witness, "method": "OBSERVE",
+                "path": f"probe/{t.assert_}", "record": "witness",
+                "probe": probe_descriptor(t), "observed": t.value,
+            })
+    return rows
+
+
 def _write_pack(tmp_path: Path, fixtures: list[SemanticFixture],
-                *, seal: bool = True) -> None:
-    write_fixtures(fixtures, tmp_path / "fixtures.jsonl")
-    (tmp_path / "observations.jsonl").write_text(
-        json.dumps({"obs_id": "obs-1", "method": "GET", "path": "/api"}) + "\n",
-        encoding="utf-8",
-    )
-    if seal:
-        seal_pack(tmp_path / "fixtures.jsonl", register=False)
+                *, seal: bool = True, observations: list[dict] | None = None) -> None:
+    rows = _observations(fixtures) if observations is None else observations
+    if not seal:
+        write_fixtures(fixtures, tmp_path / "fixtures.jsonl")
+        (tmp_path / "observations.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return
+    seal_recording(fixtures, [_Row(r) for r in rows], tmp_path, register=False)
+
+
+class _Row:
+    """A recorded row the sealer can serialise, standing in for an Observation."""
+
+    def __init__(self, row: dict) -> None:
+        self._row = row
+
+    def model_dump(self) -> dict:
+        return self._row
