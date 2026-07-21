@@ -178,6 +178,30 @@ under-reporting.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
+### The iteration loop (read `docs/design/iteration-methodology.md`)
+
+**red → green → *how would I fake this?* → refactor.** The third step is not
+optional and is not the same as refactoring: on 2026-07-20 an invariant ("the
+defendant holds no pen") was refactored into place faithfully and then handed the
+pen back through a new public verb. The invariant was satisfied; the intention was
+not. Ask what would satisfy the check while defeating its purpose, before shipping.
+
+- **State a red as a PROPERTY, not as a defect to block.** "Attack N must fail"
+  moves sideways; "a port wrong about the source cannot score better than one
+  that is right" moves toward the goal and can subsume whole families of findings.
+- **Tier by what you are touching.** Instrument (judge, recorder, fixture schema,
+  kernel, a bound decision) → fresh adversaries, full weight. Measured thing (a
+  feature port, a build, a pack) → green + the fake-it question + a discriminating
+  fixture. An instrument that is cheap to change is one nobody can trust.
+- **Definition of done: a fix ships with the evidence that would catch its
+  regression.** A fix in the code and not in the evidence has a half-life.
+- **Self-verification is never load-bearing.** Measured, not assumed: builds have
+  documented "load-bearing" gates that were not, comments have claimed source
+  semantics the code did not implement, and a test called a hook that does not
+  exist and passed. Every real finding came from a fresh adversary or the live
+  source. Judges are always fresh, never the builder — and a judge must prove
+  which tree it tested before its findings count.
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
