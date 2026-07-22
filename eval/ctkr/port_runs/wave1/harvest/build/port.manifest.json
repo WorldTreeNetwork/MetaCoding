@@ -1,12 +1,56 @@
 {
   "port": "w1c-harvest",
-  "description": "wave-1 harvest logging port on the shared kernel v1.3 + wave-1 shared log-family store. Harvest is a log (isMovement false); seeding/transplanting movements are isLog:false per the bound movement-as-log-taxonomy decision. Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision — the one chosen divergence from the source, surfaced via pending-only partners.",
+  "description": "wave-1 harvest logging port on the shared kernel v1.3 + wave-1 shared log-family store. Harvest is a log (isMovement false); seeding/transplanting movements are isLog:false per the bound movement-as-log-taxonomy decision. Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision \u2014 the one chosen divergence from the source, surfaced via pending-only partners.",
   "bridge": {
-    "command": ["bun", "run", "port_bridge.ts"],
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
     "timeout": 15.0
   },
   "capabilities": {
-    "operations": ["record_log", "set_log_status", "set_effective_time"],
-    "probes": ["log_status", "log_count", "yield_total", "quantity_recorded", "asset_active"]
-  }
+    "operations": [
+      "record_log",
+      "set_log_status",
+      "set_effective_time"
+    ],
+    "probes": [
+      "log_status",
+      "log_count",
+      "yield_total",
+      "quantity_recorded",
+      "asset_active"
+    ]
+  },
+  "divergences": [
+    {
+      "fixture_id": "e3df9c8ea84a79bc11cc2885765c6cfe",
+      "assert": "yield_total",
+      "port_value": 2.0,
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate on yield/count (the ONE chosen pending-gate divergence, Duke 2026-07-20)",
+      "decision_id": "pending-status-gates"
+    },
+    {
+      "fixture_id": "e3df9c8ea84a79bc11cc2885765c6cfe",
+      "assert": "log_count",
+      "port_value": 1,
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate on yield/count (the ONE chosen pending-gate divergence, Duke 2026-07-20)",
+      "decision_id": "pending-status-gates"
+    },
+    {
+      "fixture_id": "42ae548d87e432cf9d498f7fbe6e44ad",
+      "assert": "yield_total",
+      "port_value": 0.0,
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate on yield/count (the ONE chosen pending-gate divergence, Duke 2026-07-20)",
+      "decision_id": "pending-status-gates"
+    },
+    {
+      "fixture_id": "42ae548d87e432cf9d498f7fbe6e44ad",
+      "assert": "log_count",
+      "port_value": 0,
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate on yield/count (the ONE chosen pending-gate divergence, Duke 2026-07-20)",
+      "decision_id": "pending-status-gates"
+    }
+  ]
 }

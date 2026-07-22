@@ -593,7 +593,7 @@ def test_a_real_decision_about_the_wrong_topic_cannot_sanction() -> None:
     o = report.verdicts[0].outcomes[0]
     assert o.status == AssertionStatus.FAILED
     assert report.score.scored_diverged == 0
-    assert any("says nothing about" in p for p in report.declaration_problems)
+    assert any("does not CITE" in p for p in report.declaration_problems)
 
 
 def test_a_topically_bound_decision_still_sanctions() -> None:
@@ -611,11 +611,15 @@ def test_a_topically_bound_decision_still_sanctions() -> None:
                            overrides={"stock_on_hand": 9.0})
     report = verify_port(
         adapter, pack([fx]), manifest,
+        # A sanction is a typed CITATION of the glossary term (MetaCoding-n9o);
+        # prose naming the term no longer sanctions anything.
         decisions={"pending-status-gates":
-                   "pending logs are excluded from stock_on_hand"},
+                   {"text": "pending logs are excluded from stock",
+                    "sanctions": ("stock_on_hand",)}},
     )
     assert report.verdicts[0].outcomes[0].status == AssertionStatus.DIVERGED
-    assert decision_covers("… stock_on_hand …", "stock_on_hand")
+    assert decision_covers({"sanctions": ("stock_on_hand",)}, "stock_on_hand")
+    assert not decision_covers("… stock_on_hand …", "stock_on_hand")  # names never sanction
 
 
 # =========================================================================== #

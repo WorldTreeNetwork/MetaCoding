@@ -619,6 +619,65 @@ def test_a_fabricated_warrant_is_never_softer_than_a_real_one() -> None:
     assert fabricated == AssertionStatus.FAILED  # was DIVERGED — the inversion
 
 
+# --------------------------------------------------------------------------- #
+# MetaCoding-n9o: sanctions are citations, and the goal is a second metric      #
+# --------------------------------------------------------------------------- #
+def _diverging_report(decisions):
+    """One fixture, one declared divergence citing 'pending-status-gates'."""
+    fx = fixture("f9", [soh(4.0)])
+    declared = [Divergence.model_validate({
+        "fixture_id": fx.fixture_id, "assert": "stock_on_hand",
+        "port_value": 9.0, "reason": "planned pending-gate divergence",
+        "decision_id": "pending-status-gates",
+    })]
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand"], divergences=declared)
+    adapter = make_adapter(ALL_OPS, ["stock_on_hand"], manifest,
+                           overrides={"stock_on_hand": 9.0})
+    return verify_port(adapter, pack([fx]), manifest, decisions=decisions)
+
+
+def test_a_sanction_is_a_citation_names_never_sanction() -> None:
+    """The wave-1 inversion, stated as a property: renaming-invariance.
+
+    A decision whose prose exhaustively NAMES the term but cites nothing
+    sanctions nothing; a decision that CITES the term in its typed sanctions
+    sanctions it even if its prose never mentions it. The port and the source
+    are both free to rename — the glossary term is the identity of the
+    question asked at the boundary, and only a citation of it resolves.
+    """
+    prose_only = _diverging_report(
+        {"pending-status-gates":
+         {"text": "stock_on_hand stock_on_hand stock_on_hand", "sanctions": ()}})
+    (v,) = [x for x in prose_only.verdicts if x.outcomes]
+    assert v.outcomes[0].status == AssertionStatus.FAILED
+
+    cited = _diverging_report(
+        {"pending-status-gates":
+         {"text": "prose that names no glossary term at all",
+          "sanctions": ("stock_on_hand",)}})
+    (v,) = [x for x in cited.verdicts if x.outcomes]
+    assert v.outcomes[0].status == AssertionStatus.DIVERGED
+
+
+def test_goal_fit_measures_the_target_and_fidelity_measures_the_source() -> None:
+    """Two metrics, two questions. A port meeting all its PLANNED divergences
+    exactly has goal_fit 100% while value_score honestly reports the distance
+    from the source; an unplanned mismatch drags both down."""
+    planned = _diverging_report(
+        {"pending-status-gates":
+         {"text": "", "sanctions": ("stock_on_hand",)}})
+    s = planned.score
+    assert s.scored_diverged == 1 and s.scored_failed == 0
+    assert s.goal_fit == 1.0          # the goal, including the divergence, is met
+    assert s.value_score == 0.0       # and the distance from the source is not hidden
+    assert "goal fit" in s.headline()
+
+    unplanned = PortScore(assertions_total=4, answered=4, scored_answered=4,
+                          scored_passed=2, scored_diverged=1, scored_failed=1)
+    assert unplanned.goal_fit == pytest.approx(0.75)   # the failure hits the goal too
+    assert unplanned.value_score == pytest.approx(2 / 3)
+
+
 def test_the_readers_patience_is_capped_reader_side() -> None:
     """BridgeSpec.timeout is written by the port: it may ask for less, never more.
 

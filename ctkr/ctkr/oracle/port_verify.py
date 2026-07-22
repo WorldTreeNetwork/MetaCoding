@@ -198,6 +198,26 @@ class PortScore(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def goal_fit(self) -> float:
+        """(passed + sanctioned divergences) ÷ scored — agreement with the GOAL.
+
+        ``value_score`` measures fidelity to the SOURCE, and a planned
+        divergence honestly counts against it: we really do differ, by that
+        much. But the port's goal is not the source verbatim — it is the source
+        PLUS the bound, deliberately chosen divergences. This metric measures
+        that: a sanctioned divergence that delivered exactly its declared
+        target value is the goal being MET, not missed. An unplanned mismatch,
+        or a divergence that missed even its own declared value, fails both
+        metrics. The gap between ``value_score`` and ``goal_fit`` is therefore
+        the measured footprint of the design decisions — and it should equal
+        exactly what the registry sanctions, no more.
+        """
+        if self.scored_answered <= 0:
+            return 0.0
+        return (self.scored_passed + self.scored_diverged) / self.scored_answered
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def scored_nothing(self) -> bool:
         """Nothing was actually scored — an empty denominator is never innocent.
 
@@ -215,11 +235,19 @@ class PortScore(BaseModel):
         """
         denom = self.scored_answered - self.scored_diverged
         value = "nothing scored" if denom <= 0 else f"{self.scored_passed}/{denom}"
+        goal = (
+            f"goal fit {self.scored_passed + self.scored_diverged}"
+            f"/{self.scored_answered} = {self.goal_fit:.1%} "
+            f"(source + {self.scored_diverged} planned divergence"
+            f"{'' if self.scored_diverged == 1 else 's'} met exactly)"
+            if self.scored_answered > 0 else "goal fit: nothing scored"
+        )
         return (
             f"reproduced {value} scored assertions "
             f"(of {self.assertions_total} in the pack), "
             f"{self.scored_diverged} sanctioned divergence"
             f"{'' if self.scored_diverged == 1 else 's'} (NOT counted as passes), "
+            f"{goal}, "
             f"{self.no_verdict}/{self.assertions_total} NO VERDICT, "
             f"{self.excluded_corroboration} corroboration-only excluded"
         )
@@ -597,12 +625,13 @@ def _judge_assertion(
         if not decision_covers(decisions[did], t.assert_):
             declaration_problems.append(
                 f"{fx.fixture_id}/{t.assert_}({t.subject}): decision {did!r} "
-                f"exists but says nothing about {t.assert_!r} — a sanction must "
-                f"be about the thing it sanctions"
+                f"exists but does not CITE {t.assert_!r} in its sanctions — a "
+                f"sanction is a typed citation of the glossary term, never a "
+                f"prose mention (names never sanction)"
             )
             return out(AssertionStatus.FAILED, actual=actual,
-                       detail=f"divergence cites {did!r}, which is not about "
-                              f"{t.assert_!r}")
+                       detail=f"divergence cites {did!r}, which does not "
+                              f"sanction {t.assert_!r}")
     return out(AssertionStatus.DIVERGED, actual=actual,
                divergence_reason=declared.reason,
                decision_id=declared.decision_id)

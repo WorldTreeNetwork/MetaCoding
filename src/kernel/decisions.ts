@@ -50,6 +50,15 @@ export interface CmDecision {
   readonly rationale?: string;
   /** who recommended a provisional pick (so provenance is never silent). */
   readonly recommendedBy?: string;
+  /**
+   * Glossary ASSERTION TERMS this decision sanctions divergence on — a typed
+   * citation, never a prose mention. The verifier resolves a port's declared
+   * divergence against this list; names in `rationale`/`convergenceKey` never
+   * sanction anything (the wave-1 lesson, MetaCoding-n9o: prose said
+   * `yieldTotal`, the verifier speaks `yield_total`, and the one chosen
+   * divergence scored as a bug in all four readings).
+   */
+  readonly sanctions?: readonly string[];
 }
 
 /** Thrown when a required CM decision is unresolved / missing / underspecified. */

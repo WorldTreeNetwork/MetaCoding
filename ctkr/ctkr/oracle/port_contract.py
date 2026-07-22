@@ -199,16 +199,19 @@ DEFAULT_DECISION_SOURCES: tuple[str, ...] = (
 )
 
 
-def load_decisions(paths: Iterable[str | Path]) -> dict[str, str]:
-    """``{decision_id: the decision's own text}`` from JSONL decision registries.
+def load_decisions(paths: Iterable[str | Path]) -> dict[str, dict[str, Any]]:
+    """``{decision_id: {"text": ..., "sanctions": (...)}}`` from JSONL registries.
 
-    The TEXT is kept, not just the id, because existence is not warrant: five
-    stock-arithmetic divergences citing ``birth-uniqueness`` — a real decision,
-    about birth logs — were all accepted, and the exit code was downgraded from
-    1 to 3. A sanction must be *topically* bound to what it sanctions
-    (:func:`decision_covers`).
+    ``sanctions`` is the decision's OWN typed list of glossary assertion terms
+    it sanctions divergence on. Existence is not warrant, and — the wave-1
+    lesson — neither is prose: the registry's text named the camelCase
+    projections (``yieldTotal``) while the verifier speaks glossary terms
+    (``yield_total``), so the one deliberately chosen divergence scored as an
+    undeclared mismatch in all four readings (MetaCoding-n9o). A sanction is a
+    CITATION, not a mention; it must reference the identity of the question
+    asked at the boundary, which survives any renaming on either side.
     """
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, Any]] = {}
     for path in paths:
         p = Path(path)
         if not p.exists():
@@ -222,19 +225,33 @@ def load_decisions(paths: Iterable[str | Path]) -> dict[str, str]:
             except json.JSONDecodeError:
                 continue
             text = json.dumps(row, sort_keys=True).lower()
+            raw = row.get("sanctions")
+            sanctions = tuple(
+                t.strip() for t in raw if isinstance(t, str) and t.strip()
+            ) if isinstance(raw, list) else ()
             for key in ("invariant", "id", "decision_id", "targetElement"):
                 v = row.get(key)
                 if isinstance(v, str) and v.strip():
-                    out[v.strip()] = out.get(v.strip(), "") + " " + text
+                    prev = out.get(v.strip(), {"text": "", "sanctions": ()})
+                    out[v.strip()] = {
+                        "text": prev["text"] + " " + text,
+                        "sanctions": tuple(dict.fromkeys((*prev["sanctions"], *sanctions))),
+                    }
     return out
 
 
-def decision_covers(text: str, assertion: str) -> bool:
-    """Whether a decision's own text names the assertion term it is cited for.
+def decision_covers(entry: Any, assertion: str) -> bool:
+    """Whether a decision CITES the assertion term in its ``sanctions`` field.
 
-    Deliberately a *naming* test rather than a semantic one: the decision must
-    have been written with this term in view. A decision that never mentions
-    ``stock_on_hand`` cannot sanction a wrong ``stock_on_hand``, whatever the
-    port says about it.
+    Names never sanction. The previous implementation was a substring test over
+    the decision's prose, which failed both ways: a decision written about
+    ``yieldTotal`` could not sanction ``yield_total`` (the wave-1 inversion,
+    MetaCoding-n9o), and a decision whose rationale merely *mentioned* a term
+    in passing would have sanctioned it. A port is free to rename everything —
+    the stable identity is the glossary term of the question asked at the
+    boundary, and a sanction must cite it explicitly. Legacy string entries
+    (prose only, no ``sanctions``) cover nothing.
     """
-    return assertion.lower() in (text or "").lower()
+    if isinstance(entry, dict):
+        return assertion in entry.get("sanctions", ())
+    return False
