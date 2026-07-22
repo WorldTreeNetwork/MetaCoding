@@ -185,6 +185,31 @@ def test_validate_fixture_accepts_the_new_surface_and_resolves_refs() -> None:
     assert any("quantity alias" in i.message for i in validate_fixture(bad))
 
 
+def test_a_refused_delete_quantity_fixture_validates() -> None:
+    """The recorder mints `refused` with the refused step's own ref as subject —
+    for delete_quantity that is a QUANTITY alias. Caught by the first live
+    recording of the orphan-fate flow (the fixture came back invalid), so
+    pinned here."""
+    fx = SemanticFixture(
+        title="second delete refused",
+        glossary_terms=["land", "harvest", "weight", "record_log",
+                        "delete_log", "delete_quantity"],
+        given=[GivenStep(entity="land", alias="A", name="Bed")],
+        when=[
+            WhenStep(action="record_log", alias="L", kind="harvest",
+                     status="done", against=["A"],
+                     quantities=[QuantitySpec(measure="weight", value=5.0,
+                                              unit="kilogram", alias="Q")]),
+            WhenStep(action="delete_log", ref="L"),
+            WhenStep(action="delete_quantity", ref="Q"),
+        ],
+        then=[ThenAssertion(**{"assert": "refused"}, subject="Q", value=True,
+                            witness="w1")],
+        provenance=Provenance(source_system="farmOS"),
+    )
+    assert validate_fixture(fx) == []
+
+
 # --------------------------------------------------------------------------- #
 # Interpreter (steps.apply_when)                                               #
 # --------------------------------------------------------------------------- #

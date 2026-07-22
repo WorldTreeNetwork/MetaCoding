@@ -1,15 +1,16 @@
 {
-  "pack_id": "bc890a61e6f1",
-  "recorded_at": "2026-07-22T14:03:40.257207+00:00",
+  "pack_id": "6361aa306334",
+  "recorded_at": "2026-07-22T19:50:13.530160+00:00",
   "source_system": "farmOS",
   "source_version": "4.x",
   "fixture_ids": [
     "e4125e2691869664c8eb7549e598c159",
     "f41340795a12bfc9c52e5f09d2e6be80",
-    "5b695b109ead8c3e525627ea26d9f86e"
+    "5b695b109ead8c3e525627ea26d9f86e",
+    "6e2c3c900a76369ebdddbfa82c0daa1d"
   ],
-  "fixtures_blake3": "45c2dfc8b15ea3d99372c9b4c4e9bf6f",
-  "observations_blake3": "02d383c76edec1f358bd3c89d35600a0",
+  "fixtures_blake3": "f4791eaef09baea2427164f31d4e2c1a",
+  "observations_blake3": "55b5c81dbb468a67df0128fbfb6666d4",
   "derivations": {
     "yield_total": "3f299470a126f329",
     "log_count": "6c6869b9e8a9b6e4",
@@ -22,7 +23,8 @@
     "has_parent": "b72317e3a75bc406",
     "birth_record_count": "dada0d951d78c63e",
     "lot_number": "a6269061cb84ba4a",
-    "material_quantity": "4e05c434576dc240"
+    "material_quantity": "4e05c434576dc240",
+    "birth_mother": "570d5ec038cb8ce8"
   },
-  "seal": "bc890a61e6f180dd2d514f6867e48dad"
+  "seal": "6361aa306334f62329eab7ad9dfa4214"
 }

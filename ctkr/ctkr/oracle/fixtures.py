@@ -672,7 +672,10 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
                     f"delete_quantity ref {w.ref!r} is not a quantity alias")
 
     # --- then: assertion terms legal, subjects resolve, required fields -----
-    known = set(aliases) | log_aliases
+    # Quantity aliases are legal subjects: the recorder mints the `refused`
+    # assertion with the refused step's own ref, which for a refused
+    # delete_quantity IS a quantity alias (caught live, MetaCoding-l52).
+    known = set(aliases) | log_aliases | quantity_aliases
     for i, t in enumerate(fx.then):
         if t.assert_ not in glossary.ASSERTION_TERMS:
             err(f"then[{i}].assert", f"{t.assert_!r} is not a glossary assertion term")

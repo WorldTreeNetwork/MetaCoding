@@ -1,14 +1,15 @@
 {
-  "pack_id": "0c77ca7d462e",
-  "recorded_at": "2026-07-22T19:50:11.321081+00:00",
+  "pack_id": "29135f1d8001",
+  "recorded_at": "2026-07-22T19:49:50.406242+00:00",
   "source_system": "farmOS",
   "source_version": "4.x",
   "fixture_ids": [
-    "84676f4ca31e17b2b03c35f7e7c9b7e0",
-    "189caa0a3dc4385881eb6098be12571c"
+    "47f9ca0f4123a982e27fefee04b2b834",
+    "c44a6808d574e49d2a7726d8410c311f",
+    "51628b3c373c22f4a50d4da38c8a0920"
   ],
-  "fixtures_blake3": "e6236d80444efb5952c49d7ba4a8e0c1",
-  "observations_blake3": "b6b442e9d65edc10ef930b380a62e1a0",
+  "fixtures_blake3": "0e6ba5cca6d10a5410fd67d2485ea7d2",
+  "observations_blake3": "2e6a7e3d79b68eb48b27d4a756a6c684",
   "derivations": {
     "yield_total": "3f299470a126f329",
     "log_count": "6c6869b9e8a9b6e4",
@@ -24,5 +25,5 @@
     "material_quantity": "4e05c434576dc240",
     "birth_mother": "570d5ec038cb8ce8"
   },
-  "seal": "0c77ca7d462e4a200a665fa98374a2de"
+  "seal": "29135f1d8001c22e4dafae9025543b8a"
 }
