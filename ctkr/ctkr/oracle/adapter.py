@@ -241,3 +241,12 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("delete_quantity")
+
+    # --- birth_mother (assertion, PROVISIONAL) — has_parent-shaped --- #
+    def birth_mother(self, subject_handle: Handle, other_handle: Handle) -> bool:
+        """Deliver whether ``other`` is the animal recorded as the mother on the birth log, so an assertion can confirm the recorded dam against an expected animal.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("birth_mother")

@@ -295,6 +295,97 @@ def test_new_assertion_probes_are_not_yet_evidence(term: str) -> None:
     assert spec.subject_kind == "event"  # subject is a recorded log
 
 
+# --------------------------------------------------------------------------- #
+# birth_mother (assertion) — has_parent-shaped reference to the birth's dam     #
+# --------------------------------------------------------------------------- #
+_BIRTH_WITH_MOTHER = {
+    "GET /api/log/birth/b1": {
+        "data": {"type": "log--birth", "id": "b1", "attributes": {},
+                 "relationships": {"mother": {"data": {
+                     "type": "asset--animal", "id": "dam1"}}}}},
+}
+
+
+def test_birth_mother_true_when_other_is_the_recorded_dam() -> None:
+    adapter, tp = _adapter(_BIRTH_WITH_MOTHER)
+    assert adapter.birth_mother("log:birth:b1", "asset:animal:dam1") is True
+    # It read the SUBJECT birth log's own resource — where the mother lives.
+    assert ("GET", "/api/log/birth/b1") in tp.calls
+
+
+def test_birth_mother_false_when_other_is_a_different_animal() -> None:
+    """The discriminating power: a naive 'a mother exists' impl would return
+    True here; comparing the reference to `other` is what makes it False."""
+    adapter, _ = _adapter(_BIRTH_WITH_MOTHER)
+    assert adapter.birth_mother("log:birth:b1", "asset:animal:other9") is False
+
+
+def test_birth_mother_false_when_no_mother_recorded() -> None:
+    adapter, _ = _adapter({
+        "GET /api/log/birth/b2": {
+            "data": {"type": "log--birth", "id": "b2", "attributes": {},
+                     "relationships": {"mother": {"data": None}}}},
+    })
+    assert adapter.birth_mother("log:birth:b2", "asset:animal:dam1") is False
+
+
+def test_birth_mother_recorder_dispatch_passes_other_handle() -> None:
+    """The recorder's probe dispatch must resolve `other` to a handle and hand
+    it to the adapter — the hand-wired MetaCoding-td9 arm."""
+    from ctkr.oracle.recorder import Probe, _observe_probe
+
+    seen: dict[str, str] = {}
+
+    class _Stub:
+        def birth_mother(self, subject, other):  # noqa: ANN001
+            seen["subject"], seen["other"] = subject, other
+            return True
+
+    out = _observe_probe(
+        _Stub(),
+        Probe(assert_="birth_mother", subject="B", other="M"),
+        {"B": "log:birth:b1", "M": "asset:animal:dam1"},
+    )
+    assert out is True
+    assert seen == {"subject": "log:birth:b1", "other": "asset:animal:dam1"}
+
+
+def test_birth_mother_is_not_yet_evidence_and_event_subject() -> None:
+    spec = PROBE_CONTRACT["birth_mother"]
+    assert spec.authority == "derived"
+    assert not spec.is_evidence  # DERIVED, no validated_against
+    assert spec.subject_kind == "event"  # subject is a recorded birth log
+
+
+def test_birth_mother_usable_in_then_with_other_and_value() -> None:
+    """birth_mother binds a birth-log subject and an `other` animal, and its
+    observed boolean is required (has_parent-shaped)."""
+    fx = _fixture(
+        given=[
+            GivenStep(entity="animal", alias="DAM", name="Cow Marigold", sex="F"),
+            GivenStep(entity="animal", alias="OTHER", name="Cow Sorrel", sex="F"),
+            GivenStep(entity="animal", alias="CALF", name="Calf Aster", sex="F"),
+        ],
+        when=[WhenStep(action="record_birth", alias="B", ref="CALF",
+                       parents=["DAM"], name="birth of Aster", status="done")],
+        then=[ThenAssertion(assert_="birth_mother", subject="B",
+                            other="DAM", value=True)],
+    )
+    assert validate_fixture(fx) == []
+    # An unknown `other` alias is rejected.
+    bad_other = _fixture(
+        given=[
+            GivenStep(entity="animal", alias="DAM", name="Cow Marigold", sex="F"),
+            GivenStep(entity="animal", alias="CALF", name="Calf Aster", sex="F"),
+        ],
+        when=[WhenStep(action="record_birth", alias="B", ref="CALF",
+                       parents=["DAM"], name="birth of Aster", status="done")],
+        then=[ThenAssertion(assert_="birth_mother", subject="B",
+                            other="GHOST", value=True)],
+    )
+    assert any(i.where == "then[0].other" for i in validate_fixture(bad_other))
+
+
 @pytest.mark.parametrize("term", ["lot_number", "material_quantity"])
 def test_new_assertion_terms_are_usable_in_then(term: str) -> None:
     """Each new assertion binds to a recorded-log subject and requires its

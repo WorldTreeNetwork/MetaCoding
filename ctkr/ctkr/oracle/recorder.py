@@ -615,6 +615,11 @@ def _observe_probe(
         return adapter.lot_number(subject)
     if probe.assert_ == "material_quantity":
         return adapter.material_quantity(subject)
+    # birth_mother is has_parent-shaped: it takes the expected dam as `other`
+    # and delivers a boolean. Hand-wired here because `add-term` codegen does
+    # not generate the recorder's _observe_probe dispatch arm (MetaCoding-td9).
+    if probe.assert_ == "birth_mother":
+        return adapter.birth_mother(subject, handles[probe.other])
     raise ValueError(f"unknown probe assertion {probe.assert_!r}")
 
 

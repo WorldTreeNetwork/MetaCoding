@@ -465,6 +465,10 @@ _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     # recorded value on the subject log; the observed value is required.
     "lot_number": ("value",),
     "material_quantity": ("value",),
+    # PROVISIONAL birth-log reference assertion: has_parent-shaped — the subject
+    # birth log's recorded mother is compared against the `other` animal, and the
+    # observed boolean is required (like has_parent).
+    "birth_mother": ("other", "value"),
 }
 
 #: Which actions bind ``alias`` to a *log* handle (as opposed to an asset).
@@ -626,7 +630,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"then[{i}].op", f"{t.op!r} is not a comparison operator")
         if t.assert_ == "group_member" and t.group and t.group not in aliases:
             err(f"then[{i}].group", f"unknown group alias {t.group!r}")
-        if t.assert_ == "has_parent" and t.other and t.other not in aliases:
+        if t.assert_ in ("has_parent", "birth_mother") and t.other \
+                and t.other not in aliases:
             err(f"then[{i}].other", f"unknown animal alias {t.other!r}")
 
     # --- declared glossary_terms are all legal ------------------------------

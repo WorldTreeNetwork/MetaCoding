@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2y-birth-mother-matches",
+      "title": "A birth records a dam: the birth log's mother is delivered as that dam",
+      "feature": "birth",
+      "glossary_terms": ["animal", "record_birth", "birth_mother", "has_parent", "birth_record_count", "birth"],
+      "given": [
+        {"entity": "animal", "alias": "DAM", "name": "w2y-Cow Marigold", "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "OTHER", "name": "w2y-Cow Sorrel", "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "CALF", "name": "w2y-Calf Aster", "descriptor": "Cattle", "sex": "F"}
+      ],
+      "when": [
+        {"action": "record_birth", "alias": "BIRTH", "ref": "CALF", "parents": ["DAM"], "name": "w2y-birth of Aster", "status": "done", "at": "2026-07-13T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "birth_mother", "subject": "BIRTH", "other": "DAM"},
+        {"assert": "has_parent", "subject": "CALF", "other": "DAM"},
+        {"assert": "birth_record_count", "subject": "CALF"}
+      ]
+    },
+    {
+      "key": "w2y-birth-mother-different-animal",
+      "title": "The same birth against a different animal: birth_mother is false — the recorded reference, not merely a mother's presence, is what is delivered",
+      "feature": "birth",
+      "glossary_terms": ["animal", "record_birth", "birth_mother", "birth"],
+      "given": [
+        {"entity": "animal", "alias": "DAM", "name": "w2y-Cow Nettle", "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "OTHER", "name": "w2y-Cow Thistle", "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "CALF", "name": "w2y-Calf Birch", "descriptor": "Cattle", "sex": "M"}
+      ],
+      "when": [
+        {"action": "record_birth", "alias": "BIRTH", "ref": "CALF", "parents": ["DAM"], "name": "w2y-birth of Birch", "status": "done", "at": "2026-07-14T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "birth_mother", "subject": "BIRTH", "other": "OTHER"}
+      ]
+    },
+    {
+      "key": "w2y-birth-mother-absent",
+      "title": "A birth recorded with no dam: birth_mother is false — the discriminating contrast on presence",
+      "feature": "birth",
+      "glossary_terms": ["animal", "record_birth", "birth_mother", "birth_record_count", "birth"],
+      "given": [
+        {"entity": "animal", "alias": "DAM", "name": "w2y-Cow Yarrow", "descriptor": "Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "CALF", "name": "w2y-Calf Cedar", "descriptor": "Cattle", "sex": "F"}
+      ],
+      "when": [
+        {"action": "record_birth", "alias": "BIRTH", "ref": "CALF", "parents": [], "name": "w2y-birth of Cedar", "status": "done", "at": "2026-07-15T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "birth_mother", "subject": "BIRTH", "other": "DAM"},
+        {"assert": "birth_record_count", "subject": "CALF"}
+      ]
+    }
+  ]
+}

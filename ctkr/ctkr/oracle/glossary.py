@@ -133,6 +133,7 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
                     # method — see probes.ProbeSpec.subject_kind == "attempt".
         "lot_number",  # The identifying number of the lot or batch to which a recorded harv… [PROVISIONAL]
         "material_quantity",  # A measured quantity classified as material in a farm record. [PROVISIONAL]
+        "birth_mother",  # The mother recorded for a birth. It identifies the animal recognize… [PROVISIONAL]
     }
 )
 

@@ -750,6 +750,30 @@ class FarmOSAdapter(ImplementationAdapter):
         _, bundle, uid = self._split(subject_handle)
         self.client.request("DELETE", f"/api/quantity/{bundle}/{uid}")
 
+    # --- birth_mother (assertion, PROVISIONAL — birth_mother bind) --------- #
+    def birth_mother(self, subject_handle: Handle, other_handle: Handle) -> bool:
+        """Deliver whether ``other`` is the animal recorded as the mother on the
+        birth log, so an assertion can confirm the recorded dam against an
+        expected animal.
+
+        The subject is a birth LOG. farmOS carries the birthing dam as the birth
+        log's own ``mother`` relationship (Birth.php:fields.mother); this reads
+        that reference off ``/api/log/birth/{uuid}`` and reports whether the
+        referenced asset id equals ``other``'s id — the ``has_parent`` house form
+        for an entity reference, chosen because a raw per-run asset UUID could
+        never reproduce across runs or ports and so could never score. A birth
+        with no recorded mother, or one whose mother is a different animal,
+        delivers ``False``. PROVISIONAL: the derivation carries no
+        source-authority validation yet, so its values cannot score until a
+        sealed recording binds the term.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/log/{kind}/{uid}")
+        rel = ((doc["data"].get("relationships") or {}).get("mother") or {}).get("data")
+        mother_id = rel["id"] if isinstance(rel, dict) and rel else ""
+        _, _, other_id = self._split(other_handle)
+        return bool(mother_id) and mother_id == other_id
+
 
 # --------------------------------------------------------------------------- #
 # Value helpers                                                                #

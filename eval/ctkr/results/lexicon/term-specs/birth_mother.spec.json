@@ -1,0 +1,23 @@
+{
+  "term": "birth_mother",
+  "kind": "assertion",
+  "description": "The mother recorded for a birth. It identifies the animal recognized as the dam of the newborn in that birth.",
+  "probe_semantics": "Deliver whether a given animal is the one recorded as the mother on the birth log, so an assertion can confirm the recorded dam against an expected animal.",
+  "discriminating_flow": {
+    "given": ["a dam animal", "a second animal that is not the dam", "a newborn animal"],
+    "when": ["record_birth for the newborn animal with mother set to the dam animal"],
+    "then": ["birth_mother of the birth log with other=the dam == true", "birth_mother of the birth log with other=the second animal == false"]
+  },
+  "provenance": {
+    "config_source": "modules/log/birth/src/Plugin/Log/LogType/Birth.php:fields.mother",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'",
+      "field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read 'deliver the animal recorded as the mother'; implemented instead as the has_parent house form for an entity reference — an assertion over an `other` animal delivering a BOOLEAN (does the birth log's recorded mother == other?). A raw per-run asset UUID cannot reproduce across runs or ports, so it could never score; the boolean-against-other is the only reproducible, scorable form and matches the one existing entity-reference probe (has_parent).",
+      "subject is a birth LOG (subject_kind=event); the mother is read off the birth log's own `mother` relationship, not off the child asset's `parent` relationship (that is what has_parent already covers)",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}
