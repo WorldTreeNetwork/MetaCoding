@@ -157,3 +157,14 @@ uv run python -m ctkr glossary-gaps \
 uv run python -m ctkr role-gaps --family log \
   --data-dir /private/tmp/farmos-rebuild-2026-07-18/farmos-data-v2 --out /tmp/scratch/log.jsonl
 ```
+
+## Amendment — 2026-07-22 fresh reading applied
+
+`asset/group` and `organization/farm` TIERED UP to identity: the partition's own
+tier-up-under-structure-blindness rule (used for quick/*) applied consistently —
+both carry hidden relational folds the vocabulary lane cannot see (computed
+group membership + circularity constraint; cross-cutting farm scoping
+constraints). Final: **spine 21 / identity 20 / excluded 42.** Spine clusters
+lose those two members (spine-asset → 7, spine-misc → quantity/standard alone).
+Residual action before identity builds: restore the graph export (MetaCoding-u00)
+and re-run role-gaps for role-class evidence.
