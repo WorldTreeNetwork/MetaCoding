@@ -20,6 +20,11 @@ from pathlib import Path
 DEFAULT_SRCS = (
     "/private/tmp/farmos-cell3-2026-07-19/farm-src/modules/log",
     "/private/tmp/farmos-cell3-2026-07-19/farm-src/modules/asset/land",
+    # The shared log spine's own module — farm_log.workflows.yml (the
+    # `abandoned` state, wave 1's flagship gap) lives HERE, not under
+    # modules/log; a scope that omits it silently loses workflow-state gaps
+    # (fresh-reading finding, 2026-07-22).
+    "/private/tmp/farmos-cell3-2026-07-19/farm-src/modules/core/log",
 )
 
 

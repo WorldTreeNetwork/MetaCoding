@@ -1,0 +1,167 @@
+- generic [ref=f12e2]:
+  - generic:
+    - generic:
+      - heading "To view keyboard shortcuts, press question mark View keyboard shortcuts" [level=2] [ref=f12e3]:
+        - generic [ref=f12e4]: To view keyboard shortcuts, press question mark
+        - link "View keyboard shortcuts" [ref=f12e5] [cursor=pointer]:
+          - /url: /i/keyboard_shortcuts
+      - generic [ref=f12e6]:
+        - banner [ref=f12e7]:
+          - generic [ref=f12e111]:
+            - button "Exit" [ref=f12e113] [cursor=pointer]
+            - button "Bookmark" [ref=f12e119] [cursor=pointer]
+        - main [ref=f12e102]:
+          - generic [ref=f12e126]:
+            - generic [ref=f12e127]:
+              - link [ref=f12e133] [cursor=pointer]:
+                - /url: /leanxbt/article/2076679468186513600/media/2076681381917368321
+                - generic "Image" [ref=f12e137]:
+                  - img "Image" [ref=f12e139]
+              - generic [ref=f12e140]:
+                - generic [ref=f12e141]: "How to Build a Conductor: Orchestrating Multi-Agent Loops from Scratch"
+                - generic [ref=f12e143]:
+                  - generic [ref=f12e145]:
+                    - link [ref=f12e155] [cursor=pointer]:
+                      - /url: /leanxbt
+                    - generic [ref=f12e159]:
+                      - link [ref=f12e161] [cursor=pointer]:
+                        - /url: /leanxbt
+                        - generic [ref=f12e162]:
+                          - generic [ref=f12e163]: leanxbt
+                          - img "Verified account" [ref=f12e167]
+                      - generic [ref=f12e170]:
+                        - link "@leanxbt" [ref=f12e172] [cursor=pointer]:
+                          - /url: /leanxbt
+                        - generic [ref=f12e175]:
+                          - generic [ref=f12e176]: ·
+                          - generic [ref=f12e177]:
+                            - generic "Jul 13" [ref=f12e178]:
+                              - time [ref=f12e179]: Jul 13
+                            - generic [ref=f12e180]: ·
+                            - img "Edited" [ref=f12e183] [cursor=pointer]
+                  - generic [ref=f12e186]:
+                    - button "Follow @leanxbt" [ref=f12e189] [cursor=pointer]:
+                      - generic [ref=f12e190]: Follow
+                    - button [ref=f12e193] [cursor=pointer]
+                - group "11 reposts, 59 likes, 122 bookmarks, 95494 views" [ref=f12e198]:
+                  - button "0 Replies. Reply" [ref=f12e200] [cursor=pointer]
+                  - button "11 reposts. Repost" [ref=f12e211] [cursor=pointer]:
+                    - generic [ref=f12e212]: "11"
+                  - button "59 Likes. Like" [ref=f12e222] [cursor=pointer]:
+                    - generic [ref=f12e223]: "59"
+                  - link "95494 views. View post analytics" [ref=f12e233] [cursor=pointer]:
+                    - /url: /leanxbt/status/2076679468186513600/analytics
+                    - generic [ref=f12e234]: 95K
+                  - button "Bookmark" [ref=f12e244] [cursor=pointer]
+                  - button "Share post" [ref=f12e253] [cursor=pointer]
+                - generic [ref=f12e265]:
+                  - generic [ref=f12e266]: "You already know the single-agent loop: a while-loop, check first, agent fixes, state on disk. But a single agent hits a ceiling of task complexity, the limit of what one context can close. When the goal is large - a migration, a feature spanning half the system, parsing a big repo - it has to be broken into parts, handed to several agents, and merged back. Whoever does that is the orchestrator, the conductor. This article is a step-by-step build of a conductor, from an empty file to a working cycle."
+                  - generic [ref=f12e269]: "The build order is strict, and it is not arbitrary: decomposition, dispatch, integration, verification, brakes. Each stage rests on the previous one, and skipping any of them is exactly the spot where a multi-agent loop later blows up. We build one at a time."
+                  - heading "What a conductor is and what it is not" [level=2] [ref=f12e273]
+                  - generic [ref=f12e276]: "First, clear up a common confusion. The conductor is not an agent that does the work better than the others. It does not do the domain work at all: it does not write code, it does not edit text. Its product is decisions: how to split the goal, who gets what, in what order, when to merge, and when to stop. It is a coordinator, not a worker."
+                  - generic [ref=f12e279]: "From this follows something practical: the conductor should be as dumb as possible in the domain and as disciplined as possible in coordination. The more it reaches to do the work itself, the worse it conducts, because it loses the overview behind the details of one subtask. A good conductor holds the goal and the map in its head and keeps its hands off the code. This is the first design decision: separate the coordinator role from the worker role physically, with different prompts and, ideally, different model calls."
+                  - 'heading "Stage 1: Decomposition - how the conductor cuts the goal into subtasks" [level=2] [ref=f12e283]'
+                  - generic [ref=f12e286]: "It all starts with the conductor turning one big goal into a list of subtasks. This is the most underrated stage: bad decomposition guarantees the failure of everything below, and no brakes will save it later."
+                  - generic [ref=f12e289]: "A good subtask has three properties. It is as independent as possible: it can be closed without waiting on three others. It has its own check: on completion there is a command that says yes or no. And it fits one worker context: if a subtask needs decomposition itself, cut further."
+                  - generic [ref=f12e294]:
+                    - generic [ref=f12e295]:
+                      - generic [ref=f12e296]: python
+                      - button "Copy to clipboard" [ref=f12e298] [cursor=pointer]
+                    - code [ref=f12e304]: "#!/usr/bin/env python3 # decomposition: the conductor turns the goal into a list of checkable subtasks DECOMPOSE_PROMPT = \"\"\"You are a planner. Break the goal into subtasks. GOAL: {goal} Rules for each subtask: - It must be independently completable where possible. - It MUST have a concrete check command that returns pass/fail. - It must fit one agent context. If it does not, split further. Output JSON list. Each item: {{\"id\": \"short-slug\", \"desc\": \"...\", \"check\": \"shell command\", \"depends_on\": [\"other-id\", ...]}} Output ONLY the JSON.\"\"\" def decompose(goal, call_model): raw = call_model(DECOMPOSE_PROMPT.format(goal=goal), temperature=0.2) plan = json.loads(raw) # plan validation: a subtask with no check is not a subtask for t in plan: assert t.get(\"check\"), f\"subtask {t['id']} has no check, reject plan\" return plan"
+                  - generic [ref=f12e305]: "Notice the assert: a subtask with no check command is rejected on the spot. This is not nitpicking. A subtask that cannot be checked is a subtask whose doneness the conductor will later judge by eye, and an agent's eye is too kind to itself. The check field at the decomposition stage is the foundation under the whole downstream cycle, so its absence fails the entire plan."
+                  - generic [ref=f12e308]: "The depends_on field defines the dependency graph: what depends on what. From it the conductor understands what can be dispatched in parallel and what must wait. Without the graph it either serializes everything, losing speed, or dispatches in parallel things that depend on each other, catching races."
+                  - 'heading "Stage 2: Dispatch - how the conductor picks what to run now" [level=2] [ref=f12e312]'
+                  - generic [ref=f12e315]: "With a plan and its dependencies, at each step the conductor picks the next subtask: one whose dependencies are already closed. This is simple but important logic, because it is exactly what separates a conductor from a script running tasks in order."
+                  - generic [ref=f12e320]:
+                    - generic [ref=f12e321]:
+                      - generic [ref=f12e322]: python
+                      - button "Copy to clipboard" [ref=f12e324] [cursor=pointer]
+                    - code [ref=f12e330]: "def ready_subtasks(plan, done): # ready = all its dependencies closed and it is not closed yet return [t for t in plan if t[\"id\"] not in done and all(dep in done for dep in t.get(\"depends_on\", []))] def pick_next(plan, done): ready = ready_subtasks(plan, done) if not ready: return None # heuristic: first the one that unblocks the most others def unblocks(t): return sum(1 for other in plan if t[\"id\"] in other.get(\"depends_on\", [])) return max(ready, key=unblocks)"
+                  - generic [ref=f12e331]: "The unblocks heuristic is a small but useful detail: from the ready subtasks the conductor takes the one that unblocks the most subsequent ones. This keeps the flow of work wide and stops the conductor from getting stuck at a bottleneck by closing dead-end branches first. For a first version this is enough, smart critical-path planners can be added later."
+                  - generic [ref=f12e334]: "Parallelism is decided here too. If several ready subtasks exist and are independent, the conductor can run them at once. But start with sequential dispatch: parallel workers multiply the difficulty of integration and debugging, and the speed gain only makes sense once the sequential version is already reliable. First a working conductor one at a time, then a parallel one."
+                  - 'heading "Stage 3: Integration - how the conductor merges results back" [level=2] [ref=f12e338]'
+                  - generic [ref=f12e341]: The workers closed their subtasks, each returned its piece. Now the conductor has to merge them into a single goal state. This is the second most common source of breakage after decomposition, because pieces from different agents are not obliged to fit together, even if each is individually correct.
+                  - generic [ref=f12e344]: The key to integration is not to hold results in the conductor's head but to materialize them into shared state on disk that the conductor reads and updates. The worker does not tell the conductor what it did - it leaves a verifiable trace, and the conductor reads that trace.
+                  - generic [ref=f12e349]:
+                    - generic [ref=f12e350]:
+                      - generic [ref=f12e351]: python
+                      - button "Copy to clipboard" [ref=f12e353] [cursor=pointer]
+                    - code [ref=f12e359]: "def integrate(subtask, state): # integration goes through fact, not through the worker's report # the worker already changed files / created an artifact, the conductor records it state[\"done\"].append(subtask[\"id\"]) state[\"last_progress_step\"] = state[\"step\"] # after each merge - a check that the pieces are compatible with each other # it is not enough that each subtask is green, they must not conflict r = subprocess.run(\"npm run test:integration\", shell=True, capture_output=True) if r.returncode != 0: # the pieces are correct individually but break together state[\"conflicts\"].append({\"after\": subtask[\"id\"], \"detail\": \"integration red\"}) return False save_state(state) return True"
+                  - generic [ref=f12e360]: "The point of test:integration separate from the subtask checks: a subtask checks its own piece, the integration test checks the seam. The classic multi-agent error is that each part is green but together it does not work, because two agents understood the shared interface differently. An integration check after the merge catches this immediately, not at the end, when untangling is too late."
+                  - 'heading "Stage 4: Verification - the conductor does not believe, it checks" [level=2] [ref=f12e364]'
+                  - generic [ref=f12e367]: Now the central principle on which the honesty of the whole construction rests. The conductor never accepts a subtask on the basis of the worker reporting "done." It runs that subtask's check itself and looks at the exit code.
+                  - generic [ref=f12e372]:
+                    - generic [ref=f12e373]:
+                      - generic [ref=f12e374]: python
+                      - button "Copy to clipboard" [ref=f12e376] [cursor=pointer]
+                    - code [ref=f12e382]: "def verify(subtask): # the conductor runs the subtask's oracle ITSELF, the worker's report does not count r = subprocess.run(subtask[\"check\"], shell=True, capture_output=True) return r.returncode == 0"
+                  - generic [ref=f12e383]: "The reason is simple and universal for loops: the agent that did the work is a bad judge of its own work, it systematically overrates its doneness. The worker's report of \"done\" is not a fact, it is the opinion of an interested party. The conductor turns that opinion into fact the only way possible: it runs an independent check that the worker did not write. As long as check is set at the decomposition stage and does not depend on who performed the subtask, the conductor cannot be fooled from below."
+                  - generic [ref=f12e386]: And the final oracle is on the whole goal. When all subtasks are closed and verified, that is not yet success. Success is when the end-to-end acceptance test of the goal passes, one that cannot be satisfied by closing subtasks individually.
+                  - generic [ref=f12e391]:
+                    - generic [ref=f12e392]:
+                      - generic [ref=f12e393]: python
+                      - button "Copy to clipboard" [ref=f12e395] [cursor=pointer]
+                    - code [ref=f12e401]: "def goal_met(): r = subprocess.run(\"npm run test:acceptance\", shell=True, capture_output=True) return r.returncode == 0"
+                  - generic [ref=f12e402]: "The end-to-end test also protects against a subtle breakage: the conductor, optimizing the number of closed subtasks, can split the goal into trivial dummies and briskly close them. While the end-to-end test is red, all closed subtasks mean nothing, and this keeps the conductor honest - its success is measured by the goal, not by the number of moves."
+                  - heading "Assembling the whole cycle" [level=2] [ref=f12e406]
+                  - generic [ref=f12e409]: Now the five stages fold into one working conductor cycle.
+                  - generic [ref=f12e414]:
+                    - generic [ref=f12e415]:
+                      - generic [ref=f12e416]: python
+                      - button "Copy to clipboard" [ref=f12e418] [cursor=pointer]
+                    - code [ref=f12e424]: "#!/usr/bin/env python3 # orchestrator.py - the full conductor cycle import json, subprocess MAX_STEPS = 12 def orchestrate(goal, call_model, run_agent): plan = decompose(goal, call_model) # stage 1 state = {\"goal\": goal, \"step\": 0, \"done\": [], \"conflicts\": [], \"last_progress_step\": 0} while state[\"step\"] < MAX_STEPS: state[\"step\"] += 1 subtask = pick_next(plan, state[\"done\"]) # stage 2 if subtask is None: # nothing to dispatch: either all done, or all blocked if all(t[\"id\"] in state[\"done\"] for t in plan): if goal_met(): # stage 4, final oracle print(f\"Goal reached in {state['step']} steps.\"); return True print(\"Subtasks closed, end-to-end red. Replanning.\") plan = decompose(goal, call_model) # the plan was wrong continue print(\"Deadlock: subtasks left, nothing to dispatch.\"); return False run_agent(subtask) # the worker works if verify(subtask): # stage 4, subtask check integrate(subtask, state) # stage 3, merge + integration print(f\" {subtask['id']} verified and merged\") else: print(f\" {subtask['id']} failed the check, not accepted\") print(f\"Cap of {MAX_STEPS} steps reached.\"); return False"
+                  - generic [ref=f12e425]: "Read how the stages join. Decomposition once at the start, and again if the end-to-end test is red while all subtasks are closed - that means the plan was wrong and must be rebuilt. Dispatch picks the next ready subtask. Verification stands between the worker's work and integration: if it did not pass, we do not merge. The final oracle separates \"all subtasks closed\" from \"goal reached.\" The conductor's skeleton is all here, only the brakes remain."
+                  - 'heading "Stage 5: Brakes a single loop does not have" [level=2] [ref=f12e429]'
+                  - generic [ref=f12e432]: "The base brakes remain: a step cap, a budget, a heartbeat. But the multi-agent star has two failures of its own that need dedicated fuses, because the old ones do not see them."
+                  - generic [ref=f12e435]: "The first is a mutual block. A worker hangs, the conductor waits for it forever, the step counter may not even grow, because formally \"work\" is going on. This is caught by a per-subtask timeout: not closed in the allotted time, the conductor takes it away and marks it stuck."
+                  - generic [ref=f12e440]:
+                    - generic [ref=f12e441]:
+                      - generic [ref=f12e442]: python
+                      - button "Copy to clipboard" [ref=f12e444] [cursor=pointer]
+                    - code [ref=f12e450]: "SUBTASK_TIMEOUT = 180 # seconds per subtask import time start = time.time() run_agent(subtask) if time.time() - start > SUBTASK_TIMEOUT: print(f\" {subtask['id']} hung, taking it back\") state.setdefault(\"stuck\", []).append(subtask[\"id\"]) continue"
+                  - generic [ref=f12e451]: "The second is an argument with no convergence. Two workers, or the conductor and a worker, run a question in circles, there is no consensus, and the budget melts. An ordinary circuit breaker on a repeated command does not see it, because the wordings are slightly different each time. This is caught by a round counter per fork: after N exchanges the question goes up, to a human, instead of spinning further."
+                  - generic [ref=f12e456]:
+                    - generic [ref=f12e457]:
+                      - generic [ref=f12e458]: python
+                      - button "Copy to clipboard" [ref=f12e460] [cursor=pointer]
+                    - code [ref=f12e466]: "MAX_ROUNDS = 3 if state.get(\"rounds\", {}).get(subtask[\"id\"], 0) >= MAX_ROUNDS: print(f\" {subtask['id']}: argument not converging, escalating to a human\") state.setdefault(\"escalated\", []).append(subtask[\"id\"]) continue"
+                  - generic [ref=f12e467]: "The rule is the same as in the base loop, but applied to the conductor: define the orchestrator by what it can spoil. It spoils the most when coordination runs away unnoticed, so the timeout and the round cap go in before you step away from the machine, not after the first burned run."
+                  - 'heading "State with attribution: without which you cannot debug" [level=2] [ref=f12e471]'
+                  - generic [ref=f12e474]: "One thing worth building in right away, though the temptation to defer is strong: the state must remember who did what and on what basis the conductor accepted it. In a single loop the author is always one, in a multi-agent one, without attribution, debugging a failed run is hopeless - you see the outcome but not whose move spoiled it."
+                  - generic [ref=f12e479]:
+                    - generic [ref=f12e480]:
+                      - generic [ref=f12e481]: json
+                      - button "Copy to clipboard" [ref=f12e483] [cursor=pointer]
+                    - code [ref=f12e489]: "// .orchestration_state.json { \"goal\": \"billing-webhook migration\", \"step\": 7, \"done\": [\"schema-v2\", \"handler-refactor\"], \"decisions\": [ {\"step\": 5, \"by\": \"coder\", \"subtask\": \"schema-v2\", \"evidence\": \"npm test schema -> exit 0\"}, {\"step\": 6, \"by\": \"orchestrator\", \"action\": \"replanned\", \"evidence\": \"acceptance red with all subtasks closed\"} ], \"budget_spent_usd\": 6.40, \"budget_cap_usd\": 15.0 }"
+                  - generic [ref=f12e490]: The evidence field on each decision is what turns debugging from guessing into reading. A conductor decision with no evidence means it acted on faith rather than an oracle, and those lines are the first under suspicion when the loop went wrong. Attribution is cheap at build time and priceless at three a.m. over a burned run.
+                  - heading "The build order that works" [level=2] [ref=f12e494]
+                  - generic [ref=f12e497]: Let us fold it all into one route, because the order here matters more than the tools.
+                  - generic [ref=f12e500]: "First decomposition, yielding subtasks each with a mandatory check. Then dispatch by the dependency graph, sequential for now. Then integration through shared state on disk plus an integration test on the seams. Then verification: the conductor runs each subtask's oracle itself, and measures goal success by the end-to-end acceptance test. And only then the brakes: per-subtask timeout, round cap, budget, attribution in the state."
+                  - generic [ref=f12e503]: "Jumping stages - building dispatch before decomposition yields checkable subtasks, or parallelizing workers before integration is reliable - is exactly how a multi-agent loop blows up while you sleep. As with the single loop: prove it on the sequential, one-agent-at-a-time version, harden it, then expand."
+                  - generic [ref=f12e506]: "And honestly about scale. The loud stories about a fleet of a hundred agents are real, but such a fleet costs more than a million a month and works because a lab pays for it. Your first conductor is three or four workers under one coordinator on a boring but large task: a migration, a refactor across half the repo, parsing a big batch of tickets. Start with a conductor you trust on one such task, where every subtask is checkable and you still read the merge with your eyes. Build that one."
+                - status [ref=f12e510]:
+                  - generic [ref=f12e516]:
+                    - generic [ref=f12e517]: Want to publish your own Article?
+                    - link "Upgrade to Premium" [ref=f12e518] [cursor=pointer]:
+                      - /url: /i/premium_sign_up
+                - separator [ref=f12e519]
+                - listitem [ref=f12e520] [cursor=pointer]:
+                  - generic [ref=f12e521]:
+                    - link [ref=f12e531]:
+                      - /url: /leanxbt
+                    - generic [ref=f12e534]:
+                      - generic [ref=f12e535]:
+                        - generic [ref=f12e537]:
+                          - link [ref=f12e539]:
+                            - /url: /leanxbt
+                            - generic [ref=f12e540]:
+                              - generic [ref=f12e541]: leanxbt
+                              - img "Verified account" [ref=f12e545]
+                          - link "@leanxbt" [ref=f12e550]:
+                            - /url: /leanxbt
+                        - button "Follow @leanxbt" [ref=f12e554]:
+                          - generic [ref=f12e555]: Follow
+                      - generic [ref=f12e558]: i don't feel shame, i'm not capable of it
+            - generic [ref=f12e560]:
+              - button "Exit" [ref=f12e562] [cursor=pointer]
+              - button "Bookmark" [ref=f12e568] [cursor=pointer]

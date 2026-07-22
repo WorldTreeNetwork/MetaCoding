@@ -1,0 +1,46 @@
+- generic [ref=f12e2]:
+  - generic:
+    - generic:
+      - heading "To view keyboard shortcuts, press question mark View keyboard shortcuts" [level=2] [ref=f12e3]:
+        - generic [ref=f12e4]: To view keyboard shortcuts, press question mark
+        - link "View keyboard shortcuts" [ref=f12e5] [cursor=pointer]:
+          - /url: /i/keyboard_shortcuts
+      - generic [ref=f12e6]:
+        - banner [ref=f12e7]:
+          - generic [ref=f12e9]:
+            - generic [ref=f12e10]:
+              - heading [level=1] [ref=f12e12] [cursor=pointer]:
+                - link "X" [ref=f12e13]:
+                  - /url: /home
+              - navigation "Primary" [ref=f12e19]:
+                - link "Home" [ref=f12e20] [cursor=pointer]:
+                  - /url: /home
+                - link "Search and explore" [ref=f12e26] [cursor=pointer]:
+                  - /url: /explore
+                - link "Notifications" [ref=f12e32] [cursor=pointer]:
+                  - /url: /notifications
+                - link "Direct Messages" [ref=f12e38] [cursor=pointer]:
+                  - /url: /i/chat
+                - link "Grok" [ref=f12e44] [cursor=pointer]:
+                  - /url: /i/grok
+                  - generic "undefined unread items" [ref=f12e50]
+                - link "Premium" [ref=f12e51] [cursor=pointer]:
+                  - /url: /i/premium
+                - link "Bookmarks" [ref=f12e57] [cursor=pointer]:
+                  - /url: /i/bookmarks
+                - link "Creator Studio" [ref=f12e63] [cursor=pointer]:
+                  - /url: /i/jf/creators/studio
+                - link "Profile" [ref=f12e70] [cursor=pointer]:
+                  - /url: /aginarwhal
+                - button "More menu items" [ref=f12e76] [cursor=pointer]
+              - link "Post" [ref=f12e83] [cursor=pointer]:
+                - /url: /compose/post
+            - button "Account menu" [ref=f12e91] [cursor=pointer]:
+              - generic [ref=f12e99]:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic "narwhal, prompter of worlds (d/acc)":
+                        - img "narwhal, prompter of worlds (d/acc)"
+        - main [ref=f12e102]:
+          - progressbar "Loading" [ref=f12e105]
