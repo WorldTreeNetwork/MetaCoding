@@ -333,10 +333,14 @@ _PROBES: tuple[ProbeSpec, ...] = (
     # yet — so is_evidence is False and values cannot score until it is.
     # Validated the has_parent way (MetaCoding-5ln): the material_type
     # reference on a material quantity is stated by the source itself
-    # (farm_quantity_material Material.php bundleFieldDefinition), each term's
-    # name is the term's own stated attribute, and "first material quantity"
-    # mirrors the fold's own reset()-first read (farm_material EntityHooks.php).
-    # Reading stated references and stated names adds no semantics of ours.
+    # (farm_quantity_material Material.php bundleFieldDefinition) and each
+    # term's name is the term's own stated attribute — the VALUES add no
+    # semantics of ours. The "first material quantity of the log" SELECTION is
+    # ours, though (distinct from the fold's reset()-first inventory asset,
+    # which selects at a different level): it is an unambiguity convention,
+    # sound only while flows carry at most one material quantity per log — a
+    # multi-material-quantity flow would need the probe to say WHICH.
+    # (Review finding on 74c499f: the two "firsts" are not the same thing.)
     ProbeSpec('material_type_recorded', 'material_type_recorded', (), subject_kind="event",
               doc="The material types recorded on a log's material quantity, as an ordered list of term names.",
               authority=DERIVED,
