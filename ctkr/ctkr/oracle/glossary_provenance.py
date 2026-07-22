@@ -30,6 +30,16 @@ Input contract: **TERM-SPEC v1**, shared with ``ctkr propose-terms``::
      "probe_semantics": str, "discriminating_flow": {<flow-DSL sketch>},
      "provenance": {"role_class_id": str|null, "config_source": str|null,
                     "punts": [str], "first_pack_seal": null}}
+
+Two OPTIONAL keys (MetaCoding-td9) let an assertion spec declare its probe
+shape instead of defaulting to a param-less entity probe — the default forced
+every entity-reference assertion (the ``has_parent`` shape) to be hand-edited
+across five files after generation::
+
+    "subject_kind": "entity"|"event"|"attempt",   # default "entity"
+    "params": [{"field_name": "other",            # a ThenAssertion field
+                "alias_noun": "animal"}]          # non-empty = alias, resolved
+                                                  # to a handle before the call
 """
 
 from __future__ import annotations
@@ -50,6 +60,14 @@ _TERM_RE = re.compile(r"[a-z][a-z0-9_]*\Z")
 
 _SPEC_KEYS = ("term", "kind", "description", "probe_semantics",
               "discriminating_flow", "provenance")
+
+#: ThenAssertion fields a probe param may bind (fixtures.ThenAssertion is
+#: ``extra="forbid"``, so a spec cannot invent a new wire field — it reuses one
+#: of the closed set the flow DSL already carries).
+PROBE_PARAM_FIELDS: frozenset[str] = frozenset(
+    {"measure", "unit", "kind", "group", "other"}
+)
+SUBJECT_KINDS: frozenset[str] = frozenset({"entity", "event", "attempt"})
 
 
 class ProvenanceError(RuntimeError):
@@ -83,6 +101,37 @@ def validate_term_spec(spec: Any) -> list[str]:
         isinstance(spec["discriminating_flow"], dict) and spec["discriminating_flow"]
     ):
         problems.append("discriminating_flow must be a non-empty flow-DSL sketch")
+    if "subject_kind" in spec and spec["subject_kind"] not in SUBJECT_KINDS:
+        problems.append(
+            f"subject_kind {spec['subject_kind']!r} is not one of "
+            f"{sorted(SUBJECT_KINDS)}"
+        )
+    if "params" in spec:
+        params = spec["params"]
+        if spec.get("kind") != "assertion":
+            problems.append("params is only meaningful on an assertion spec")
+        if not isinstance(params, list):
+            problems.append("params must be a list of {field_name, alias_noun?}")
+        else:
+            seen_fields: set[str] = set()
+            for i, p in enumerate(params):
+                where = f"params[{i}]"
+                if not isinstance(p, dict):
+                    problems.append(f"{where}: not an object")
+                    continue
+                fname = p.get("field_name")
+                if fname not in PROBE_PARAM_FIELDS:
+                    problems.append(
+                        f"{where}.field_name {fname!r} is not one of "
+                        f"{sorted(PROBE_PARAM_FIELDS)} (ThenAssertion is a "
+                        f"closed field set)"
+                    )
+                elif fname in seen_fields:
+                    problems.append(f"{where}: duplicate field_name {fname!r}")
+                else:
+                    seen_fields.add(fname)
+                if "alias_noun" in p and not isinstance(p["alias_noun"], str):
+                    problems.append(f"{where}.alias_noun must be a string")
     prov = spec.get("provenance")
     if "provenance" in spec:
         if not isinstance(prov, dict):

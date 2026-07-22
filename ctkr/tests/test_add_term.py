@@ -25,10 +25,10 @@ from ctkr.oracle.glossary_provenance import load_registry
 from ctkr.term_codegen import CodegenError, apply_edits, plan_edits, render_diffs
 
 _ORACLE_FILES = ("glossary.py", "probes.py", "steps.py", "adapter.py",
-                 "farmos_adapter.py")
+                 "farmos_adapter.py", "recorder.py", "fixtures.py")
 
 
-def make_spec(term: str, kind: str) -> dict:
+def make_spec(term: str, kind: str, **extra) -> dict:
     return {
         "term": term,
         "kind": kind,
@@ -39,6 +39,7 @@ def make_spec(term: str, kind: str) -> dict:
                                 "then": [f"{term} == 1"]},
         "provenance": {"role_class_id": None, "config_source": "widget.yml",
                        "punts": [], "first_pack_seal": None},
+        **extra,
     }
 
 
@@ -144,12 +145,33 @@ def test_apply_assertion_term_generates_working_plumbing(tree, tmp_path) -> None
     with pytest.raises(a["AdapterError"], match="widget_count"):
         _bare(a["ImplementationAdapter"]).widget_count("H1")
 
-    # farmOS stub: inside the class, raises NotImplementedError, carries the
-    # probe semantics so the implementer knows what to build.
+    # farmOS stub: INSIDE the class (both live runs had to hand-relocate a
+    # module-scope insertion — MetaCoding-td9), raises NotImplementedError,
+    # carries the probe semantics so the implementer knows what to build.
     f = _exec_module(tree, "ctkr/oracle/farmos_adapter.py")
     farm = f["FarmOSAdapter"]
+    assert "widget_count" in farm.__dict__
     with pytest.raises(NotImplementedError, match="PROVISIONAL"):
         farm.__dict__["widget_count"](farm.__new__(farm), "H1")
+
+    # Recorder seam: the _observe_probe dispatch arm exists and calls the
+    # adapter — the gap the first live recording died on (MetaCoding-td9).
+    r = _exec_module(tree, "ctkr/oracle/recorder.py")
+    calls: list[tuple] = []
+
+    class _FakeAdapter:
+        def widget_count(self, subject):
+            calls.append((subject,))
+            return 3
+
+    probe = r["Probe"](assert_="widget_count", subject="A")
+    assert r["_observe_probe"](_FakeAdapter(), probe, {"A": "H1"}) == 3
+    assert calls == [("H1",)]
+
+    # Fixture validator: the required-fields row exists, so a flow author is
+    # told which fields the assertion demands instead of discovering it live.
+    x = _exec_module(tree, "ctkr/oracle/fixtures.py")
+    assert x["_ASSERT_REQUIRED"]["widget_count"] == ("value",)
 
     # Test skeleton exists and parses.
     skel = tree / "tests" / "test_term_widget_count.py"
@@ -207,6 +229,125 @@ def test_apply_entity_term_touches_only_glossary_and_tests(tree, tmp_path) -> No
 
 
 # --------------------------------------------------------------------------- #
+# Probe shape: spec-declared params + subject_kind (MetaCoding-td9)            #
+# --------------------------------------------------------------------------- #
+def _ref_spec(term: str = "has_gadget") -> dict:
+    """An entity-reference assertion — the ``has_parent`` shape that previously
+    required hand edits across five files."""
+    return make_spec(
+        term, "assertion",
+        subject_kind="event",
+        params=[{"field_name": "other", "alias_noun": "gadget"}],
+    )
+
+
+def test_apply_entity_reference_assertion_generates_the_full_shape(
+    tree, tmp_path,
+) -> None:
+    spec = _ref_spec()
+    rc = main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+               "--apply", "--root", str(tree)])
+    assert rc == 0
+
+    # ProbeSpec carries the param and the subject kind — no hand edit.
+    p = _exec_module(tree, "ctkr/oracle/probes.py")
+    row = p["PROBE_CONTRACT"]["has_gadget"]
+    assert [(q.field_name, q.alias_noun) for q in row.params] == [("other", "gadget")]
+    assert row.subject_kind == "event"
+
+    # Both adapter stubs take the resolved handle and still RAISE.
+    a = _exec_module(tree, "ctkr/oracle/adapter.py")
+    with pytest.raises(a["AdapterError"], match="has_gadget"):
+        _bare(a["ImplementationAdapter"]).has_gadget("H1", "H2")
+    f = _exec_module(tree, "ctkr/oracle/farmos_adapter.py")
+    assert "has_gadget" in f["FarmOSAdapter"].__dict__
+    with pytest.raises(NotImplementedError, match="PROVISIONAL"):
+        f["FarmOSAdapter"].__dict__["has_gadget"](
+            f["FarmOSAdapter"].__new__(f["FarmOSAdapter"]), "H1", "H2")
+
+    # Recorder arm resolves the alias through handles, like has_parent.
+    r = _exec_module(tree, "ctkr/oracle/recorder.py")
+    calls: list[tuple] = []
+
+    class _FakeAdapter:
+        def has_gadget(self, subject, other):
+            calls.append((subject, other))
+            return True
+
+    probe = r["Probe"](assert_="has_gadget", subject="L", other="G")
+    assert r["_observe_probe"](_FakeAdapter(), probe, {"L": "H1", "G": "H2"}) is True
+    assert calls == [("H1", "H2")]
+
+    # The validator demands exactly the fields the probe consumes.
+    x = _exec_module(tree, "ctkr/oracle/fixtures.py")
+    assert x["_ASSERT_REQUIRED"]["has_gadget"] == ("other", "value")
+
+    # And the generated skeleton still parses (its stub call matches the arity).
+    ast.parse((tree / "tests" / "test_term_has_gadget.py").read_text(encoding="utf-8"))
+
+
+def test_generated_term_records_end_to_end_against_a_fake_transport(
+    tree, tmp_path,
+) -> None:
+    """The bead's definition of done: a generated term must RECORD — given +
+    probe through the edited recorder, with the observed value witnessed —
+    without any hand-wiring."""
+    spec = _ref_spec("holds_widget")
+    rc = main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+               "--apply", "--root", str(tree)])
+    assert rc == 0
+
+    r = _exec_module(tree, "ctkr/oracle/recorder.py")
+
+    class _FakeClient:
+        observations: list = []
+
+    class _FakeAdapter:
+        client = _FakeClient()
+        _n = 0
+
+        def create_asset(self, entity, name, descriptor="", sex=""):
+            _FakeAdapter._n += 1
+            return f"asset--{entity}--{_FakeAdapter._n}"
+
+        def holds_widget(self, subject, other):
+            return True
+
+    flow = r["FlowSpec"](
+        key="holds-widget-e2e", title="Generated term records end to end",
+        feature="codegen", glossary_terms=["holds_widget"],
+        given=[r["GivenStep"](entity="land", alias="L", name="Field"),
+               r["GivenStep"](entity="equipment", alias="G", name="Gadget")],
+        when=[],
+        probes=[r["Probe"](assert_="holds_widget", subject="L", other="G")],
+    )
+    fixture, observations = r["record_flow"](_FakeAdapter(), flow)
+    (assertion,) = fixture.then
+    assert assertion.assert_ == "holds_widget"
+    assert assertion.value is True
+    assert assertion.other == "G"
+    # The value arrived with its witness, minted in the same breath.
+    assert assertion.witness in {o.obs_id for o in observations}
+
+
+def test_a_spec_with_params_on_a_non_assertion_is_refused(tree, tmp_path) -> None:
+    spec = make_spec("record_gadget", "action",
+                     params=[{"field_name": "other", "alias_noun": "gadget"}])
+    rc = main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+               "--root", str(tree)])
+    assert rc == 2
+
+
+def test_a_spec_with_an_unknown_param_field_is_refused(tree, tmp_path) -> None:
+    """ThenAssertion is a closed field set — a spec cannot invent a wire field."""
+    spec = make_spec("has_gadget", "assertion",
+                     params=[{"field_name": "gadget_ref"}])
+    rc = main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+               "--root", str(tree)])
+    assert rc == 2
+
+
+# --------------------------------------------------------------------------- #
 # Refusals                                                                     #
 # --------------------------------------------------------------------------- #
 def test_an_existing_glossary_term_is_refused(tree, tmp_path) -> None:
@@ -258,5 +399,6 @@ def test_render_diffs_names_every_file(tree) -> None:
     diff = render_diffs(edits)
     for rel in ("ctkr/oracle/glossary.py", "ctkr/oracle/probes.py",
                 "ctkr/oracle/adapter.py", "ctkr/oracle/farmos_adapter.py",
+                "ctkr/oracle/recorder.py", "ctkr/oracle/fixtures.py",
                 "tests/test_term_widget_count.py"):
         assert f"b/{rel}" in diff
