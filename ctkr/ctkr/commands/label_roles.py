@@ -35,7 +35,7 @@ from ctkr.label_roles import (
     pattern_id_for_role_cluster,
     render_prompt,
 )
-from ctkr.llm import LLMClient
+from ctkr.llm import LLMClient, sandbox_write_guard, scratch_dir
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -118,12 +118,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--cache-dir",
         default=None,
-        help="LLM cache directory; defaults to <data_dir>/ctkr/llm_cache/.",
+        help="LLM cache directory; defaults to ~/.cache/ctkr/label-roles/llm_cache/ (scratch, never a sandbox).",
     )
     p.add_argument(
         "--cost-log",
         default=None,
-        help="LLM cost log JSONL; defaults to <data_dir>/ctkr/llm_cost.jsonl.",
+        help="LLM cost log JSONL; defaults to ~/.cache/ctkr/label-roles/llm_cost.jsonl (scratch, never a sandbox).",
     )
     p.add_argument(
         "--verbose", "-v", action="store_true", help="Log one line per cluster."
@@ -206,13 +206,14 @@ def run(args: argparse.Namespace) -> int:
     cache_dir = (
         Path(args.cache_dir).expanduser().resolve()
         if args.cache_dir
-        else ctkr_dir / "llm_cache"
+        else scratch_dir("label-roles") / "llm_cache"
     )
     cost_log = (
         Path(args.cost_log).expanduser().resolve()
         if args.cost_log
-        else ctkr_dir / "llm_cost.jsonl"
+        else scratch_dir("label-roles") / "llm_cost.jsonl"
     )
+    sandbox_write_guard(data_dir, cache_dir, cost_log)
     client = LLMClient(
         cache_dir=cache_dir,
         cost_log=cost_log,

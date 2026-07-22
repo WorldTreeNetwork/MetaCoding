@@ -19,8 +19,9 @@ Design constraints
 ------------------
 
 * No agent-framework dependency (no langchain, no DSPy, no LiteLLM).
-* On-disk cache so re-runs are free (``.metacoding/ctkr/llm_cache/``).
-* Cost telemetry to JSONL (``.metacoding/ctkr/llm_cost.jsonl``).
+* On-disk cache so re-runs are free (``~/.cache/ctkr/<command>/llm_cache/`` —
+  SCRATCH, never a sandbox data-dir; see :func:`scratch_dir`).
+* Cost telemetry to JSONL (``~/.cache/ctkr/<command>/llm_cost.jsonl``).
 * Deterministic mode is the default (``temperature=0``, fixed seed where
   supported).
 * Fails *closed* on missing API keys — raise a clear ``KeyMissingError``
@@ -47,6 +48,43 @@ import blake3
 from pydantic import BaseModel
 
 logger = logging.getLogger("ctkr.llm")
+
+
+# ----- scratch discipline (MetaCoding-7xr, lever 4) -----
+#
+# Wave-1 prep wrote llm_cache/ + llm_cost.jsonl INTO the shared graph data-dir
+# the commands were reading — a sandbox declared read-only, mutated by its own
+# reader. LLM cache/cost artifacts are operational scratch, not evidence, and
+# they live under the user cache root, per command.
+
+#: Root for all ctkr LLM scratch artifacts. Never inside a data-dir.
+SCRATCH_ROOT = Path.home() / ".cache" / "ctkr"
+
+
+def scratch_dir(command: str) -> Path:
+    """The per-command scratch directory for LLM cache/cost artifacts."""
+    return SCRATCH_ROOT / command
+
+
+def sandbox_write_guard(data_dir: str | Path | None, *paths: str | Path) -> None:
+    """Refuse any LLM cache/cost path inside the data-dir a command reads.
+
+    A sandbox a command reads is READ-ONLY; writing operational artifacts into
+    it mutates the evidence environment (and pollutes exports, digests, and
+    disk-level comparisons). Raises ``ValueError`` — loudly, at argument
+    resolution, before any provider is touched.
+    """
+    if data_dir is None:
+        return
+    root = Path(data_dir).expanduser().resolve()
+    for p in paths:
+        rp = Path(p).expanduser().resolve()
+        if rp == root or root in rp.parents:
+            raise ValueError(
+                f"{p} is inside the data-dir {data_dir} — a sandbox a command "
+                f"reads is READ-ONLY. LLM cache/cost artifacts belong in "
+                f"scratch ({SCRATCH_ROOT}/<command>). (MetaCoding-7xr lever 4)"
+            )
 
 
 # ----- public errors -----

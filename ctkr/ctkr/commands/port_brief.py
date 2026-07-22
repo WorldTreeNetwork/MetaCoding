@@ -114,7 +114,7 @@ def run(args: argparse.Namespace) -> int:
     import polars as pl
 
     from ctkr.cards import attach_intention_to_deck, read_cards
-    from ctkr.llm import LLMClient
+    from ctkr.llm import LLMClient, scratch_dir
     from ctkr.port_brief import (
         DEFAULT_FUSION_MODEL,
         DEFAULT_PROMPT_VERSION,
@@ -188,9 +188,11 @@ def run(args: argparse.Namespace) -> int:
         prompt_version=args.prompt_version or DEFAULT_PROMPT_VERSION,
     )
 
+    # Scratch, never the data-dir: a sandbox a command reads is read-only
+    # (MetaCoding-7xr lever 4).
     client = LLMClient(
-        cache_dir=ctkr_dir / "llm_cache",
-        cost_log=ctkr_dir / "llm_cost.jsonl",
+        cache_dir=scratch_dir("port-brief") / "llm_cache",
+        cost_log=scratch_dir("port-brief") / "llm_cost.jsonl",
         default_provider=provider,
     )
     out_dir = ctkr_dir / "port_briefs"

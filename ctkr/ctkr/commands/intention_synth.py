@@ -11,7 +11,8 @@ The LM layer of the intention channel, downstream of the T5a mechanical harvest
 
 Writes ``intention.jsonl`` (§9.1) and merges an ``intention_load_summary`` +
 presence flags into ``manifest.json``. Rides the shared :class:`LLMClient` cache +
-cost log (``<data_dir>/ctkr/llm_cache/`` + ``llm_cost.jsonl``) — temperature 0,
+cost log (``~/.cache/ctkr/intention-synthesis/`` — scratch, never a sandbox
+data-dir; MetaCoding-7xr lever 4) — temperature 0,
 blake3 prompt-hash cache, so an unchanged harvest re-runs free and byte-identical
 (§8). Requires ``ctkr intention`` (T5a) to have run.
 
@@ -96,7 +97,7 @@ def run(args: argparse.Namespace) -> int:
         synthesize_intention,
         write_intention_jsonl,
     )
-    from ctkr.llm import LLMClient
+    from ctkr.llm import LLMClient, scratch_dir
 
     data_dir = resolve_data_dir(args.data_dir)
     ctkr_dir = Path(data_dir) / "ctkr"
@@ -135,8 +136,8 @@ def run(args: argparse.Namespace) -> int:
     if rc is not None:
         return rc
     client = LLMClient(
-        cache_dir=ctkr_dir / "llm_cache",
-        cost_log=ctkr_dir / "llm_cost.jsonl",
+        cache_dir=scratch_dir("intention-synthesis") / "llm_cache",
+        cost_log=scratch_dir("intention-synthesis") / "llm_cost.jsonl",
         default_provider=provider,
     )
 

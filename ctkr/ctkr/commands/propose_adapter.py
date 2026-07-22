@@ -106,7 +106,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> int:
     from ctkr.graph_loader import load_graph
-    from ctkr.llm import LLMClient
+    from ctkr.llm import LLMClient, scratch_dir
     from ctkr.propose_adapter import (
         build_contract_prompt,
         check_cm_conformance,
@@ -208,7 +208,8 @@ def run(args: argparse.Namespace) -> int:
         return rc
 
     client = LLMClient(
-        cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl",
+        cache_dir=scratch_dir("propose-adapter") / "llm_cache",
+        cost_log=scratch_dir("propose-adapter") / "llm_cost.jsonl",
         default_provider=provider,
     )
     sys.stderr.write(f"synthesizing adapter contract with {model} …\n")

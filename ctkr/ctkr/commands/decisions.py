@@ -493,11 +493,13 @@ def run_resolve(args: argparse.Namespace) -> int:  # noqa: C901 — mode dispatc
         )
         if rc is not None:
             return rc
-        from ctkr.llm import LLMClient
+        from ctkr.llm import LLMClient, scratch_dir
 
+        # Scratch, never the data-dir: a sandbox a command reads is read-only
+        # (MetaCoding-7xr lever 4).
         client = LLMClient(
-            cache_dir=ctkr_dir / "llm_cache",
-            cost_log=ctkr_dir / "llm_cost.jsonl",
+            cache_dir=scratch_dir("decisions") / "llm_cache",
+            cost_log=scratch_dir("decisions") / "llm_cost.jsonl",
             default_provider=provider,
         )
 

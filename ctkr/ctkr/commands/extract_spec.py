@@ -134,7 +134,7 @@ def _load_manifest(ctkr_dir: Path) -> dict:
 def run(args: argparse.Namespace) -> int:
     from ctkr.cards import write_cards
     from ctkr.cli import main as cli_main
-    from ctkr.llm import LLMClient
+    from ctkr.llm import LLMClient, scratch_dir
     from ctkr.spec_cards import (
         DEFAULT_MODEL,
         DEFAULT_PROMPT_VERSION,
@@ -182,9 +182,11 @@ def run(args: argparse.Namespace) -> int:
     )
     if rc is not None:
         return rc
+    # Scratch, never the data-dir: a sandbox a command reads is read-only
+    # (MetaCoding-7xr lever 4).
     client = LLMClient(
-        cache_dir=ctkr_dir / "llm_cache",
-        cost_log=ctkr_dir / "llm_cost.jsonl",
+        cache_dir=scratch_dir("extract-spec") / "llm_cache",
+        cost_log=scratch_dir("extract-spec") / "llm_cost.jsonl",
         default_provider=provider,
     )
 

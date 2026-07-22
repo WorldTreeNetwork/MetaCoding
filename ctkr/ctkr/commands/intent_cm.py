@@ -134,7 +134,7 @@ def run(args: argparse.Namespace) -> int:
     adjudicated = []
     adj_stats = None
     if args.adjudicate:
-        from ctkr.llm import LLMClient
+        from ctkr.llm import LLMClient, scratch_dir
 
         provider = args.provider or DEFAULT_LLM_PROVIDER
         # Adopted default (9h5.9): CM adjudication → OpenAI gpt-5.6-luna (all tiers
@@ -148,8 +148,8 @@ def run(args: argparse.Namespace) -> int:
         if rc is not None:
             return rc
         client = LLMClient(
-            cache_dir=ctkr_dir / "llm_cache",
-            cost_log=ctkr_dir / "llm_cost.jsonl",
+            cache_dir=scratch_dir("intent-cm") / "llm_cache",
+            cost_log=scratch_dir("intent-cm") / "llm_cost.jsonl",
             default_provider=provider,
         )
         sys.stderr.write("adjudicating flagged subset with the strong model...\n")

@@ -159,7 +159,7 @@ def run(args: argparse.Namespace) -> int:
             adjudicated = read_adjudicated_jsonl(args.reuse_adjudicated)
             sys.stderr.write(f"  cm lane: reusing {len(adjudicated)} adjudicated row(s)\n")
         else:
-            from ctkr.llm import LLMClient
+            from ctkr.llm import LLMClient, scratch_dir
 
             cm_model = args.cm_model or GPT56_CHEAP_MODEL
             rc = require_provider_key(provider, stage="mine-fixtures CM lane",
@@ -167,7 +167,8 @@ def run(args: argparse.Namespace) -> int:
             if rc is not None:
                 return rc
             client = LLMClient(
-                cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl",
+                cache_dir=scratch_dir("mine-fixtures") / "llm_cache",
+                cost_log=scratch_dir("mine-fixtures") / "llm_cost.jsonl",
                 default_provider=provider,
             )
             cm_df, _ = scan_cm(source_root, id_prefix="farmos")
@@ -185,7 +186,7 @@ def run(args: argparse.Namespace) -> int:
     # ── Source-read lane ────────────────────────────────────────────────────
     source_cands = []
     if not args.skip_source_read:
-        from ctkr.llm import LLMClient
+        from ctkr.llm import LLMClient, scratch_dir
 
         source_model = args.source_model or GPT56_STRONG_MODEL
         rc = require_provider_key(provider, stage="mine-fixtures source-read lane",
@@ -210,7 +211,8 @@ def run(args: argparse.Namespace) -> int:
                 f"  source-read lane: {len(module_sources)} module(s) → {source_model} …\n"
             )
             client = LLMClient(
-                cache_dir=ctkr_dir / "llm_cache", cost_log=ctkr_dir / "llm_cost.jsonl",
+                cache_dir=scratch_dir("mine-fixtures") / "llm_cache",
+                cost_log=scratch_dir("mine-fixtures") / "llm_cost.jsonl",
                 default_provider=provider,
             )
             source_cands, src_cost = mine_source_read_lane(

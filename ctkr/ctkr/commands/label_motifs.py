@@ -29,7 +29,7 @@ from ctkr.label_motifs import (
     pattern_id_for_motif,
     render_prompt,
 )
-from ctkr.llm import LLMClient
+from ctkr.llm import LLMClient, sandbox_write_guard, scratch_dir
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -88,7 +88,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--cache-dir",
         default=None,
         help=(
-            "LLM cache directory; defaults to <data_dir>/ctkr/llm_cache/. "
+            "LLM cache directory; defaults to ~/.cache/ctkr/label-motifs/llm_cache/ (scratch, never a sandbox). "
             "Caching makes re-runs free."
         ),
     )
@@ -96,7 +96,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--cost-log",
         default=None,
         help=(
-            "LLM cost log JSONL; defaults to <data_dir>/ctkr/llm_cost.jsonl. "
+            "LLM cost log JSONL; defaults to ~/.cache/ctkr/label-motifs/llm_cost.jsonl (scratch, never a sandbox). "
             "Append-only."
         ),
     )
@@ -158,13 +158,14 @@ def run(args: argparse.Namespace) -> int:
     cache_dir = (
         Path(args.cache_dir).expanduser().resolve()
         if args.cache_dir
-        else ctkr_dir / "llm_cache"
+        else scratch_dir("label-motifs") / "llm_cache"
     )
     cost_log = (
         Path(args.cost_log).expanduser().resolve()
         if args.cost_log
-        else ctkr_dir / "llm_cost.jsonl"
+        else scratch_dir("label-motifs") / "llm_cost.jsonl"
     )
+    sandbox_write_guard(data_dir, cache_dir, cost_log)
     client = LLMClient(
         cache_dir=cache_dir,
         cost_log=cost_log,
