@@ -45,7 +45,19 @@ Expected ``role-classes.jsonl`` row shape (one JSON object per line)::
      "distinguishing": true}       # optional; default true
 
 Unknown extra keys are ignored so the role sweep can enrich rows later without
-breaking this consumer.
+breaking this consumer. The actual ``ctkr role-gaps`` producer (MetaCoding-034)
+speaks a superset dialect, accepted here as aliases:
+
+* rows carry ``record_type`` — anything other than ``"role_class"`` (e.g. the
+  trailing ``"summary"`` record) is skipped, not an error;
+* ``tag`` maps to ``kind`` (``"framework-idiom"`` → ``"framework"``, anything
+  else → as-is) when ``kind`` is absent;
+* ``glossary_terms`` maps to ``terms`` when ``terms`` is absent.
+
+Feature names on the two sides of the seam differ in qualification: packs name
+features ``log.input`` while the role sweep, already scoped to one family,
+says ``input``. A class feature *touches* a pack feature when they are equal
+or the pack feature ends with ``"." + class_feature``.
 """
 
 from __future__ import annotations
@@ -316,18 +328,41 @@ def load_role_classes(path: Path) -> list[RoleClass]:
         if not line:
             continue
         row = json.loads(line)
+        # role-gaps dialect: skip non-class records (e.g. the trailing summary).
+        record_type = row.get("record_type")
+        if record_type is not None and record_type != "role_class":
+            continue
         if "class_id" not in row:
             raise ValueError(f"{path}:{i}: role-class row missing 'class_id'")
+        kind = row.get("kind")
+        if kind is None:
+            tag = str(row.get("tag", "domain"))
+            kind = "framework" if tag == "framework-idiom" else tag
+        terms = row.get("terms")
+        if terms is None:
+            terms = row.get("glossary_terms", [])
         classes.append(
             RoleClass(
                 class_id=str(row["class_id"]),
-                kind=str(row.get("kind", "domain")),
+                kind=str(kind),
                 features=tuple(row.get("features", [])),
-                terms=tuple(row.get("terms", [])),
+                terms=tuple(terms),
                 distinguishing=bool(row.get("distinguishing", True)),
             )
         )
     return classes
+
+
+def _touches(pack_feature: str, class_features: tuple[str, ...]) -> bool:
+    """True when a role class's feature list covers a pack feature.
+
+    Packs qualify feature names by family (``log.input``); the role sweep,
+    already scoped to one family, does not (``input``). Equal names match, and
+    so does a pack feature ending with ``"." + class_feature``.
+    """
+    return any(
+        pack_feature == f or pack_feature.endswith("." + f) for f in class_features
+    )
 
 
 def identity_coverage(
@@ -345,7 +380,7 @@ def identity_coverage(
         relevant = [
             c
             for c in classes
-            if c.kind == "domain" and c.distinguishing and feature in c.features
+            if c.kind == "domain" and c.distinguishing and _touches(feature, c.features)
         ]
         reachable = tuple(
             sorted(c.class_id for c in relevant if exercised.intersection(c.terms))

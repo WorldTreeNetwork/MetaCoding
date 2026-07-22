@@ -360,7 +360,11 @@
         "nicknames",
         "set_nicknames"
       ],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": null,
+        "reachable_classes": [],
+        "unreachable_classes": []
+      }
     },
     "birth": {
       "n_fixtures": 7,
@@ -388,7 +392,18 @@
         "record_birth",
         "refused"
       ],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": 0.0,
+        "reachable_classes": [],
+        "unreachable_classes": [
+          "030c2e2414084347",
+          "174451ff9f353625",
+          "25d91d8673b5d7dd",
+          "5fe1ee8253996544",
+          "848450c1adf92f32",
+          "f1bb250fc8649675"
+        ]
+      }
     },
     "core.inventory": {
       "n_fixtures": 12,
@@ -414,7 +429,11 @@
         "stock_on_hand",
         "stock_pair_count"
       ],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": null,
+        "reachable_classes": [],
+        "unreachable_classes": []
+      }
     },
     "harvest": {
       "n_fixtures": 12,
@@ -436,7 +455,14 @@
         "HarvestLoggingAdapter"
       ],
       "identity_terms": [],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": 0.0,
+        "reachable_classes": [],
+        "unreachable_classes": [
+          "5fe1ee8253996544",
+          "848450c1adf92f32"
+        ]
+      }
     },
     "log.activity": {
       "n_fixtures": 12,
@@ -459,7 +485,14 @@
         "ActivityLogAdapter"
       ],
       "identity_terms": [],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": 0.0,
+        "reachable_classes": [],
+        "unreachable_classes": [
+          "3c2f12283ad9e9e1",
+          "5fe1ee8253996544"
+        ]
+      }
     },
     "log.input": {
       "n_fixtures": 12,
@@ -480,7 +513,17 @@
         "InputLogAdapter"
       ],
       "identity_terms": [],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": 0.0,
+        "reachable_classes": [],
+        "unreachable_classes": [
+          "174451ff9f353625",
+          "25d91d8673b5d7dd",
+          "583491e7ef5beaa3",
+          "5fe1ee8253996544",
+          "848450c1adf92f32"
+        ]
+      }
     },
     "log.observation": {
       "n_fixtures": 12,
@@ -503,7 +546,14 @@
         "ObservationAdapter"
       ],
       "identity_terms": [],
-      "identity_coverage": "n/a (no role classes supplied)"
+      "identity_coverage": {
+        "coverage": 0.0,
+        "reachable_classes": [],
+        "unreachable_classes": [
+          "3c2f12283ad9e9e1",
+          "5fe1ee8253996544"
+        ]
+      }
     }
   },
   "packs": [

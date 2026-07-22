@@ -225,6 +225,74 @@ def test_load_role_classes_defaults_and_missing_id(tmp_path: Path):
         load_role_classes(p)
 
 
+def test_load_role_classes_accepts_role_gaps_dialect(tmp_path: Path):
+    """The actual role-gaps producer dialect loads: summary row skipped,
+    tag→kind and glossary_terms→terms aliases honored."""
+    p = tmp_path / "role-gaps.jsonl"
+    rows = [
+        {
+            "record_type": "role_class",
+            "class_id": "dom1",
+            "tag": "domain",
+            "features": ["input"],
+            "glossary_terms": ["stock_on_hand"],
+        },
+        {
+            "record_type": "role_class",
+            "class_id": "fw1",
+            "tag": "framework-idiom",
+            "features": ["input"],
+            "glossary_terms": [],
+        },
+        {"record_type": "summary", "family": "log", "n_gaps": 7},
+    ]
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    classes = load_role_classes(p)
+    assert [c.class_id for c in classes] == ["dom1", "fw1"]
+    dom1, fw1 = classes
+    assert dom1.kind == "domain" and dom1.terms == ("stock_on_hand",)
+    assert fw1.kind == "framework"
+    # Explicit kind/terms still win over the aliases.
+    p.write_text(
+        json.dumps(
+            {
+                "record_type": "role_class",
+                "class_id": "c",
+                "kind": "domain",
+                "tag": "framework-idiom",
+                "terms": ["a"],
+                "glossary_terms": ["b"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (c,) = load_role_classes(p)
+    assert c.kind == "domain" and c.terms == ("a",)
+
+
+def test_identity_coverage_matches_family_qualified_features(two_feature_root: Path):
+    """A pack feature 'alpha' is NOT matched by unrelated names, but a
+    qualified pack feature matches its unqualified role-sweep name."""
+    root = two_feature_root
+    _write_pack(
+        root / "qualified",
+        [_fixture("q1", "log.alpha", ["stock_on_hand"], ["record_log"])],
+    )
+    graph = build_incidence([root])
+    classes = [
+        # Unqualified sweep name touches the qualified pack feature.
+        RoleClass("cls-q", "domain", ("alpha",), ("stock_on_hand",), True),
+        # No cross-matching on mere suffix text without the dot boundary.
+        RoleClass("cls-no", "domain", ("pha",), ("stock_on_hand",), True),
+    ]
+    cov = identity_coverage(graph, classes)
+    assert cov["log.alpha"].reachable == ("cls-q",)
+    assert "cls-no" not in cov["log.alpha"].reachable + cov["log.alpha"].unreachable
+    # Exact-name matching is unchanged.
+    assert cov["alpha"].reachable == ("cls-q",)
+
+
 def test_edges_jsonl_round_trip(two_feature_root: Path):
     graph = build_incidence([two_feature_root])
     lines = [json.loads(x) for x in edges_jsonl(graph).strip().splitlines()]
