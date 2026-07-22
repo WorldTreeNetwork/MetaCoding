@@ -1,0 +1,27 @@
+{
+  "port": "w2-identity-equipment-log",
+  "description": "MetaCoding-1cv identity port: the cross-family `equipment` base field farm_equipment adds to EVERY log (FieldHooks.php entity_base_field_info; multi-valued entity_reference, target asset--equipment). Owned by the log spine: recorded as equipmentIds on the shared wave-1 log_recorded event, folded as membership by equipmentUsed — the has_parent house form, bound live on pack 1e1a8c55b7f5. CSV/Views wiring is excluded tier.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [
+      "record_log",
+      "set_log_status",
+      "set_effective_time",
+      "archive_asset"
+    ],
+    "probes": [
+      "equipment_used",
+      "log_status",
+      "log_count",
+      "asset_active"
+    ]
+  },
+  "divergences": []
+}

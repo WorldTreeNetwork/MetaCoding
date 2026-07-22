@@ -372,6 +372,11 @@ class PortAdapter(ImplementationAdapter):
         self._need_operation("delete_log")
         return self._bridge.call("delete_log", log=subject_handle)
 
+    def equipment_used(self, subject_handle: Handle, other_handle: Handle) -> bool:
+        self._need_probe("equipment_used")
+        return bool(self._bridge.call(
+            "equipment_used", log=subject_handle, other=other_handle))
+
     def delete_quantity(self, subject_handle: Handle) -> Any:
         self._need_operation("delete_quantity")
         return self._bridge.call("delete_quantity", quantity=subject_handle)

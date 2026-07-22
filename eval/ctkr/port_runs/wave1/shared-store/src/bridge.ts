@@ -67,6 +67,9 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           status: String(req.status ?? "done") as LifecycleStatus,
           assetIds: (req.assets ?? []) as Handle[],
           quantities,
+          // The cross-family `equipment` base field (MetaCoding-1cv); absent
+          // on the wire from pre-1cv oracles, so default [].
+          equipmentIds: (req.equipment ?? []) as Handle[],
         });
       }
       case "set_log_status":
@@ -93,6 +96,13 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         return store.quantityRecorded(req.log as Handle, String(req.measure), String(req.unit));
       case "asset_active":
         return store.assetActive(req.asset as Handle);
+      case "equipment_used": {
+        const used = store.equipmentUsed(req.log as Handle, req.other as Handle);
+        if (used === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return used;
+      }
       case "close":
         return true;
       default:

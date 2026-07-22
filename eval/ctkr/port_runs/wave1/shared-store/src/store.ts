@@ -84,6 +84,13 @@ export interface LogRecordedPayload {
   /** valid-time of the log (epoch ms). Restatements supersede it latest-wins. */
   effectiveTime: number;
   extras?: LogExtras;
+  /**
+   * Equipment assets the log states as used — the cross-family `equipment`
+   * base field farm_equipment adds to EVERY log (MetaCoding-1cv; owned by the
+   * log spine, not the asset bundle). Additive and optional: events recorded
+   * before the field existed fold as [].
+   */
+  equipmentIds?: readonly Handle[];
 }
 
 export interface LogStatusChangedPayload {
@@ -120,6 +127,8 @@ export interface LogView {
   quantities: readonly QuantityRecord[];
   effectiveTime: number;
   extras?: LogExtras;
+  /** Equipment stated as used; [] for logs recorded before the field existed. */
+  equipmentIds: readonly Handle[];
   hlc: Hlc;
 }
 
@@ -187,6 +196,7 @@ export class Wave1LogStore {
     quantities: readonly QuantityInput[];
     effectiveTime?: number;
     extras?: LogExtras;
+    equipmentIds?: readonly Handle[];
   }): Handle {
     const logId = this.ids.mint("log");
     const quantities: QuantityRecord[] = input.quantities.map((q) => ({
@@ -202,6 +212,9 @@ export class Wave1LogStore {
       quantities,
       effectiveTime: input.effectiveTime ?? this.now(),
       extras: input.extras,
+      ...(input.equipmentIds?.length
+        ? { equipmentIds: [...input.equipmentIds] }
+        : {}),
     });
     return logId;
   }
@@ -289,8 +302,20 @@ export class Wave1LogStore {
       quantities: p.quantities.filter((q) => !this.isQuantityDeleted(q.quantityId)),
       effectiveTime: this.effectiveTimeOf(logId)!,
       extras: p.extras,
+      equipmentIds: p.equipmentIds ?? [],
       hlc: rec.hlc,
     };
+  }
+
+  /**
+   * Whether `equipmentId` is among the equipment the log states as used
+   * (MetaCoding-1cv, the has_parent house form: membership, never a raw id).
+   * `undefined` when the log is unknown or deleted — unanswerable, not false.
+   */
+  equipmentUsed(logId: Handle, equipmentId: Handle): boolean | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.equipmentIds.includes(equipmentId);
   }
 
   /**

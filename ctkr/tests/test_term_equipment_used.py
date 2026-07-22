@@ -48,8 +48,14 @@ def test_equipment_used_unimplemented_stub_fails_loudly() -> None:
         getattr(bare(), TERM)('H', 'X_other')
 
 
-def test_equipment_used_is_not_yet_evidence() -> None:
-    """PROVISIONAL: derived, unvalidated — its values cannot score."""
+def test_equipment_used_is_validated_evidence() -> None:
+    """Validated the has_parent way (MetaCoding-1cv): the equipment reference
+    is stated by the source (FieldHooks.php base field; the log's JSON:API
+    equipment relationship) and membership adds no semantics — so its values
+    may score. The validation must stay recorded: dropping validated_against
+    silently un-evidences every recorded pack."""
     from ctkr.oracle.probes import PROBE_CONTRACT
 
-    assert not PROBE_CONTRACT[TERM].is_evidence
+    spec = PROBE_CONTRACT[TERM]
+    assert spec.is_evidence
+    assert "stated by the source" in spec.validated_against

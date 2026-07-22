@@ -1,0 +1,6 @@
+{
+  "name": "w2-identity-equipment-log-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

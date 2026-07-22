@@ -313,10 +313,20 @@ _PROBES: tuple[ProbeSpec, ...] = (
     # DERIVED with no validated_against ON PURPOSE: the derivation below is
     # the spec's proposed semantics, which no source authority has validated
     # yet — so is_evidence is False and values cannot score until it is.
+    # Validated the has_parent way (MetaCoding-1cv): the `equipment` reference
+    # is stated by the source itself — FieldHooks.php entity_base_field_info
+    # declares the multi-valued entity_reference base field (target
+    # asset--equipment) on every log, and JSON:API delivers its membership as
+    # the log's own `equipment` relationship. Membership of the expected asset
+    # adds no semantics of ours.
     ProbeSpec('equipment_used', 'equipment_used', (Param('other', 'equipment'),), subject_kind="event",
               doc='Whether a given equipment asset is recorded as equipment used on a log.',
               authority=DERIVED,
-              derivation="Deliver whether a given equipment asset is among the equipment the subject log records as used, so an assertion can confirm the recorded 'Equipment used' reference against an expected asset."),
+              derivation="Deliver whether a given equipment asset is among the equipment the subject log records as used, so an assertion can confirm the recorded 'Equipment used' reference against an expected asset.",
+              validated_against="the equipment reference is stated by the source "
+                                "(farm_equipment FieldHooks.php base field; the "
+                                "log's JSON:API equipment relationship); "
+                                "membership adds no semantics"),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}
