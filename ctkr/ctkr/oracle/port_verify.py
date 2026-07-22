@@ -45,6 +45,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
+from ctkr.oracle import glossary_provenance
 from ctkr.oracle.adapter import AdapterError
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
 from ctkr.oracle.pack import Pack
@@ -86,6 +87,7 @@ class NoVerdictCause:
     UNVALIDATED_AUTHORITY = "the recorded value is a derived belief, not evidence"
     BRIDGE_DEAD = "the port's bridge stopped answering"
     EXCLUDED = "the recorder marked this evidence corroboration-only"
+    PROVISIONAL = "the term is provisional — no sealed pack has exercised it"
 
 
 class ProbeOutcome(BaseModel):
@@ -528,6 +530,17 @@ def _judge_assertion(
         return out(AssertionStatus.NO_VERDICT,
                    cause=NoVerdictCause.INVALID_EVIDENCE,
                    detail=f"no probe binds assertion {t.assert_!r}")
+
+    # ---- The glossary binding gate (MetaCoding-b5r) ------------------------- #
+    # A PROVISIONAL term — registered by `add-term --apply`, not yet flipped by
+    # `bind-term` against a sealed recording — is excluded from scoring the same
+    # way corroboration-only evidence and unvalidated derivations are: NO
+    # VERDICT, and the port is never called. bind-term is the only path from a
+    # proposed term to a scorable one.
+    provisional = glossary_provenance.provisional_reason(t.assert_)
+    if provisional:
+        return out(AssertionStatus.NO_VERDICT,
+                   cause=NoVerdictCause.PROVISIONAL, detail=provisional)
 
     # ---- INVARIANT 1, before anything is asked of the port ------------------ #
     # The expected value is our own unvalidated computation. Comparing a port to
