@@ -691,6 +691,66 @@ class FarmOSAdapter(ImplementationAdapter):
         return total
 
 
+    # --- lot_number (assertion, PROVISIONAL — MetaCoding-io6) --------------- #
+    def lot_number(self, subject_handle: Handle) -> Any:
+        """Deliver the recorded lot number value for the subject log, or "" when
+        none was recorded.
+
+        A boundary readback of the ``lot_number`` string field farmOS declares on
+        the harvest / input / seeding log bundles (Harvest.php:fields.lot_number
+        et al.). PROVISIONAL: the derivation carries no source-authority
+        validation yet, so its values cannot score until a sealed recording binds
+        the term.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/log/{kind}/{uid}")
+        return doc["data"]["attributes"].get("lot_number") or ""
+
+    # --- material_quantity (assertion, PROVISIONAL — MetaCoding-io6) -------- #
+    def material_quantity(self, subject_handle: Handle) -> Any:
+        """Deliver the classification of the quantity recorded on the subject log
+        — the quantity resource's own bundle ("material", "standard", …) — so an
+        assertion can determine whether that quantity is material; "" when the log
+        carries no quantity.
+
+        A boundary readback: farmOS states each quantity's classification as its
+        JSON:API resource ``type`` (``quantity--material`` for an input log's
+        default quantity type). The first delivered quantity's classification is
+        returned. PROVISIONAL until a sealed recording binds the term.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET", f"/api/log/{kind}/{uid}?include=quantity"
+        )
+        for inc in doc.get("included") or []:
+            itype = inc.get("type") or ""
+            if itype.startswith("quantity--"):
+                return itype.split("--", 1)[1]
+        return ""
+
+    # --- delete_log (action, PROVISIONAL — MetaCoding-io6) ------------------ #
+    def delete_log(self, subject_handle: Handle) -> Any:
+        """Delete the recorded log at the JSON:API write boundary
+        (``DELETE /api/log/{bundle}/{uuid}``). farmOS cascades the delete to the
+        quantities the log owns. No value is delivered.
+        """
+        _, kind, uid = self._split(subject_handle)
+        self.client.request("DELETE", f"/api/log/{kind}/{uid}")
+
+    # --- delete_quantity (action, PROVISIONAL — MetaCoding-io6) ------------- #
+    def delete_quantity(self, subject_handle: Handle) -> Any:
+        """Delete the recorded quantity at the JSON:API write boundary
+        (``DELETE /api/quantity/{bundle}/{uuid}``). No value is delivered.
+
+        The handle is ``"quantity:{bundle}:{uuid}"``. The flow DSL cannot yet mint
+        a quantity alias (``record_log`` does not alias the quantities it owns), so
+        this method is adapter-reachable but not yet flow-reachable — honest
+        plumbing awaiting a quantity-aliasing follow-up.
+        """
+        _, bundle, uid = self._split(subject_handle)
+        self.client.request("DELETE", f"/api/quantity/{bundle}/{uid}")
+
+
 # --------------------------------------------------------------------------- #
 # Value helpers                                                                #
 # --------------------------------------------------------------------------- #

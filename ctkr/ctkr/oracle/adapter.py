@@ -205,3 +205,39 @@ class ImplementationAdapter(ABC):
     def birth_record_count(self, animal_handle: Handle) -> int:
         """How many birth records claim this animal as issue."""
         raise self._unsupported("birth_record_count")
+
+    # --- generated: lot_number (assertion, PROVISIONAL) --- #
+    def lot_number(self, subject_handle: Handle) -> Any:
+        """Deliver the recorded lot number value for the subject record, or no value when no lot number was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("lot_number")
+
+    # --- generated: material_quantity (assertion, PROVISIONAL) --- #
+    def material_quantity(self, subject_handle: Handle) -> Any:
+        """Delivers the classification value of the measured quantity recorded on the log, so an assertion can determine whether that quantity is material.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("material_quantity")
+
+    # --- generated: delete_log (action, PROVISIONAL) --- #
+    def delete_log(self, subject_handle: Handle) -> Any:
+        """Perform the deletion of the recorded log at the source's write boundary; the log ceases to exist and no value is delivered.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("delete_log")
+
+    # --- generated: delete_quantity (action, PROVISIONAL) --- #
+    def delete_quantity(self, subject_handle: Handle) -> Any:
+        """Perform the deletion of the recorded quantity at the source's write boundary; the quantity ceases to exist and no value is delivered.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("delete_quantity")

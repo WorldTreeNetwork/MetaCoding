@@ -440,6 +440,10 @@ _ACTION_REQUIRED: dict[str, tuple[str, ...]] = {
     "correct_birth": ("ref",),
     "set_parents": ("ref",),
     "set_nicknames": ("ref",),
+    # PROVISIONAL cascade verbs (MetaCoding-io6): each targets one recorded thing
+    # by ref (a log handle / a quantity handle).
+    "delete_log": ("ref",),
+    "delete_quantity": ("ref",),
 }
 _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     "yield_total": ("measure", "value"),
@@ -457,6 +461,10 @@ _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     "parent_count": ("value",),
     "has_parent": ("other", "value"),
     "birth_record_count": ("value",),
+    # PROVISIONAL bundle-field assertions (MetaCoding-io6): each delivers one
+    # recorded value on the subject log; the observed value is required.
+    "lot_number": ("value",),
+    "material_quantity": ("value",),
 }
 
 #: Which actions bind ``alias`` to a *log* handle (as opposed to an asset).
@@ -501,6 +509,14 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             aliases[g.alias] = g.entity
         if g.sex and g.sex not in glossary.ANIMAL_SEXES:
             err(f"given[{i}].sex", f"{g.sex!r} is not a glossary animal sex")
+        # Land descriptors are a CLOSED vocabulary (glossary.LAND_TYPES); every
+        # other entity's descriptor stays free text. This gate is new to a field
+        # that was previously ungated, and no existing land fixture carries a
+        # descriptor, so it rejects nothing that was legal before.
+        if g.entity == "land" and g.descriptor \
+                and g.descriptor not in glossary.LAND_TYPES:
+            err(f"given[{i}].descriptor",
+                f"{g.descriptor!r} is not a glossary land descriptor")
 
     # --- when: action terms legal, refs resolve, required fields present ----
     log_aliases: set[str] = set()

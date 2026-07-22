@@ -52,6 +52,8 @@ ACTION_TERMS: frozenset[str] = frozenset(
         "correct_birth",  # restate an already-recorded birth (time and/or parent)
         "set_parents",  # state an animal's parentage directly
         "set_nicknames",  # state an animal's ordered list of informal names
+        "delete_log",  # Delete a recorded log, removing it from the source together with th… [PROVISIONAL]
+        "delete_quantity",  # Delete a recorded quantity, removing a single measurement from the … [PROVISIONAL]
     }
 )
 
@@ -68,11 +70,33 @@ ADJUSTMENT_KINDS: frozenset[str] = frozenset({"increment", "decrement", "reset"}
 ANIMAL_SEXES: frozenset[str] = frozenset({"F", "M"})
 
 # --- Log status: the value-level lifecycle of a recorded event. -------------
-LOG_STATUSES: frozenset[str] = frozenset({"pending", "done"})
+# ``abandoned`` is farmOS's third lifecycle state (farm_log.workflows.yml:
+# farm_log_workflow.states.abandoned), reachable from either ``pending`` or
+# ``done``. It is added here as a VALUE in the existing closed set — the way a
+# new MEASURE is added — so it is expressible in a flow (``set_log_status ->
+# abandoned``) and observable in a pack (``log_status == "abandoned"``) through
+# the SAME set_log_status action and log_status probe already in the contract;
+# no new term, probe, or adapter method is required. Whether the kernel should
+# treat ``abandoned`` as equivalent to ``not confirmed`` is a freeze-menu
+# decision that belongs to Duke, not to this glossary — see MetaCoding-io6.
+LOG_STATUSES: frozenset[str] = frozenset({"pending", "done", "abandoned"})
 
 # --- Measures: what a quantity measures (glossary, not a field name). -------
 MEASURES: frozenset[str] = frozenset(
     {"weight", "count", "volume", "length", "area", "ratio", "temperature", "time"}
+)
+
+# --- Land descriptors: the closed vocabulary for a land asset's kind. --------
+# farmOS's ``land_type`` option set (modules/asset/land/.../farm_land.land_type.*
+# and Land.php:fields.land_type). Blessed here as the descriptor vocabulary a
+# ``given`` land step may carry — the value flows in through GivenStep.descriptor
+# and the adapter maps it onto ``land_type`` (an unrecognised descriptor still
+# falls back to ``other`` in the adapter). Only the ``land`` entity is gated
+# against this set (see fixtures.validate_fixture); every other entity's
+# descriptor stays free text, so this addition constrains nothing that was legal
+# before — no existing land fixture carries a descriptor at all.
+LAND_TYPES: frozenset[str] = frozenset(
+    {"bed", "field", "landmark", "other", "paddock", "property"}
 )
 
 # --- Assertion terms: the value predicates a `then` step may assert. --------
@@ -107,6 +131,8 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
                     # record a second birth for this animal" is a semantic the
                     # boundary states. Answered by the ATTEMPT, not by a probe
                     # method — see probes.ProbeSpec.subject_kind == "attempt".
+        "lot_number",  # The identifying number of the lot or batch to which a recorded harv… [PROVISIONAL]
+        "material_quantity",  # A measured quantity classified as material in a farm record. [PROVISIONAL]
     }
 )
 
@@ -159,4 +185,5 @@ def all_terms() -> frozenset[str]:
         | MEASURES
         | ASSERTION_TERMS
         | ADJUSTMENT_KINDS
+        | LAND_TYPES
     )

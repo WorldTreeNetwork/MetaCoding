@@ -2,9 +2,15 @@
 
 Small vendored fixture configs (miniature copies of the farmOS declarative
 shapes) are written into ``tmp_path`` — no network, no LLM, no dependence on
-any sandbox path. The four wave-1 gaps are reproduced in miniature: the
-``abandoned`` workflow state, the ``lot_number`` bundle field, the ``material``
-default quantity type, and the ``land_type`` allowed-values list.
+any sandbox path. The four wave-1 gap SHAPES are reproduced in miniature: a
+workflow state, a PHP-attribute-plugin bundle field, the ``material`` default
+quantity type, and the ``land_type`` allowed-values list.
+
+Wave 2 (MetaCoding-io6) promoted ``abandoned`` (→ LOG_STATUSES) and
+``lot_number`` (→ ASSERTION_TERMS) into the glossary, so those two are no longer
+gaps; the fixture keeps them (they are real source config, now correctly
+EXCLUDED) and carries still-unmodelled exemplars — the ``canceled`` state and
+the ``application_method`` field — to keep the two gap SHAPES under test.
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ farm_log_workflow:
       label: Pending
     abandoned:
       label: Abandoned
+    canceled:
+      label: Canceled
   transitions:
     to_abandoned:
       label: 'Abandon'
@@ -112,6 +120,12 @@ class Harvest extends FarmLogType {
       'description' => $this->t('If this harvest is part of a batch or lot, enter the lot number here.'),
     ];
     $fields['lot_number'] = $this->farmFieldFactory->bundleFieldDefinition($options);
+    $method_options = [
+      'type' => 'string',
+      'label' => $this->t('Application method'),
+      'description' => $this->t('The method used to apply an input.'),
+    ];
+    $fields['application_method'] = $this->farmFieldFactory->bundleFieldDefinition($method_options);
     return $fields;
   }
 
@@ -159,27 +173,42 @@ def _by_kind(gaps: list[Gap], kind: str) -> list[Gap]:
 # The four wave-1 gaps, in miniature
 # ---------------------------------------------------------------------------
 
-def test_finds_abandoned_workflow_state(fixture_tree: Path) -> None:
+def test_finds_workflow_state_gap(fixture_tree: Path) -> None:
     gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
     states = _by_kind(gaps, "workflow_state")
-    assert [g.value for g in states] == ["abandoned"]
+    # ``abandoned`` was promoted into glossary.LOG_STATUSES by the wave-2
+    # glossary-growth batch (MetaCoding-io6), so it is no longer a gap; the
+    # still-unmodelled ``canceled`` state is what the miner now surfaces. A
+    # filled gap disappearing is glossary-as-topology working as intended.
+    assert [g.value for g in states] == ["canceled"]
     g = states[0]
     assert g.glossary_set == "LOG_STATUSES"
     assert g.source_ref == (
         "modules/core/log/farm_log.workflows.yml:"
-        "farm_log_workflow.states.abandoned")
+        "farm_log_workflow.states.canceled")
 
 
-def test_finds_lot_number_bundle_field(fixture_tree: Path) -> None:
+def test_promoted_workflow_state_is_not_a_gap(fixture_tree: Path) -> None:
+    """The wave-2 promotion is regression-proofed: ``abandoned`` is now
+    glossary-known and must never resurface as a workflow-state gap."""
+    gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
+    assert "abandoned" not in [g.value for g in _by_kind(gaps, "workflow_state")]
+
+
+def test_finds_php_plugin_bundle_field(fixture_tree: Path) -> None:
     gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
     fields = _by_kind(gaps, "bundle_field")
-    lot = [g for g in fields if g.value == "lot_number"]
-    assert len(lot) == 1
-    assert lot[0].glossary_set == "ASSERTION_TERMS"
-    assert lot[0].source_ref.endswith("Harvest.php:fields.lot_number")
+    # ``lot_number`` was promoted into glossary.ASSERTION_TERMS by wave 2, so the
+    # still-unmodelled ``application_method`` PHP-attribute-plugin field is the
+    # bundle-field gap the miner now surfaces.
+    method = [g for g in fields if g.value == "application_method"]
+    assert len(method) == 1
+    assert method[0].glossary_set == "ASSERTION_TERMS"
+    assert method[0].source_ref.endswith("Harvest.php:fields.application_method")
     # The declarative $options block is harvested into the description.
-    assert "Lot number" in lot[0].candidate["description"]
-    assert "batch or lot" in lot[0].candidate["description"]
+    assert "Application method" in method[0].candidate["description"]
+    # And the promoted term must no longer surface as a gap.
+    assert "lot_number" not in [g.value for g in fields]
 
 
 def test_finds_material_quantity_type(fixture_tree: Path) -> None:
@@ -192,13 +221,17 @@ def test_finds_material_quantity_type(fixture_tree: Path) -> None:
         "farm_log_quantity.default_quantity_type")
 
 
-def test_finds_land_type_allowed_values_list(fixture_tree: Path) -> None:
+def test_blessed_land_type_vocabulary_is_not_a_gap(fixture_tree: Path) -> None:
+    # Wave 2 (MetaCoding-io6) blessed the land_type closed vocabulary as
+    # glossary.LAND_TYPES (bed/field/landmark/other/paddock/property), which the
+    # miner folds into all_terms(); the fixture's bed/field/paddock are all
+    # members, so land_type is no longer an allowed_values gap. The still-open
+    # ``grade`` list (test_field_storage_allowed_values_map) keeps the
+    # allowed_values SHAPE under test.
     gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
     lists = _by_kind(gaps, "allowed_values")
     land = [g for g in lists if g.candidate["term"] == "land_type"]
-    assert len(land) == 1
-    assert land[0].value == ["bed", "field", "paddock"]
-    assert land[0].glossary_set == "ENTITY_TERMS"
+    assert land == []
 
 
 def test_field_storage_allowed_values_map(fixture_tree: Path) -> None:
@@ -275,7 +308,7 @@ def test_summary_table_mentions_counts(fixture_tree: Path) -> None:
     gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
     table = summary_table(gaps)
     assert f"{len(gaps)} gaps" in table
-    assert "workflow_state" in table and "abandoned" in table
+    assert "workflow_state" in table and "canceled" in table
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +330,8 @@ def test_cli_glossary_gaps(fixture_tree: Path, tmp_path: Path,
     assert rc == 0
     assert out.exists()
     captured = capsys.readouterr()
-    assert "abandoned" in captured.out
-    assert "lot_number" in captured.out
+    assert "canceled" in captured.out
+    assert "application_method" in captured.out
 
 
 def test_cli_refuses_out_inside_scanned_tree(fixture_tree: Path,
