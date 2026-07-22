@@ -125,6 +125,17 @@ def _insert_at_class_end(source: str, anchor: str, text: str, rel: str) -> str:
     cut = len(lines)
     while cut > 0 and (lines[cut - 1].strip() == "" or lines[cut - 1].startswith("#")):
         cut -= 1
+    # The walkback recognizes exactly blank lines and column-0 comments. If the
+    # line it lands on is not indented, it is NOT a class-body statement (e.g. a
+    # module-level assignment or docstring appeared between the class and the
+    # anchor) and inserting an indented method there would emit invalid Python —
+    # refuse loudly instead (review finding on MetaCoding-td9).
+    if cut == 0 or not lines[cut - 1].startswith((" ", "\t")):
+        raise CodegenError(
+            f"{rel}: the statement preceding the anchor is at module scope, not "
+            f"a class body — the tree has drifted from what this generator "
+            f"knows; refusing to emit a mis-indented method"
+        )
     body_end = "\n".join(lines[:cut])
     tail = head[len(body_end):] + source[idx:]
     return body_end + "\n" + text + tail

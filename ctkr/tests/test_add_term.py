@@ -375,6 +375,21 @@ def test_a_broken_spec_is_refused(tree, tmp_path) -> None:
     assert rc == 2
 
 
+def test_a_module_scope_statement_before_the_anchor_is_refused(tree) -> None:
+    """The class-end walkback recognizes blank lines and column-0 comments. A
+    module-level statement between the class and the anchor must be a loud
+    CodegenError, never a mis-indented method (review finding on td9)."""
+    farmos = tree / "ctkr" / "oracle" / "farmos_adapter.py"
+    src = farmos.read_text(encoding="utf-8")
+    idx = src.find("\ndef _iso(")
+    farmos.write_text(
+        src[:idx] + '\n_MODULE_LEVEL = "between class and anchor"\n' + src[idx:],
+        encoding="utf-8",
+    )
+    with pytest.raises(CodegenError, match="module scope"):
+        plan_edits(make_spec("widget_count", "assertion"), tree)
+
+
 def test_a_drifted_tree_fails_loudly_never_guesses(tree) -> None:
     """Anchor discipline: a tree the generator does not recognise is an error,
     not a best-effort insertion."""
