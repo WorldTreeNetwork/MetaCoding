@@ -1,0 +1,27 @@
+{
+  "port": "w2-identity-material-quantity-fold",
+  "description": "MetaCoding-5ln identity port: the material quantity_presave fold (farm_material EntityHooks.php) — a MATERIAL-bundle quantity referencing a MATERIAL asset with a stated material type inherits that type at record time (snapshot copy; guard chain on both bundles and on type emptiness). Implemented feature-local in the shared wave-1 store's recordLog; promotion to a kernel denormalize-on-write primitive is the punted kernel_candidate decision. Observed live on pack 046155d7d243; terms material + material_type_recorded BOUND on it. Source finding: material_type is REQUIRED at the JSON:API boundary, so the hook's emptiness guard is unreachable there (defense-in-depth for other write paths) — the typeless-asset contrast is unrecordable.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [
+      "record_log",
+      "set_log_status",
+      "set_effective_time",
+      "archive_asset"
+    ],
+    "probes": [
+      "material_type_recorded",
+      "log_status",
+      "log_count",
+      "asset_active"
+    ]
+  },
+  "divergences": []
+}

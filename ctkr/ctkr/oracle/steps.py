@@ -41,8 +41,16 @@ def apply_when(
     at = resolve_effective_time(w.at, now) if w.at else None
 
     if w.action == "record_log":
+        # A quantity's inventory_asset is an ALIAS in the fixture and a HANDLE
+        # at the adapter (the same duality `against` has) — resolve here, once,
+        # so no adapter ever sees an alias (MetaCoding-5ln).
+        quantities = [
+            q.model_copy(update={"inventory_asset": handles[q.inventory_asset]})
+            if q.inventory_asset else q
+            for q in w.quantities
+        ]
         args = (w.kind, w.name or f"{w.kind} log", w.status or "done",
-                [handles[a] for a in w.against], w.quantities)
+                [handles[a] for a in w.against], quantities)
         # Keep the 5-argument call for adapters written before the optional
         # write-surface fields (lot_number, equipment) existed.
         extras: dict = {}

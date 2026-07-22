@@ -377,6 +377,16 @@ class PortAdapter(ImplementationAdapter):
         return bool(self._bridge.call(
             "equipment_used", log=subject_handle, other=other_handle))
 
+    def material_type_recorded(self, subject_handle: Handle) -> list[str]:
+        self._need_probe("material_type_recorded")
+        got = self._bridge.call("material_type_recorded", log=subject_handle)
+        if not isinstance(got, list):
+            raise BridgeError(
+                f"port bridge answered 'material_type_recorded' with "
+                f"{type(got).__name__} {got!r}; expected a list of names"
+            )
+        return [str(n) for n in got]
+
     def delete_quantity(self, subject_handle: Handle) -> Any:
         self._need_operation("delete_quantity")
         return self._bridge.call("delete_quantity", quantity=subject_handle)

@@ -34,6 +34,7 @@ ENTITY_TERMS: frozenset[str] = frozenset(
         "structure",  # a building / greenhouse
         "equipment",  # a tool / machine
         "group",  # a membership grouping of assets
+        "material",  # A material asset: a stock of some substance (compost, fertilizer, s… [PROVISIONAL]
     }
 )
 
@@ -135,6 +136,7 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "material_quantity",  # A measured quantity classified as material in a farm record. [PROVISIONAL]
         "birth_mother",  # The mother recorded for a birth. It identifies the animal recognize… [PROVISIONAL]
         "equipment_used",  # Whether a given equipment asset is recorded as equipment used on a … [PROVISIONAL]
+        "material_type_recorded",  # The material types recorded on a log's material quantity, as an ord… [PROVISIONAL]
     }
 )
 

@@ -60,7 +60,20 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           sex: String(req.sex ?? "") || undefined,
         });
       case "record_log": {
-        const quantities = (req.quantities ?? []) as QuantityInput[];
+        // Wire quantities use the oracle DSL's key names; normalize the
+        // MetaCoding-xdt/5ln extensions onto the store's fields (`bundle` ->
+        // quantityType, `inventory_asset` handle -> inventoryAssetId).
+        const quantities = ((req.quantities ?? []) as Record<string, unknown>[])
+          .map((q) => {
+            const { bundle, inventory_asset, alias: _alias, ...rest } = q;
+            return {
+              ...rest,
+              ...(bundle ? { quantityType: String(bundle) } : {}),
+              ...(inventory_asset
+                ? { inventoryAssetId: inventory_asset as Handle }
+                : {}),
+            } as QuantityInput;
+          });
         return store.recordLog({
           kind: String(req.kind),
           name: String(req.name ?? ""),
@@ -102,6 +115,13 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           return { unanswerable: `no log recorded under handle ${String(req.log)}` };
         }
         return used;
+      }
+      case "material_type_recorded": {
+        const names = store.materialTypeRecorded(req.log as Handle);
+        if (names === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return names;
       }
       case "close":
         return true;

@@ -280,3 +280,12 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("equipment_used")
+
+    # --- generated: material_type_recorded (assertion, PROVISIONAL) --- #
+    def material_type_recorded(self, subject_handle: Handle) -> Any:
+        """Deliver the ordered material_type term names recorded on the first material-classified quantity of the subject log, or an empty list when the log carries no material quantity or the quantity records no material type — the observable of the quantity_presave denormalizing fold.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("material_type_recorded")

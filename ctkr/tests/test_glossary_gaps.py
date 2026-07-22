@@ -211,13 +211,36 @@ def test_finds_php_plugin_bundle_field(fixture_tree: Path) -> None:
     assert "lot_number" not in [g.value for g in fields]
 
 
-def test_finds_material_quantity_type(fixture_tree: Path) -> None:
+def test_material_quantity_type_is_shadowed_by_the_homonym_term(
+    fixture_tree: Path,
+) -> None:
+    """The miner checks NAME membership in all_terms(), one flat union across
+    sets — so binding 'material' as an ENTITY term (MetaCoding-5ln) shadows the
+    quantity_type gap of the same name. Pinned as the current design's honest
+    behaviour; the per-set provenance channel that would distinguish homonyms
+    is bead MetaCoding-852. The quantity_type gap SHAPE stays covered by
+    test_finds_unknown_quantity_type_shape below."""
     gaps = scan_sources([fixture_tree], rel_root=fixture_tree.parent)
+    assert _by_kind(gaps, "quantity_type") == []
+
+
+def test_finds_unknown_quantity_type_shape(tmp_path: Path) -> None:
+    """A default_quantity_type OUTSIDE the glossary still surfaces as a gap —
+    the shape the shadowed 'material' fixture used to pin."""
+    root = tmp_path / "modules"
+    mod = root / "log" / "pricing"
+    (mod / "config" / "install").mkdir(parents=True)
+    (mod / "config" / "install" / "log.type.pricing.yml").write_text(
+        LOG_TYPE_INPUT_YML.replace("default_quantity_type: material",
+                                   "default_quantity_type: pricing")
+        .replace("id: input", "id: pricing")
+    )
+    gaps = scan_sources([root], rel_root=root.parent)
     qt = _by_kind(gaps, "quantity_type")
-    assert [g.value for g in qt] == ["material"]
+    assert [g.value for g in qt] == ["pricing"]
     assert qt[0].glossary_set == "MEASURES"
     assert qt[0].source_ref.endswith(
-        "log.type.input.yml:third_party_settings."
+        "log.type.pricing.yml:third_party_settings."
         "farm_log_quantity.default_quantity_type")
 
 

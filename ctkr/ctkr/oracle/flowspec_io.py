@@ -63,7 +63,9 @@ _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
      "quantities", "at", "parents", "names", "lot_number", "equipment"}
 )
-_QUANTITY_KEYS = frozenset({"measure", "value", "unit", "label", "alias", "bundle"})
+_QUANTITY_KEYS = frozenset(
+    {"measure", "value", "unit", "label", "alias", "bundle", "inventory_asset"}
+)
 _PROBE_KEYS = frozenset(
     {"assert", "subject", "measure", "unit", "kind", "group", "other", "op"}
 )
@@ -188,6 +190,7 @@ def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
         measure=measure, value=float(raw),
         unit=_str(d, "unit", where), label=_str(d, "label", where),
         alias=_str(d, "alias", where), bundle=bundle,
+        inventory_asset=_str(d, "inventory_asset", where),
     )
 
 
@@ -392,10 +395,16 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             # on any other step they would be silently inert (the interpreter
             # neither binds nor creates them there), which is worse than a
             # refusal.
-            if (q.alias or q.bundle) and step.action != "record_log":
+            if (q.alias or q.bundle or q.inventory_asset) \
+                    and step.action != "record_log":
                 raise FlowSpecError(
                     f"{where}.when[{i}].quantities[{j}]: only record_log "
-                    f"quantities may state an alias or a bundle"
+                    f"quantities may state an alias, bundle, or inventory_asset"
+                )
+            if q.inventory_asset and q.inventory_asset not in aliases:
+                raise FlowSpecError(
+                    f"{where}.when[{i}].quantities[{j}].inventory_asset: "
+                    f"unknown entity alias {q.inventory_asset!r}"
                 )
             if not q.alias:
                 continue

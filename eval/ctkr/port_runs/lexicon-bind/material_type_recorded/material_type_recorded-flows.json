@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2x-material-fold-copies-type",
+      "title": "A material quantity referencing a typed material asset: the asset's material type is delivered on the quantity \u2014 the quantity_presave fold observed",
+      "feature": "quantity.material",
+      "glossary_terms": [
+        "land",
+        "material",
+        "input",
+        "weight",
+        "record_log",
+        "material_type_recorded",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "A",
+          "name": "w2x-Fold Plot One"
+        },
+        {
+          "entity": "material",
+          "alias": "M",
+          "name": "w2x-Compost Pile One",
+          "descriptor": "w2x-Compost"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "L",
+          "kind": "input",
+          "status": "done",
+          "name": "w2x-Compost application",
+          "against": [
+            "A"
+          ],
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilogram",
+              "label": "applied",
+              "bundle": "material",
+              "inventory_asset": "M"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "material_type_recorded",
+          "subject": "L"
+        },
+        {
+          "assert": "log_count",
+          "subject": "A",
+          "kind": "input"
+        }
+      ]
+    },
+    {
+      "key": "w2x-material-fold-no-inventory-contrast",
+      "title": "The same material quantity with no inventory reference: no material type is delivered \u2014 the discriminating contrast to the fold",
+      "feature": "quantity.material",
+      "glossary_terms": [
+        "land",
+        "input",
+        "weight",
+        "record_log",
+        "material_type_recorded",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "A",
+          "name": "w2x-Fold Plot Two"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "L",
+          "kind": "input",
+          "status": "done",
+          "name": "w2x-Untracked application",
+          "against": [
+            "A"
+          ],
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilogram",
+              "label": "applied",
+              "bundle": "material"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "material_type_recorded",
+          "subject": "L"
+        },
+        {
+          "assert": "log_count",
+          "subject": "A",
+          "kind": "input"
+        }
+      ]
+    },
+    {
+      "key": "w2x-material-fold-non-material-inventory",
+      "title": "A material quantity whose inventory reference is a LAND asset: the fold's bundle guard bails and no material type is delivered",
+      "feature": "quantity.material",
+      "glossary_terms": [
+        "land",
+        "input",
+        "weight",
+        "record_log",
+        "material_type_recorded"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "A",
+          "name": "w2x-Fold Plot Three"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "L",
+          "kind": "input",
+          "status": "done",
+          "name": "w2x-Misfiled application",
+          "against": [
+            "A"
+          ],
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilogram",
+              "label": "applied",
+              "bundle": "material",
+              "inventory_asset": "A"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "material_type_recorded",
+          "subject": "L"
+        }
+      ]
+    }
+  ]
+}

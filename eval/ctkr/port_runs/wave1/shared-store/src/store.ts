@@ -48,6 +48,15 @@ export interface QuantityInput {
   quantityType?: string;
   /** material_type taxonomy terms (multi-valued, input feature). */
   materialTypes?: readonly string[];
+  /**
+   * The asset this quantity's inventory refers to (core-inventory
+   * `inventory_asset`). The material quantity_presave fold keys off it
+   * (MetaCoding-5ln): a material quantity referencing a material asset
+   * inherits the asset's material type AT RECORD TIME — a snapshot copy,
+   * exactly like the source's presave hook; later changes to the asset do
+   * not restate recorded quantities.
+   */
+  inventoryAssetId?: Handle;
 }
 
 export interface QuantityRecord extends QuantityInput {
@@ -201,6 +210,7 @@ export class Wave1LogStore {
     const logId = this.ids.mint("log");
     const quantities: QuantityRecord[] = input.quantities.map((q) => ({
       ...q,
+      ...this.materialFold(q),
       quantityId: this.ids.mint("qty"),
     }));
     this.emit<LogRecordedPayload>("log_recorded", {
@@ -316,6 +326,36 @@ export class Wave1LogStore {
     const v = this.logView(logId);
     if (!v) return undefined;
     return v.equipmentIds.includes(equipmentId);
+  }
+
+  /**
+   * The material quantity_presave fold (MetaCoding-5ln), applied at record
+   * time exactly as the source's hook applies it at save: a MATERIAL-bundle
+   * quantity referencing a MATERIAL asset with a stated material type
+   * inherits that type; any guard failing leaves the quantity untouched.
+   * A snapshot copy — later asset changes never restate recorded quantities.
+   * Feature-local for now; promotion to a kernel denormalize-on-write
+   * primitive is the punted kernel_candidate decision.
+   */
+  private materialFold(q: QuantityInput): Partial<QuantityInput> {
+    if ((q.quantityType ?? "") !== "material" || !q.inventoryAssetId) return {};
+    const a = this.eventsOf<AssetCreatedPayload>("asset_created").find(
+      (e) => e.payload.assetId === q.inventoryAssetId,
+    );
+    if (!a || a.payload.entity !== "material" || !a.payload.descriptor) return {};
+    return { materialTypes: [a.payload.descriptor] };
+  }
+
+  /**
+   * The ordered material_type names on the log's first MATERIAL-bundle
+   * quantity; [] when the log carries none or it records no type.
+   * `undefined` when the log is unknown or deleted — unanswerable, not [].
+   */
+  materialTypeRecorded(logId: Handle): readonly string[] | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    const q = v.quantities.find((x) => (x.quantityType ?? "") === "material");
+    return q ? (q.materialTypes ?? []) : [];
   }
 
   /**

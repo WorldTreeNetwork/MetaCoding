@@ -44,6 +44,7 @@ _ASSET_BUNDLE = {
     "structure": "structure",
     "equipment": "equipment",
     "group": "group",
+    "material": "material",
 }
 
 
@@ -231,6 +232,13 @@ class FarmOSAdapter(ImplementationAdapter):
             term = self._ensure_term("plant_type", descriptor or "Crop")
             rels["plant_type"] = {"data": {"type": "taxonomy_term--plant_type",
                                            "id": term}}
+        elif bundle == "material" and descriptor:
+            # material_type is OPTIONAL on a material asset (unlike plant/animal
+            # types): a bare descriptor-less material asset is exactly the
+            # quantity_presave fold's bail-out contrast, so no default is minted.
+            term = self._ensure_term("material_type", descriptor)
+            rels["material_type"] = {"data": {"type": "taxonomy_term--material_type",
+                                              "id": term}}
         doc: dict[str, Any] = {"data": {"type": f"asset--{bundle}", "attributes": attrs}}
         if rels:
             doc["data"]["relationships"] = rels
@@ -254,6 +262,14 @@ class FarmOSAdapter(ImplementationAdapter):
         if q.unit:
             unit_id = self._ensure_unit(q.unit)
             rels["units"] = {"data": {"type": "taxonomy_term--unit", "id": unit_id}}
+        if q.inventory_asset:
+            # Already a HANDLE here — steps.apply_when resolved the fixture's
+            # alias (MetaCoding-5ln). The core-inventory field every quantity
+            # carries; the material quantity_presave fold keys off it.
+            _, abundle, aid = self._split(q.inventory_asset)
+            rels["inventory_asset"] = {
+                "data": [{"type": f"asset--{abundle}", "id": aid}]
+            }
         doc = {"data": {"type": f"quantity--{bundle}", "attributes": attrs}}
         if rels:
             doc["data"]["relationships"] = rels
@@ -827,6 +843,40 @@ class FarmOSAdapter(ImplementationAdapter):
         rows = rel.get("data") or []
         _, _, other_id = self._split(other_handle)
         return any(isinstance(r, dict) and r.get("id") == other_id for r in rows)
+
+    # --- material_type_recorded (assertion, PROVISIONAL — MetaCoding-5ln) --- #
+    def material_type_recorded(self, subject_handle: Handle) -> list[str]:
+        """Deliver the ordered material_type term NAMES recorded on the first
+        material-classified quantity of the subject log; [] when the log
+        carries no material quantity or it records no material type.
+
+        The observable of the quantity_presave denormalizing fold
+        (farm_material EntityHooks.php): a material quantity referencing a
+        material asset inherits the asset's material_type at save. A boundary
+        readback: the log's own quantity relationship, the first
+        quantity--material's own material_type relationship, and each term's
+        own stated name — names, never per-run term UUIDs, so the value
+        reproduces across runs and ports. PROVISIONAL until a sealed
+        recording binds the term.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET",
+            f"/api/log/{kind}/{uid}?include=quantity,quantity.material_type",
+        )
+        included = {(inc["type"], inc["id"]): inc for inc in doc.get("included") or []}
+        for inc in doc.get("included") or []:
+            if inc.get("type") != "quantity--material":
+                continue
+            rel = ((inc.get("relationships") or {}).get("material_type") or {})
+            names: list[str] = []
+            for row in rel.get("data") or []:
+                term = included.get((row.get("type"), row.get("id")))
+                if term is not None:
+                    names.append(term["attributes"]["name"])
+            return names
+        return []
+
 
 
 
