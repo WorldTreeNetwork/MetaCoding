@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2x-equipment-used-membership",
+      "title": "An activity recorded with one of two equipment assets: the attached one is delivered as used, the unattached one is not — the discriminating pair",
+      "feature": "equipment",
+      "glossary_terms": ["land", "equipment", "activity", "record_log", "equipment_used", "log_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "w2x-Equip Bed One"},
+        {"entity": "equipment", "alias": "E1", "name": "w2x-Tractor One"},
+        {"entity": "equipment", "alias": "E2", "name": "w2x-Seeder One"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "activity", "status": "done", "name": "w2x-Tillage with tractor", "against": ["A"], "equipment": ["E1"]}
+      ],
+      "probes": [
+        {"assert": "equipment_used", "subject": "L", "other": "E1"},
+        {"assert": "equipment_used", "subject": "L", "other": "E2"},
+        {"assert": "log_count", "subject": "A", "kind": "activity"}
+      ]
+    },
+    {
+      "key": "w2x-equipment-used-none-contrast",
+      "title": "The same activity recorded with no equipment: nothing is delivered as used — the empty contrast",
+      "feature": "equipment",
+      "glossary_terms": ["land", "equipment", "activity", "record_log", "equipment_used", "log_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "w2x-Equip Bed Two"},
+        {"entity": "equipment", "alias": "E1", "name": "w2x-Tractor Two"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "activity", "status": "done", "name": "w2x-Tillage by hand", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "equipment_used", "subject": "L", "other": "E1"},
+        {"assert": "log_count", "subject": "A", "kind": "activity"}
+      ]
+    },
+    {
+      "key": "w2x-equipment-used-multi-valued",
+      "title": "An activity recorded with two equipment assets: both are delivered as used — the field is multi-valued, per the source's own definition",
+      "feature": "equipment",
+      "glossary_terms": ["land", "equipment", "activity", "record_log", "equipment_used"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "w2x-Equip Bed Three"},
+        {"entity": "equipment", "alias": "E1", "name": "w2x-Tractor Three"},
+        {"entity": "equipment", "alias": "E2", "name": "w2x-Seeder Three"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "activity", "status": "done", "name": "w2x-Tillage and seeding pass", "against": ["A"], "equipment": ["E1", "E2"]}
+      ],
+      "probes": [
+        {"assert": "equipment_used", "subject": "L", "other": "E1"},
+        {"assert": "equipment_used", "subject": "L", "other": "E2"}
+      ]
+    }
+  ]
+}

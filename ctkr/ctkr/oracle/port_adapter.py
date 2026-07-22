@@ -341,15 +341,19 @@ class PortAdapter(ImplementationAdapter):
         self, kind: str, name: str, status: str,
         asset_handles: list[Handle], quantities: list[QuantitySpec],
         lot_number: str = "",
+        equipment_handles: list[Handle] | None = None,
     ) -> Handle:
         self._need_operation("record_log")
         return str(self._bridge.call(
             "record_log", kind=kind, name=name, status=status,
             assets=list(asset_handles),
             quantities=[q.model_dump() for q in quantities],
-            # Only on the wire when stated, so bridges written before the field
-            # existed see the exact payload they always saw (MetaCoding-xdt).
+            # Only on the wire when stated, so bridges written before these
+            # fields existed see the exact payload they always saw
+            # (MetaCoding-xdt lot_number; MetaCoding-1cv equipment).
             **({"lot_number": lot_number} if lot_number else {}),
+            **({"equipment": list(equipment_handles)}
+               if equipment_handles else {}),
         ))
 
     def quantities_of(self, log_handle: Handle) -> list[Handle]:

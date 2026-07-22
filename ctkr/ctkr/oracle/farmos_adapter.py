@@ -268,12 +268,20 @@ class FarmOSAdapter(ImplementationAdapter):
         asset_handles: list[Handle],
         quantities: list[QuantitySpec],
         lot_number: str = "",
+        equipment_handles: list[Handle] | None = None,
     ) -> Handle:
         assets = [self._split(h) for h in asset_handles]
         rels: dict[str, Any] = {}
         if assets:
             rels["asset"] = {"data": [
                 {"type": f"asset--{b}", "id": u} for _, b, u in assets
+            ]}
+        if equipment_handles:
+            # The multi-valued `equipment` base field farm_equipment adds to
+            # every log (FieldHooks.php); references equipment assets only.
+            eq = [self._split(h) for h in equipment_handles]
+            rels["equipment"] = {"data": [
+                {"type": f"asset--{b}", "id": u} for _, b, u in eq
             ]}
         if quantities:
             created = [self._create_quantity(q) for q in quantities]
@@ -797,6 +805,29 @@ class FarmOSAdapter(ImplementationAdapter):
         mother_id = rel["id"] if isinstance(rel, dict) and rel else ""
         _, _, other_id = self._split(other_handle)
         return bool(mother_id) and mother_id == other_id
+
+    # --- equipment_used (assertion, PROVISIONAL — MetaCoding-1cv) ----------- #
+    def equipment_used(self, subject_handle: Handle, other_handle: Handle) -> bool:
+        """Deliver whether ``other`` is among the equipment the subject log
+        records as used, so an assertion can confirm the recorded 'Equipment
+        used' reference against an expected asset.
+
+        A boundary readback of the multi-valued ``equipment`` base field
+        farm_equipment adds to every log (FieldHooks.php:entityBaseFieldInfo,
+        target asset--equipment) — the ``has_parent`` house form for an entity
+        reference: membership of the expected asset, never a raw per-run UUID,
+        so the value can reproduce across runs and ports. A log with no
+        recorded equipment, or whose equipment does not include ``other``,
+        delivers ``False``. PROVISIONAL until a sealed recording binds the
+        term.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/log/{kind}/{uid}")
+        rel = ((doc["data"].get("relationships") or {}).get("equipment") or {})
+        rows = rel.get("data") or []
+        _, _, other_id = self._split(other_handle)
+        return any(isinstance(r, dict) and r.get("id") == other_id for r in rows)
+
 
 
 # --------------------------------------------------------------------------- #

@@ -61,7 +61,7 @@ _FLOW_KEYS = frozenset(
 _GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
-     "quantities", "at", "parents", "names", "lot_number"}
+     "quantities", "at", "parents", "names", "lot_number", "equipment"}
 )
 _QUANTITY_KEYS = frozenset({"measure", "value", "unit", "label", "alias", "bundle"})
 _PROBE_KEYS = frozenset(
@@ -251,6 +251,11 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         raise FlowSpecError(
             f"{where}.lot_number: only record_log states a lot number"
         )
+    equipment = _str_list(d, "equipment", where)
+    if equipment and action != "record_log":
+        raise FlowSpecError(
+            f"{where}.equipment: only record_log states equipment used"
+        )
     step = WhenStep(
         action=action, alias=_str(d, "alias", where), ref=_str(d, "ref", where),
         name=_str(d, "name", where), kind=kind, status=status,
@@ -261,7 +266,7 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         ],
         at=at, parents=_str_list(d, "parents", where),
         names=_str_list(d, "names", where),
-        lot_number=lot_number,
+        lot_number=lot_number, equipment=equipment,
     )
     for req in _ACTION_REQUIRED.get(action, ()):
         if not getattr(step, req):
@@ -348,6 +353,7 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
         for field, pool, label in (
             ("against", aliases, "entity"),
             ("parents", aliases, "entity"),
+            ("equipment", aliases, "entity"),
         ):
             for a in getattr(step, field):
                 if a not in pool:

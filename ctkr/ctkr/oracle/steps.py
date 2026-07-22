@@ -43,9 +43,14 @@ def apply_when(
     if w.action == "record_log":
         args = (w.kind, w.name or f"{w.kind} log", w.status or "done",
                 [handles[a] for a in w.against], w.quantities)
-        # Keep the 5-argument call for adapters written before lot_number existed.
-        h = (adapter.record_log(*args, lot_number=w.lot_number)
-             if w.lot_number else adapter.record_log(*args))
+        # Keep the 5-argument call for adapters written before the optional
+        # write-surface fields (lot_number, equipment) existed.
+        extras: dict = {}
+        if w.lot_number:
+            extras["lot_number"] = w.lot_number
+        if w.equipment:
+            extras["equipment_handles"] = [handles[e] for e in w.equipment]
+        h = adapter.record_log(*args, **extras)
         if at is not None:
             adapter.set_effective_time(h, at)
         if w.alias:

@@ -70,12 +70,16 @@ class ImplementationAdapter(ABC):
         asset_handles: list[Handle],
         quantities: list[QuantitySpec],
         lot_number: str = "",
+        equipment_handles: list[Handle] | None = None,
     ) -> Handle:
         """Record a log of ``kind`` against assets, with quantities; return handle.
 
-        ``lot_number`` is an optional lot/batch identifier the log states
-        (MetaCoding-xdt). The interpreter only passes it when the step sets it,
-        so adapters written before the field existed keep working unchanged.
+        ``lot_number`` (MetaCoding-xdt) is an optional lot/batch identifier the
+        log states. ``equipment_handles`` (MetaCoding-1cv) are the equipment
+        assets the log states as used — the multi-valued ``equipment`` base
+        field farm_equipment adds to every log. The interpreter only passes
+        each when the step sets it, so adapters written before these fields
+        existed keep working unchanged.
         """
 
     @abstractmethod
@@ -267,3 +271,12 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("birth_mother")
+
+    # --- generated: equipment_used (assertion, PROVISIONAL) --- #
+    def equipment_used(self, subject_handle: Handle, other_handle: Handle) -> Any:
+        """Deliver whether a given equipment asset is among the equipment the subject log records as used, so an assertion can confirm the recorded 'Equipment used' reference against an expected asset.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("equipment_used")
