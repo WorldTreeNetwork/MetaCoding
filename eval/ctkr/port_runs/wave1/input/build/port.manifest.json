@@ -1,0 +1,12 @@
+{
+  "port": "w1d-input",
+  "description": "wave-1 input log port on the shared kernel v1.3 + wave-1 shared log-family store. One domain event (material-backed input recording) + the ∃-quantity material-type membership read. Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision — the one chosen divergence, surfaced via pending-only partners.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["record_log", "set_log_status", "set_effective_time"],
+    "probes": ["log_status", "log_count", "yield_total", "quantity_recorded"]
+  }
+}

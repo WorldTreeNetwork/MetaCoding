@@ -1,0 +1,818 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w1b-observation-basic-recorded",
+      "title": "A confirmed observation is counted and its measured value is delivered",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "done",
+        "temperature",
+        "log_count",
+        "log_status",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed one"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_done",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1b- soil temperature checked",
+          "quantities": [
+            {
+              "measure": "temperature",
+              "value": 21,
+              "unit": "celsius"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_status",
+          "subject": "obs_done"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_done",
+          "measure": "temperature",
+          "unit": "celsius"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "temperature",
+          "unit": "celsius"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-pending-is-inert",
+      "title": "A pending observation is readable but does not move the asset totals",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "pending",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed two"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_done",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1b- confirmed biomass estimate",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "obs_pending",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "pending",
+          "name": "w1b- planned biomass estimate",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_status",
+          "subject": "obs_pending"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_pending",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-confirming-pending-admits-it",
+      "title": "Confirming a pending observation admits it into the totals",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_log_status",
+        "observation",
+        "pending",
+        "done",
+        "weight",
+        "log_status",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed three"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_pending",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "pending",
+          "name": "w1b- growth measurement awaiting confirmation",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 7,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_log_status",
+          "ref": "obs_pending",
+          "status": "done"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "obs_pending"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-unconfirming-done-withdraws-it",
+      "title": "Sending a confirmed observation back to pending withdraws it from the totals",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_log_status",
+        "observation",
+        "pending",
+        "done",
+        "weight",
+        "log_status",
+        "yield_total",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed four"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_done",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1b- canopy weight noted",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 4,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_log_status",
+          "ref": "obs_done",
+          "status": "pending"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "obs_done"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-future-dated",
+      "title": "A confirmed observation dated ahead of now, and its standing in the totals",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "done",
+        "weight",
+        "yield_total",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed five"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_past",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- weight observed today",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "obs_future",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "+86400",
+          "status": "done",
+          "name": "w1b- weight observation dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_status",
+          "subject": "obs_future"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-restating-effective-time",
+      "title": "Restating when an observation took effect changes its standing",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_effective_time",
+        "observation",
+        "done",
+        "weight",
+        "yield_total",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed six"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_ahead",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "+86400",
+          "status": "done",
+          "name": "w1b- observation mis-dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 6,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_effective_time",
+          "ref": "obs_ahead",
+          "at": "-10000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-units-kept-apart",
+      "title": "Observed quantities in two different units are kept apart, never summed or converted",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "done",
+        "weight",
+        "yield_total",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed seven"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_mixed_units",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- metric and imperial estimates",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "pounds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_mixed_units",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_mixed_units",
+          "measure": "weight",
+          "unit": "pounds"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "pounds"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-measures-kept-apart",
+      "title": "Temperature and ratio readings on one observation are independent",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "done",
+        "temperature",
+        "ratio",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed eight"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_two_measures",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- soil scan reading",
+          "quantities": [
+            {
+              "measure": "temperature",
+              "value": 18,
+              "unit": "celsius"
+            },
+            {
+              "measure": "ratio",
+              "value": 42,
+              "unit": "percent"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_two_measures",
+          "measure": "temperature",
+          "unit": "celsius"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_two_measures",
+          "measure": "ratio",
+          "unit": "percent"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "temperature",
+          "unit": "celsius"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "ratio",
+          "unit": "percent"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-without-quantities",
+      "title": "An observation recorded with no quantities at all is a valid, counted record",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed nine"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_bare",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- frost noted on leaves"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_status",
+          "subject": "obs_bare"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-kind-kept-apart",
+      "title": "Observations are counted apart from other log kinds on the same asset",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "observation",
+        "harvest",
+        "done",
+        "weight",
+        "log_count",
+        "yield_total",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed ten"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_note",
+          "kind": "observation",
+          "against": ["bed"],
+          "at": "-30000",
+          "status": "done",
+          "name": "w1b- pre-harvest weight estimate",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "log_harvest",
+          "kind": "harvest",
+          "against": ["bed"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- tomatoes picked",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 9,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "harvest"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_note",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-archival-retains-history",
+      "title": "Archiving an asset does not erase its recorded observations",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "animal",
+        "record_log",
+        "archive_asset",
+        "observation",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "asset_active",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "ewe",
+          "name": "w1b- ewe alpha"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_weighin",
+          "kind": "observation",
+          "against": ["ewe"],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1b- ewe weigh-in",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 62,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "archive_asset",
+          "ref": "ewe"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "asset_active",
+          "subject": "ewe"
+        },
+        {
+          "assert": "log_count",
+          "subject": "ewe",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_status",
+          "subject": "obs_weighin"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_weighin",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1b-observation-one-log-two-assets",
+      "title": "One observation recorded against two assets is delivered to both",
+      "feature": "log.observation",
+      "glossary_terms": [
+        "planting",
+        "land",
+        "record_log",
+        "observation",
+        "done",
+        "count",
+        "log_count",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1b- tomato bed eleven"
+        },
+        {
+          "entity": "land",
+          "alias": "field",
+          "name": "w1b- north field"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs_shared",
+          "kind": "observation",
+          "against": ["bed", "field"],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1b- pest scouting pass",
+          "quantities": [
+            {
+              "measure": "count",
+              "value": 12,
+              "unit": "aphids"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        },
+        {
+          "assert": "log_count",
+          "subject": "field",
+          "kind": "observation"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "obs_shared",
+          "measure": "count",
+          "unit": "aphids"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "count",
+          "unit": "aphids"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "field",
+          "measure": "count",
+          "unit": "aphids"
+        }
+      ]
+    }
+  ]
+}

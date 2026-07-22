@@ -1,0 +1,6 @@
+{
+  "name": "w1c-harvest-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

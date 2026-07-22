@@ -1,0 +1,324 @@
+{
+  "adapter_name": "HarvestLoggingAdapter",
+  "factory_signature": "makeHarvestLoggingAdapter(): HarvestLoggingAdapter",
+  "mutators": [
+    {
+      "name": "recordPlanting",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "planting",
+          "type": "PlantingInput",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<{ plant: PlantHandle; movements: MovementHandle[] }>",
+      "as_of_time": false,
+      "semantics": "Appends one composite planting event that creates the plant and its seeding and/or transplanting movements; every movement is isMovement:true and isLog:false, and is pending unless that leg's done flag is true.",
+      "derived_from": "invented: the source creates related plant assets and seeding/transplanting records through form workflow rather than one named domain operation"
+    },
+    {
+      "name": "createPlantingPlan",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "seasons",
+          "type": "SeasonHandle[]",
+          "optional": false
+        },
+        {
+          "name": "crops",
+          "type": "CropHandle[]",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<PlantingPlanHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a planting-plan creation event; only a nonempty seasons selection updates this actor's remembered season defaults, while an empty selection leaves the prior defaults unchanged.",
+      "derived_from": "invented: remembered selected seasons is conditional state written by the plan-creation workflow, not a single source method"
+    },
+    {
+      "name": "recordHarvest",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        },
+        {
+          "name": "quantity",
+          "type": "QuantityInput | null",
+          "optional": false
+        },
+        {
+          "name": "lotNumber",
+          "type": "string | null",
+          "optional": false
+        },
+        {
+          "name": "status",
+          "type": "\"pending\" | \"done\"",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<HarvestLogHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a harvest log, never a movement; lotNumber is an optional opaque string, and null or empty quantity is persisted as quantityPayload:[null] rather than as zero or an omitted wrapper.",
+      "derived_from": "Harvest::buildFieldDefinitions"
+    },
+    {
+      "name": "confirmRecord",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "record",
+          "type": "MovementHandle | HarvestLogHandle | BirthLogHandle",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<RecordStatusChangeHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a confirmation status event for a previously pending record; later status events supersede earlier status in status-sensitive projections.",
+      "derived_from": "invented: pending-versus-done lifecycle status is produced by source form workflows rather than a Harvest class method"
+    },
+    {
+      "name": "recordBirth",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<BirthLogHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a birth observation for the plant; when concurrent births converge, earliest-hlc-wins; later concurrent birth demoted to observation (never dropped).",
+      "derived_from": "entityBundleFieldInfo / UniqueBirthLog"
+    },
+    {
+      "name": "markNewRevision",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "record",
+          "type": "HarvestLogHandle | MovementHandle | BirthLogHandle",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<RevisionHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a new-revision marker without locking or rejecting concurrent writers; all revision events remain in history for merge-aware projection.",
+      "derived_from": "setNewRevision"
+    }
+  ],
+  "projections": [
+    {
+      "name": "getPlantDisplayName",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<string | undefined>",
+      "as_of_time": true,
+      "semantics": "Returns the disclosed plant name as of asOf: a submitted custom name is used only when customNameEnabled is truthy and the name is nonempty; otherwise the generated name is used, combining season labels with '/' and crop labels with ', ', and preferring transplant location over seeding location.",
+      "derived_from": "invented: generated plant naming and ordered planting-location selection are computed inline by the planting workflow"
+    },
+    {
+      "name": "getRememberedSeasonDefaults",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<SeasonHandle[]>",
+      "as_of_time": true,
+      "semantics": "Returns this actor's latest nonempty season selection from a created planting plan at or before asOf; a later plan with no seasons does not clear the prior default.",
+      "derived_from": "invented: future form defaults are conditional workflow state, not a named source accessor"
+    },
+    {
+      "name": "getHarvestLog",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "harvest",
+          "type": "HarvestLogHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<HarvestLogView | undefined>",
+      "as_of_time": true,
+      "semantics": "Returns the disclosed harvest-log view at asOf, including status, isMovement:false, string-valued optional lotNumber, and quantityPayload exactly as recorded, including [null].",
+      "derived_from": "Harvest::buildFieldDefinitions; access / submitForm"
+    },
+    {
+      "name": "getPlantLocation",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<LocationHandle | undefined>",
+      "as_of_time": true,
+      "semantics": "Returns the latest disclosed confirmed planting movement location at or before asOf; pending movements do not establish current location.",
+      "derived_from": "invented: location is a materialized interpretation of ordered seeding/transplanting events"
+    },
+    {
+      "name": "getHarvestTotals",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<{ yieldTotal: Quantity | null; logCount: number }>",
+      "as_of_time": true,
+      "semantics": "Folds disclosed harvest logs through the frozen status contract: yieldTotal and logCount require confirmed records, with the required pending-only-partner handling; movement records never contribute because isLog:false.",
+      "derived_from": "invented: yield and log counts are materialized folds over harvest events"
+    },
+    {
+      "name": "getBirthResolution",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "plant",
+          "type": "PlantHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<{ canonicalBirth: BirthLogHandle | undefined; demotedObservations: BirthLogHandle[] }>",
+      "as_of_time": true,
+      "semantics": "Returns the birth resolution at asOf: earliest-hlc-wins; later concurrent birth demoted to observation (never dropped).",
+      "derived_from": "entityBundleFieldInfo / UniqueBirthLog"
+    },
+    {
+      "name": "getRevisionState",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "record",
+          "type": "HarvestLogHandle | MovementHandle | BirthLogHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<{ currentRevision: RevisionHandle | undefined; revisionHistory: RevisionHandle[] } | undefined>",
+      "as_of_time": true,
+      "semantics": "Returns the disclosed merge-aware revision history and current projected revision marker at asOf; concurrent revision markers are retained rather than mutually excluded.",
+      "derived_from": "setNewRevision; access"
+    }
+  ],
+  "rationale": "Mutators append domain events and return opaque handles; all handles use the fixed replica-scoped client id (prefix_replicaId~counter), collision-free by construction, no merge step needed. Planting is composite so asset creation and its movement taxonomy replay together: seeding/transplanting are distinct movement kinds with isLog:false, whereas harvest is a log with isMovement:false. The status-sensitive projections implement the frozen pending-status contract relevant here: location requires confirmed, while yieldTotal/logCount require confirmed with pending-only partners. Actor-bearing projections are disclosure-filtered materialized views: access is re-answered at the disclosure boundary rather than through an authoritative request-time write gate. Birth resolution uses the bound uniqueness rule verbatim, and revision history intentionally admits concurrent append-only histories."
+}

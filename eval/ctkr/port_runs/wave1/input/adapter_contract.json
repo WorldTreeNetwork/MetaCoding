@@ -1,0 +1,54 @@
+{
+  "adapter_name": "InputLogAdapter",
+  "factory_signature": "makeInputLogAdapter(): InputLogAdapter",
+  "mutators": [
+    {
+      "name": "recordMaterialInput",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        },
+        {
+          "name": "materialQuantities",
+          "type": "ReadonlyArray<MaterialQuantity>",
+          "optional": false
+        },
+        {
+          "name": "initialStatus",
+          "type": "LogStatus",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<InputLogHandle>",
+      "as_of_time": false,
+      "semantics": "Appends one InputRecorded event for a non-empty set of material-backed quantities and returns its input-log handle; the created handle uses replica-scoped client id (prefix_replicaId~counter); collision-free by construction, no merge step needed.",
+      "derived_from": "Input::buildFieldDefinitions; Material::buildFieldDefinitions"
+    }
+  ],
+  "projections": [
+    {
+      "name": "listInputLogs",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "filter",
+          "type": "{ materialType?: MaterialTypeHandle }",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ReadonlyArray<InputLogView>>",
+      "as_of_time": true,
+      "semantics": "Returns input-log views materialized from events visible at-or-before asOf, optionally retaining only logs having at least one material quantity whose material has the requested material type; each result exposes its recorded quantities and status as of that time.",
+      "derived_from": "LogQuantityMaterialType::query; LogQuantityMaterialType::buildExtraOptionsForm; LogQuantityMaterialType::defineOptions; ViewsExecutionHooks::viewsPreView; ViewsHooks::viewsData"
+    }
+  ],
+  "rationale": "The source-specific behavior is a material-backed quantity field on input logs plus a Views material-type filter, so the surface has one domain event and one filtered materialized-view read. Drupal Views form/options/data-hook plumbing is collapsed into the typed materialType filter rather than exposed as UI APIs. The query is as-of-time parameterized because both newly appended input events and later log/material state events can change the projected result."
+}

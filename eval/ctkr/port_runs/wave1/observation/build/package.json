@@ -1,0 +1,6 @@
+{
+  "name": "w1b-observation-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

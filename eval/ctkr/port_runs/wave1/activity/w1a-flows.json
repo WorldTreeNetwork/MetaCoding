@@ -1,0 +1,633 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w1a-activity-recorded-and-counted",
+      "title": "A completed activity is delivered as a done log counted against its asset",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "activity",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "field",
+          "name": "w1a north paddock"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "act",
+          "kind": "activity",
+          "name": "w1a mowing",
+          "status": "done",
+          "against": [
+            "field"
+          ],
+          "at": "-30000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "act"
+        },
+        {
+          "assert": "log_count",
+          "subject": "field",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-pending-activity-visibility",
+      "title": "A pending activity alongside a done one: what the asset's activity count includes",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "animal",
+        "record_log",
+        "activity",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "cow",
+          "name": "w1a bella",
+          "descriptor": "Cattle",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "walked",
+          "kind": "activity",
+          "name": "w1a walked to barn",
+          "status": "done",
+          "against": [
+            "cow"
+          ],
+          "at": "-40000"
+        },
+        {
+          "action": "record_log",
+          "alias": "planned",
+          "kind": "activity",
+          "name": "w1a hoof trim planned",
+          "status": "pending",
+          "against": [
+            "cow"
+          ],
+          "at": "-20000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "planned"
+        },
+        {
+          "assert": "log_status",
+          "subject": "walked"
+        },
+        {
+          "assert": "log_count",
+          "subject": "cow",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-pending-activity-confirmed",
+      "title": "Confirming a pending activity changes what the boundary delivers",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "animal",
+        "record_log",
+        "set_log_status",
+        "activity",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "ewe",
+          "name": "w1a clover",
+          "descriptor": "Sheep",
+          "sex": "F"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "shear",
+          "kind": "activity",
+          "name": "w1a shearing",
+          "status": "pending",
+          "against": [
+            "ewe"
+          ],
+          "at": "-30000"
+        },
+        {
+          "action": "set_log_status",
+          "ref": "shear",
+          "status": "done"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "shear"
+        },
+        {
+          "assert": "log_count",
+          "subject": "ewe",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-done-activity-reopened",
+      "title": "A done activity moved back to pending is delivered as pending again",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "equipment",
+        "record_log",
+        "set_log_status",
+        "activity",
+        "log_status",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "tractor",
+          "name": "w1a old tractor"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "service",
+          "kind": "activity",
+          "name": "w1a engine service",
+          "status": "done",
+          "against": [
+            "tractor"
+          ],
+          "at": "-50000"
+        },
+        {
+          "action": "set_log_status",
+          "ref": "service",
+          "status": "pending"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "service"
+        },
+        {
+          "assert": "log_count",
+          "subject": "tractor",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-future-dated-activity",
+      "title": "An activity marked done but effective in the future: is it already delivered?",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "activity",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "plot",
+          "name": "w1a east plot"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "future",
+          "kind": "activity",
+          "name": "w1a scheduled tillage",
+          "status": "done",
+          "against": [
+            "plot"
+          ],
+          "at": "+86400"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "future"
+        },
+        {
+          "assert": "log_count",
+          "subject": "plot",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-effective-time-restated",
+      "title": "Restating when a done activity took effect, moving it into the future",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "set_effective_time",
+        "activity",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "strip",
+          "name": "w1a west strip"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "till",
+          "kind": "activity",
+          "name": "w1a tillage pass",
+          "status": "done",
+          "against": [
+            "strip"
+          ],
+          "at": "-30000"
+        },
+        {
+          "action": "set_effective_time",
+          "ref": "till",
+          "at": "+86400"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "till"
+        },
+        {
+          "assert": "log_count",
+          "subject": "strip",
+          "kind": "activity"
+        }
+      ]
+    },
+    {
+      "key": "w1a-quantities-on-one-activity",
+      "title": "One activity carries measured quantities of different measures, each readable",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "animal",
+        "record_log",
+        "activity",
+        "weight",
+        "time",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "steer",
+          "name": "w1a ferdinand",
+          "descriptor": "Cattle",
+          "sex": "M"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "weigh",
+          "kind": "activity",
+          "name": "w1a weigh and walk",
+          "status": "done",
+          "against": [
+            "steer"
+          ],
+          "at": "-30000",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 12,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "time",
+              "value": 3,
+              "unit": "hours",
+              "label": "labor"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "weigh",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "weigh",
+          "measure": "time",
+          "unit": "hours"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "steer",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1a-quantity-pairs-kept-apart",
+      "title": "The same measure in two units on one activity stays two separate readings",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "equipment",
+        "record_log",
+        "activity",
+        "weight",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "scale",
+          "name": "w1a barn scale"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "calib",
+          "kind": "activity",
+          "name": "w1a calibration",
+          "status": "done",
+          "against": [
+            "scale"
+          ],
+          "at": "-30000",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 10,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "pounds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "calib",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "calib",
+          "measure": "weight",
+          "unit": "pounds"
+        }
+      ]
+    },
+    {
+      "key": "w1a-pending-quantity-readback",
+      "title": "A quantity on a pending activity: recorded on the log, but in the asset's totals?",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "animal",
+        "record_log",
+        "activity",
+        "weight",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "animal",
+          "alias": "lamb",
+          "name": "w1a pip",
+          "descriptor": "Sheep",
+          "sex": "M"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "plan",
+          "kind": "activity",
+          "name": "w1a planned weighing",
+          "status": "pending",
+          "against": [
+            "lamb"
+          ],
+          "at": "-20000",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 7,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "plan",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "lamb",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1a-one-activity-many-assets",
+      "title": "One activity against two assets is delivered in each asset's activity count",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "activity",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "f1",
+          "name": "w1a upper field"
+        },
+        {
+          "entity": "land",
+          "alias": "f2",
+          "name": "w1a lower field"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "spray",
+          "kind": "activity",
+          "name": "w1a boundary spraying",
+          "status": "done",
+          "against": [
+            "f1",
+            "f2"
+          ],
+          "at": "-30000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "f1",
+          "kind": "activity"
+        },
+        {
+          "assert": "log_count",
+          "subject": "f2",
+          "kind": "activity"
+        },
+        {
+          "assert": "log_status",
+          "subject": "spray"
+        }
+      ]
+    },
+    {
+      "key": "w1a-kind-isolation",
+      "title": "An observation against an asset does not appear in its activity count",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "activity",
+        "observation",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "bed",
+          "name": "w1a herb bed"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "obs",
+          "kind": "observation",
+          "name": "w1a weeds sighted",
+          "status": "done",
+          "against": [
+            "bed"
+          ],
+          "at": "-30000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "activity"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "observation"
+        }
+      ]
+    },
+    {
+      "key": "w1a-archived-asset-keeps-activity",
+      "title": "Archiving an asset: is its recorded activity still delivered against it?",
+      "feature": "log.activity",
+      "glossary_terms": [
+        "equipment",
+        "record_log",
+        "archive_asset",
+        "activity",
+        "log_count",
+        "asset_active",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "equipment",
+          "alias": "baler",
+          "name": "w1a retired baler"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "lastuse",
+          "kind": "activity",
+          "name": "w1a final baling",
+          "status": "done",
+          "against": [
+            "baler"
+          ],
+          "at": "-40000"
+        },
+        {
+          "action": "archive_asset",
+          "ref": "baler"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "asset_active",
+          "subject": "baler"
+        },
+        {
+          "assert": "log_count",
+          "subject": "baler",
+          "kind": "activity"
+        },
+        {
+          "assert": "log_status",
+          "subject": "lastuse"
+        }
+      ]
+    }
+  ]
+}

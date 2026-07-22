@@ -1,0 +1,12 @@
+{
+  "port": "w1a-activity",
+  "description": "wave-1 activity log port on the shared kernel v1.3 + wave-1 shared log-family store. Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision (the one chosen divergence); the pending mass lives in undeclared pending-only partner projections.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["record_log", "set_log_status", "set_effective_time", "archive_asset"],
+    "probes": ["log_status", "log_count", "yield_total", "quantity_recorded", "asset_active"]
+  }
+}

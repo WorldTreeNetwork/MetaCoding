@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w1c-harvest-single-done",
+      "title": "One done harvest of a weight against a land asset",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "log_count", "quantity_recorded", "log_status", "asset_active"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Tomato Bed"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest one", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_status", "subject": "L"},
+        {"assert": "asset_active", "subject": "A"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-accumulates",
+      "title": "Two done harvests sum into the asset's yield total",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Squash Patch"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "harvest", "status": "done", "name": "w1c-Harvest first", "against": ["A"], "quantities": [{"measure": "weight", "value": 3, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "L2", "kind": "harvest", "status": "done", "name": "w1c-Harvest second", "against": ["A"], "quantities": [{"measure": "weight", "value": 4, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-pending-gating",
+      "title": "A pending harvest alongside a done one: what the yield total and count deliver",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "log_count", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Pepper Row"}],
+      "when": [
+        {"action": "record_log", "alias": "LD", "kind": "harvest", "status": "done", "name": "w1c-Harvest done", "against": ["A"], "quantities": [{"measure": "weight", "value": 2, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "LP", "kind": "harvest", "status": "pending", "name": "w1c-Harvest planned", "against": ["A"], "quantities": [{"measure": "weight", "value": 7, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "log_status", "subject": "LD"},
+        {"assert": "log_status", "subject": "LP"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-pending-to-done",
+      "title": "Completing a pending harvest changes what the boundary delivers",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "set_log_status", "yield_total", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Bean Terrace"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "pending", "name": "w1c-Harvest planned then done", "against": ["A"], "quantities": [{"measure": "weight", "value": 6, "unit": "kilogram", "label": "yield"}]},
+        {"action": "set_log_status", "ref": "L", "status": "done"}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_status", "subject": "L"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-done-to-pending",
+      "title": "Reopening a done harvest: the workflow allows done back to pending",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "set_log_status", "yield_total", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Corn Strip"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest reopened", "against": ["A"], "quantities": [{"measure": "weight", "value": 8, "unit": "kilogram", "label": "yield"}]},
+        {"action": "set_log_status", "ref": "L", "status": "pending"}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_status", "subject": "L"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-pair-independence",
+      "title": "Weight and volume harvests on one asset stay independent per (measure, unit) pair",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "volume", "record_log", "yield_total", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Berry Hedge"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "harvest", "status": "done", "name": "w1c-Harvest berries by weight", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "L2", "kind": "harvest", "status": "done", "name": "w1c-Harvest juice by volume", "against": ["A"], "quantities": [{"measure": "volume", "value": 2, "unit": "liter", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "yield_total", "subject": "A", "measure": "volume", "unit": "liter"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-multi-quantity-one-log",
+      "title": "One harvest carrying two weight quantities: what one log's recorded quantity delivers",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "quantity_recorded"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Apple Row"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest two crates", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 2, "unit": "kilogram", "label": "crate one"},
+          {"measure": "weight", "value": 3, "unit": "kilogram", "label": "crate two"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-future-dated",
+      "title": "A done harvest dated in the future: does it count toward the yield now",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "log_count", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Orchard Block"}],
+      "when": [
+        {"action": "record_log", "alias": "LP", "kind": "harvest", "status": "done", "name": "w1c-Harvest past", "against": ["A"], "at": "2026-06-01T00:00:00+00:00", "quantities": [{"measure": "weight", "value": 4, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "LF", "kind": "harvest", "status": "done", "name": "w1c-Harvest future", "against": ["A"], "at": "2027-01-01T00:00:00+00:00", "quantities": [{"measure": "weight", "value": 9, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "log_status", "subject": "LF"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-effective-restate",
+      "title": "Restating WHEN a done harvest took effect leaves its yield contribution observable",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "set_effective_time", "yield_total", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Melon Patch"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest restated", "against": ["A"], "at": "2026-05-01T09:00:00+00:00", "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]},
+        {"action": "set_effective_time", "ref": "L", "at": "2026-03-15T09:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-cross-asset-isolation",
+      "title": "A harvest against one asset leaves a sibling asset's totals untouched",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "yield_total", "log_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "w1c-East Plot"},
+        {"entity": "land", "alias": "B", "name": "w1c-West Plot"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest east only", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "yield_total", "subject": "B", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "log_count", "subject": "B", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-planting-asset",
+      "title": "A harvest recorded against a plant asset, the quick-form producer's shape",
+      "feature": "harvest",
+      "glossary_terms": ["planting", "harvest", "weight", "record_log", "yield_total", "log_count", "asset_active"],
+      "given": [{"entity": "planting", "alias": "P", "name": "w1c-2026 Tomato Planting"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w1c-Harvest tomato planting", "against": ["P"], "quantities": [{"measure": "weight", "value": 10, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "yield_total", "subject": "P", "measure": "weight", "unit": "kilogram"},
+        {"assert": "log_count", "subject": "P", "kind": "harvest"},
+        {"assert": "asset_active", "subject": "P"}
+      ]
+    },
+    {
+      "key": "w1c-harvest-kind-isolation",
+      "title": "A harvest and an observation on one asset: kind counts and yield stay per-kind",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "observation", "weight", "record_log", "yield_total", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w1c-Mixed Use Plot"}],
+      "when": [
+        {"action": "record_log", "alias": "LH", "kind": "harvest", "status": "done", "name": "w1c-Harvest mixed plot", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "LO", "kind": "observation", "status": "done", "name": "w1c-Observe mixed plot", "against": ["A"], "quantities": [{"measure": "weight", "value": 11, "unit": "kilogram", "label": "estimate"}]}
+      ],
+      "probes": [
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "log_count", "subject": "A", "kind": "observation"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"}
+      ]
+    }
+  ]
+}

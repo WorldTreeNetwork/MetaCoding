@@ -1,0 +1,12 @@
+{
+  "port": "w1b-observation",
+  "description": "wave-1 observation log port on the shared kernel v1.3 + wave-1 shared log-family store. Control group of the log family: verified semantics are the shared log spine through kind 'observation'. Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision; the observed source counts pending — the known chosen divergence.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["record_log", "set_log_status", "set_effective_time", "archive_asset"],
+    "probes": ["log_status", "log_count", "yield_total", "quantity_recorded", "asset_active"]
+  }
+}

@@ -1,0 +1,284 @@
+{
+  "adapter_name": "ObservationAdapter",
+  "factory_signature": "makeObservationAdapter(): ObservationAdapter",
+  "mutators": [
+    {
+      "name": "startObservationAddSelection",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "selectedAssetIds",
+          "type": "AssetHandle[]",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<PendingObservationSelectionHandle>",
+      "as_of_time": false,
+      "semantics": "Records a user-scoped pending add-observation selection from the assets selectable by the actor's locally observed update-access decision.",
+      "derived_from": "AssetAddLog::executeMultiple"
+    },
+    {
+      "name": "confirmObservationAddSelection",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "actor",
+          "type": "ActorHandle",
+          "optional": false
+        },
+        {
+          "name": "selection",
+          "type": "PendingObservationSelectionHandle",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationAssetQueryHandle>",
+      "as_of_time": false,
+      "semantics": "Consumes the pending selection exactly once and creates an asset-query payload containing only assets visible to the actor at confirmation; inaccessible selected assets are silently omitted even when no redirect payload can be produced.",
+      "derived_from": "AssetAddLogActionForm::submitForm"
+    },
+    {
+      "name": "recordObservation",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "assetIds",
+          "type": "AssetHandle[]",
+          "optional": false
+        },
+        {
+          "name": "quantityRevisions",
+          "type": "QuantityRevisionHandle[]",
+          "optional": false
+        },
+        {
+          "name": "status",
+          "type": "ObservationStatus",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        },
+        {
+          "name": "notes",
+          "type": "string | undefined",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<ObservationHandle>",
+      "as_of_time": false,
+      "semantics": "Appends an observation whose asset field is exactly the supplied raw asset ID list, without replacing it with a loaded, viewable-only subset, and whose quantity field may contain zero or more revision-aware quantity references.",
+      "derived_from": "AssetAddLog::create"
+    },
+    {
+      "name": "cloneObservation",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "source",
+          "type": "ObservationHandle",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationHandle>",
+      "as_of_time": false,
+      "semantics": "Appends a cloned observation and a distinct cloned quantity for every quantity revision referenced by the source, so the clone references new quantity entities rather than the source quantities.",
+      "derived_from": "LogQuantityEventSubscriber::logClone"
+    },
+    {
+      "name": "recordQuantityDeletion",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "quantity",
+          "type": "QuantityHandle",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<QuantityDeletionHandle>",
+      "as_of_time": false,
+      "semantics": "Records deletion of a quantity and revision updates removing only that quantity from every referencing observation, including otherwise undisclosed observations; each affected observation revision carries a message identifying the deleted quantity UUID.",
+      "derived_from": "EntityHooks::quantityDelete"
+    },
+    {
+      "name": "recordObservationDeletion",
+      "kind": "mutator",
+      "params": [
+        {
+          "name": "observation",
+          "type": "ObservationHandle",
+          "optional": false
+        },
+        {
+          "name": "occurredAt",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationDeletionHandle>",
+      "as_of_time": false,
+      "semantics": "Records deletion of the observation together with deletion of every quantity currently referenced by that observation's quantity field.",
+      "derived_from": "EntityHooks::logDelete"
+    }
+  ],
+  "projections": [
+    {
+      "name": "getObservationAssetPrepopulation",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "operation",
+          "type": "'create' | 'edit'",
+          "optional": false
+        },
+        {
+          "name": "rawAssetQueryIds",
+          "type": "AssetHandle[]",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<AssetHandle[]>",
+      "as_of_time": true,
+      "semantics": "Returns the raw asset query IDs for a new observation create form and returns an empty list for an edit form, so query parameters never prepopulate an existing observation.",
+      "derived_from": "FormHooks::entityPrepareForm"
+    },
+    {
+      "name": "getConfirmedObservationAssetQuery",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "assetQuery",
+          "type": "ObservationAssetQueryHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<AssetHandle[]>",
+      "as_of_time": true,
+      "semantics": "Returns the viewable-only asset IDs produced by confirmation, or an empty list once the query payload is no longer available under the as-of log state.",
+      "derived_from": "AssetAddLogActionForm::submitForm"
+    },
+    {
+      "name": "getObservation",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "observation",
+          "type": "ObservationHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationSnapshot | null>",
+      "as_of_time": true,
+      "semantics": "Returns the observation state at or before the query time, including its ordered asset references, status, and zero-or-more QuantityRevisionHandle references; returns null when deleted or not disclosed.",
+      "derived_from": "invented: a single materialized observation view is required to expose the asset and multi-value revision-aware quantity fields maintained by the entity and field hooks."
+    },
+    {
+      "name": "listObservationRevisions",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "observation",
+          "type": "ObservationHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationRevisionSnapshot[]>",
+      "as_of_time": true,
+      "semantics": "Returns the observation's revision history known at the query time, including quantity-removal revisions and their deleted-quantity UUID messages.",
+      "derived_from": "EntityHooks::quantityDelete"
+    },
+    {
+      "name": "listObservationsForAsset",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "asset",
+          "type": "AssetHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationHandle[]>",
+      "as_of_time": true,
+      "semantics": "Returns observations referencing the asset in the log-query ordering at or before the query time, filtered to records disclosed to this replica.",
+      "derived_from": "AssetLogsInterface::getLogs"
+    },
+    {
+      "name": "getFirstObservationForAsset",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "asset",
+          "type": "AssetHandle",
+          "optional": false
+        },
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<ObservationHandle | null>",
+      "as_of_time": true,
+      "semantics": "Returns the first observation for the asset under the same materialized log-query ordering as listObservationsForAsset, or null when none exists.",
+      "derived_from": "AssetLogsInterface::getFirstLog"
+    },
+    {
+      "name": "getDefaultQuantityType",
+      "kind": "projection",
+      "params": [
+        {
+          "name": "asOf",
+          "type": "Date",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<QuantityTypeHandle | null>",
+      "as_of_time": true,
+      "semantics": "Returns the quantity type selected as the default by the materialized quantity configuration at the query time, or null when no default exists.",
+      "derived_from": "FarmLogQuantityHelper::defaultQuantityType"
+    }
+  ],
+  "rationale": "Writes are represented as domain events: asset-selection confirmation, observation recording and cloning, and observation/quantity deletion. Reads are as-of materialized views because later creation, revision, deletion, configuration, and disclosure events can supersede prior values. Confirmation and prepopulation are separated to preserve both subtle asset behaviors: confirmation silently filters by visibility and consumes its selection, while a newly recorded observation preserves the raw submitted asset list exactly and edit forms never prepopulate from that query. Quantity references are explicitly plural and revision-aware; cloning and both deletion cascades are therefore expressed as event-producing operations, with revision history exposed to verify the required deletion message."
+}

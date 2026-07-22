@@ -1,0 +1,844 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w1d-input-basic-application-recorded",
+      "title": "A confirmed input application is counted and its quantity is delivered",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed one"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_done",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1d compost applied",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        },
+        {
+          "assert": "log_status",
+          "subject": "app_done"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_done",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-pending-application-is-inert",
+      "title": "A pending input application is readable but does not move the asset totals",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "pending",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed two"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_done",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1d confirmed spray",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "app_pending",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "pending",
+          "name": "w1d planned spray",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        },
+        {
+          "assert": "log_status",
+          "subject": "app_pending"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_pending",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-confirming-pending-admits-it",
+      "title": "Confirming a pending input application admits it into the totals",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_log_status",
+        "input",
+        "pending",
+        "done",
+        "weight",
+        "log_status",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed three"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_pending",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "pending",
+          "name": "w1d fertilizer awaiting confirmation",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 7,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_log_status",
+          "ref": "app_pending",
+          "status": "done"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "app_pending"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-unconfirming-done-withdraws-it",
+      "title": "Sending a confirmed input application back to pending withdraws it from the totals",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_log_status",
+        "input",
+        "pending",
+        "done",
+        "weight",
+        "log_status",
+        "yield_total",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed four"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_done",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-20000",
+          "status": "done",
+          "name": "w1d lime applied",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 4,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_log_status",
+          "ref": "app_done",
+          "status": "pending"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_status",
+          "subject": "app_done"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-future-dated-application",
+      "title": "A confirmed input application dated ahead of now, and its standing in the totals",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "yield_total",
+        "log_count",
+        "log_status"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed five"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_past",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d feed applied",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "app_future",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "+86400",
+          "status": "done",
+          "name": "w1d feed dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        },
+        {
+          "assert": "log_status",
+          "subject": "app_future"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-restating-effective-time",
+      "title": "Restating when an input application took effect changes its standing",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "set_effective_time",
+        "input",
+        "done",
+        "weight",
+        "yield_total",
+        "log_count"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed six"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_ahead",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "+86400",
+          "status": "done",
+          "name": "w1d application mis-dated ahead",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 6,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "set_effective_time",
+          "ref": "app_ahead",
+          "at": "-10000"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-units-kept-apart",
+      "title": "Input quantities in two different units are kept apart, never summed or converted",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "yield_total",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed seven"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_mixed_units",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d metric and imperial applications",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 5,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "pounds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_mixed_units",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_mixed_units",
+          "measure": "weight",
+          "unit": "pounds"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "pounds"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-measures-kept-apart",
+      "title": "Weight and count quantities on one input application are independent",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "count",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed eight"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_two_measures",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d seed treatment applied",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 2,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "count",
+              "value": 40,
+              "unit": "seeds"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_two_measures",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_two_measures",
+          "measure": "count",
+          "unit": "seeds"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "count",
+          "unit": "seeds"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-repeated-quantity-on-one-log",
+      "title": "Two quantities sharing one (measure, unit) pair on a single input application",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "quantity_recorded",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed nine"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_split_doses",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d split dose application",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 1.5,
+              "unit": "kilograms"
+            },
+            {
+              "measure": "weight",
+              "value": 2.5,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_split_doses",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-application-without-quantities",
+      "title": "An input application recorded with no quantities at all",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "done",
+        "weight",
+        "log_count",
+        "log_status",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed ten"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_bare",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d unmeasured application"
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        },
+        {
+          "assert": "log_status",
+          "subject": "app_bare"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-kind-kept-apart-from-other-logs",
+      "title": "Input applications are counted apart from other log kinds on the same asset",
+      "feature": "log.input",
+      "glossary_terms": [
+        "planting",
+        "record_log",
+        "input",
+        "harvest",
+        "done",
+        "weight",
+        "log_count",
+        "yield_total"
+      ],
+      "given": [
+        {
+          "entity": "planting",
+          "alias": "bed",
+          "name": "w1d tomato bed eleven"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_input",
+          "kind": "input",
+          "against": [
+            "bed"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "w1d fertilizer applied",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 3,
+              "unit": "kilograms"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "log_harvest",
+          "kind": "harvest",
+          "against": [
+            "bed"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d tomatoes picked",
+          "quantities": [
+            {
+              "measure": "weight",
+              "value": 9,
+              "unit": "kilograms"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "input"
+        },
+        {
+          "assert": "log_count",
+          "subject": "bed",
+          "kind": "harvest"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_input",
+          "measure": "weight",
+          "unit": "kilograms"
+        },
+        {
+          "assert": "yield_total",
+          "subject": "bed",
+          "measure": "weight",
+          "unit": "kilograms"
+        }
+      ]
+    },
+    {
+      "key": "w1d-input-accumulation-across-applications",
+      "title": "Two confirmed input applications against one asset accumulate in the totals",
+      "feature": "log.input",
+      "glossary_terms": [
+        "land",
+        "record_log",
+        "input",
+        "done",
+        "volume",
+        "log_count",
+        "yield_total",
+        "quantity_recorded"
+      ],
+      "given": [
+        {
+          "entity": "land",
+          "alias": "field",
+          "name": "w1d north field"
+        }
+      ],
+      "when": [
+        {
+          "action": "record_log",
+          "alias": "app_first",
+          "kind": "input",
+          "against": [
+            "field"
+          ],
+          "at": "-30000",
+          "status": "done",
+          "name": "w1d first irrigation dose",
+          "quantities": [
+            {
+              "measure": "volume",
+              "value": 100,
+              "unit": "liters"
+            }
+          ]
+        },
+        {
+          "action": "record_log",
+          "alias": "app_second",
+          "kind": "input",
+          "against": [
+            "field"
+          ],
+          "at": "-10000",
+          "status": "done",
+          "name": "w1d second irrigation dose",
+          "quantities": [
+            {
+              "measure": "volume",
+              "value": 50,
+              "unit": "liters"
+            }
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "assert": "yield_total",
+          "subject": "field",
+          "measure": "volume",
+          "unit": "liters"
+        },
+        {
+          "assert": "log_count",
+          "subject": "field",
+          "kind": "input"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_first",
+          "measure": "volume",
+          "unit": "liters"
+        },
+        {
+          "assert": "quantity_recorded",
+          "subject": "app_second",
+          "measure": "volume",
+          "unit": "liters"
+        }
+      ]
+    }
+  ]
+}
