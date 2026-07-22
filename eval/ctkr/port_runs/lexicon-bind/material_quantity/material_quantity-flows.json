@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2x-material-quantity-classification",
+      "title": "An input log carrying a quantity: the boundary delivers that quantity's classification",
+      "feature": "log.input",
+      "glossary_terms": ["land", "input", "weight", "record_log", "material_quantity", "quantity_recorded"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Input Plot One"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "input", "status": "done", "name": "w2x-Input with a quantity", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "applied"}]}
+      ],
+      "probes": [
+        {"assert": "material_quantity", "subject": "L"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"}
+      ]
+    },
+    {
+      "key": "w2x-material-quantity-absent",
+      "title": "An input log carrying no quantity: the classification delivers no value — the discriminating contrast",
+      "feature": "log.input",
+      "glossary_terms": ["land", "input", "record_log", "material_quantity", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Input Plot Two"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "input", "status": "done", "name": "w2x-Input with no quantity", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "material_quantity", "subject": "L"},
+        {"assert": "log_count", "subject": "A", "kind": "input"}
+      ]
+    },
+    {
+      "key": "w2x-material-quantity-first-of-two",
+      "title": "An input log carrying two quantities: the classification delivered is the recorded quantity's own",
+      "feature": "log.input",
+      "glossary_terms": ["land", "input", "weight", "record_log", "material_quantity", "quantity_recorded"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Input Plot Three"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "input", "status": "done", "name": "w2x-Input with two quantities", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 2, "unit": "kilogram", "label": "applied first"},
+          {"measure": "weight", "value": 3, "unit": "kilogram", "label": "applied second"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "material_quantity", "subject": "L"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"}
+      ]
+    }
+  ]
+}

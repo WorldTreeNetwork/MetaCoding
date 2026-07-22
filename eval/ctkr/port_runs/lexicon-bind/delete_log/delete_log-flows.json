@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2x-delete-log-removes-it",
+      "title": "A harvest deleted at the write boundary: the asset's log count and yield fall back to nothing",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "delete_log", "log_count", "yield_total", "asset_active"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Delete Bed One"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w2x-Harvest to be deleted", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]},
+        {"action": "delete_log", "ref": "L"}
+      ],
+      "probes": [
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "asset_active", "subject": "A"}
+      ]
+    },
+    {
+      "key": "w2x-delete-log-not-deleted-contrast",
+      "title": "The same harvest left in place: count is one and the yield stands — the discriminating contrast to the deletion",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "log_count", "yield_total", "asset_active"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Delete Bed Two"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w2x-Harvest left in place", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"},
+        {"assert": "asset_active", "subject": "A"}
+      ]
+    },
+    {
+      "key": "w2x-delete-log-removes-only-the-target",
+      "title": "One of two harvests deleted: exactly the deleted log's contribution is gone, the sibling stands",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "delete_log", "log_count", "yield_total"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Delete Bed Three"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "harvest", "status": "done", "name": "w2x-Harvest deleted of pair", "against": ["A"], "quantities": [{"measure": "weight", "value": 3, "unit": "kilogram", "label": "yield"}]},
+        {"action": "record_log", "alias": "L2", "kind": "harvest", "status": "done", "name": "w2x-Harvest kept of pair", "against": ["A"], "quantities": [{"measure": "weight", "value": 4, "unit": "kilogram", "label": "yield"}]},
+        {"action": "delete_log", "ref": "L1"}
+      ],
+      "probes": [
+        {"assert": "log_count", "subject": "A", "kind": "harvest"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"}
+      ]
+    }
+  ]
+}

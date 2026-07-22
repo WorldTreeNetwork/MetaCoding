@@ -148,6 +148,72 @@ def test_delete_log_is_flow_reachable_through_the_interpreter() -> None:
     assert ("DELETE", "/api/log/harvest/u7") in tp.calls
 
 
+def test_delete_log_ref_loads_as_a_log_alias_not_an_asset_alias() -> None:
+    """The pack loader must resolve delete_log's ref against LOG aliases (the
+    thing record_log bound), not the given assets. Without delete_log in the
+    log-ref set, a legal deletion flow fails to load with 'unknown alias'."""
+    from ctkr.oracle.flowspec_io import flows_from_obj
+
+    flows = flows_from_obj({"version": 1, "flows": [{
+        "key": "del", "title": "delete a recorded log", "feature": "harvest",
+        "glossary_terms": ["land", "harvest", "record_log", "delete_log",
+                           "log_count"],
+        "given": [{"entity": "land", "alias": "A", "name": "Bed"}],
+        "when": [
+            {"action": "record_log", "alias": "L", "kind": "harvest",
+             "status": "done", "against": ["A"]},
+            {"action": "delete_log", "ref": "L"},
+        ],
+        "probes": [{"assert": "log_count", "subject": "A", "kind": "harvest"}],
+    }]})
+    assert [f.key for f in flows] == ["del"]
+
+
+def test_delete_quantity_ref_stays_unresolvable_not_flow_reachable() -> None:
+    """delete_quantity is deliberately NOT in the log-ref set: the DSL cannot
+    mint a quantity alias, so a delete_quantity flow must fail loudly rather
+    than silently bind to an asset alias — the honest 'adapter-reachable but
+    not flow-reachable' signal recorded in its provenance punt."""
+    from ctkr.oracle.flowspec_io import FlowSpecError, flows_from_obj
+
+    with pytest.raises(FlowSpecError, match="unknown alias"):
+        flows_from_obj({"version": 1, "flows": [{
+            "key": "delq", "title": "delete a quantity", "feature": "log.input",
+            "glossary_terms": ["land", "input", "record_log", "delete_quantity"],
+            "given": [{"entity": "land", "alias": "A", "name": "Plot"}],
+            "when": [
+                {"action": "record_log", "alias": "L", "kind": "input",
+                 "status": "done", "against": ["A"]},
+                {"action": "delete_quantity", "ref": "L"},
+            ],
+            "probes": [{"assert": "log_count", "subject": "A", "kind": "input"}],
+        }]})
+
+
+@pytest.mark.parametrize("term", ["lot_number", "material_quantity"])
+def test_recorder_observe_probe_dispatches_new_assertions(term: str) -> None:
+    """The recorder's probe dispatch must call the adapter method for each new
+    PROVISIONAL assertion. Before wiring, both raised 'unknown probe assertion'
+    and no flow could exercise them toward a binding."""
+    from ctkr.oracle.recorder import Probe, _observe_probe
+
+    called: dict[str, str] = {}
+
+    class _Stub:
+        def lot_number(self, subject):  # noqa: ANN001
+            called["term"] = "lot_number"
+            return "LOT-1"
+
+        def material_quantity(self, subject):  # noqa: ANN001
+            called["term"] = "material_quantity"
+            return "standard"
+
+    out = _observe_probe(_Stub(), Probe(assert_=term, subject="L"),
+                         {"L": "log:harvest:u1"})
+    assert called["term"] == term
+    assert out in ("LOT-1", "standard")
+
+
 # --------------------------------------------------------------------------- #
 # abandoned (LOG_STATUS) — expressible in flows, observable via log_status      #
 # --------------------------------------------------------------------------- #

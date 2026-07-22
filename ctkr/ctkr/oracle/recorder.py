@@ -608,6 +608,13 @@ def _observe_probe(
         return adapter.has_parent(subject, handles[probe.other])
     if probe.assert_ == "birth_record_count":
         return adapter.birth_record_count(subject)
+    # PROVISIONAL bundle-field assertions (MetaCoding-io6): the adapter delivers
+    # each as a boundary readback of the subject log; wired here so a flow pack
+    # can exercise them toward a sealed binding.
+    if probe.assert_ == "lot_number":
+        return adapter.lot_number(subject)
+    if probe.assert_ == "material_quantity":
+        return adapter.material_quantity(subject)
     raise ValueError(f"unknown probe assertion {probe.assert_!r}")
 
 

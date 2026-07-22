@@ -337,8 +337,14 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
                 f"{where}.when[{i}].group: unknown entity alias {step.group!r}"
             )
         if step.ref:
+            # delete_log targets a recorded LOG by its alias (like
+            # set_log_status et al.). delete_quantity is deliberately absent:
+            # the DSL cannot yet mint a quantity alias, so a delete_quantity
+            # ref resolves against no pool and fails loudly — the honest signal
+            # that the action is adapter-reachable but not yet flow-reachable.
             pool = (known_logs if step.action in
-                    ("set_log_status", "set_effective_time", "correct_birth")
+                    ("set_log_status", "set_effective_time", "correct_birth",
+                     "delete_log")
                     else aliases)
             if step.ref not in pool:
                 raise FlowSpecError(

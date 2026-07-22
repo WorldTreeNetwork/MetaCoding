@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2x-abandoned-status-observed",
+      "title": "An activity log moved to the abandoned stage of its lifecycle: the boundary delivers that status value",
+      "feature": "log.activity",
+      "glossary_terms": ["land", "activity", "record_log", "set_log_status", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Abandon Plot One"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "activity", "status": "done", "name": "w2x-Activity later abandoned", "against": ["A"]},
+        {"action": "set_log_status", "ref": "L", "status": "abandoned"}
+      ],
+      "probes": [
+        {"assert": "log_status", "subject": "L"}
+      ]
+    },
+    {
+      "key": "w2x-abandoned-contrast-done",
+      "title": "An activity log left done: the status value stands at done — the discriminating contrast",
+      "feature": "log.activity",
+      "glossary_terms": ["land", "activity", "record_log", "log_status"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Abandon Plot Two"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "activity", "status": "done", "name": "w2x-Activity kept done", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "log_status", "subject": "L"}
+      ]
+    }
+  ]
+}
