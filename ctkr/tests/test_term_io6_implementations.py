@@ -169,25 +169,34 @@ def test_delete_log_ref_loads_as_a_log_alias_not_an_asset_alias() -> None:
     assert [f.key for f in flows] == ["del"]
 
 
-def test_delete_quantity_ref_stays_unresolvable_not_flow_reachable() -> None:
-    """delete_quantity is deliberately NOT in the log-ref set: the DSL cannot
-    mint a quantity alias, so a delete_quantity flow must fail loudly rather
-    than silently bind to an asset alias — the honest 'adapter-reachable but
-    not flow-reachable' signal recorded in its provenance punt."""
+def test_delete_quantity_ref_resolves_only_quantity_aliases() -> None:
+    """Flow-reachable since MetaCoding-xdt — but ONLY through a quantity alias
+    a record_log step minted. A ref naming a log (the pre-xdt loud failure) or
+    an entity still fails: the pool is quantity aliases and nothing else, so
+    the old silent-bind hazard cannot return through the new door."""
     from ctkr.oracle.flowspec_io import FlowSpecError, flows_from_obj
 
-    with pytest.raises(FlowSpecError, match="unknown alias"):
-        flows_from_obj({"version": 1, "flows": [{
+    def flow(ref: str) -> dict:
+        return {"version": 1, "flows": [{
             "key": "delq", "title": "delete a quantity", "feature": "log.input",
-            "glossary_terms": ["land", "input", "record_log", "delete_quantity"],
+            "glossary_terms": ["land", "input", "weight", "record_log",
+                               "delete_quantity"],
             "given": [{"entity": "land", "alias": "A", "name": "Plot"}],
             "when": [
                 {"action": "record_log", "alias": "L", "kind": "input",
-                 "status": "done", "against": ["A"]},
-                {"action": "delete_quantity", "ref": "L"},
+                 "status": "done", "against": ["A"],
+                 "quantities": [{"measure": "weight", "value": 2,
+                                 "unit": "kilogram", "alias": "Q"}]},
+                {"action": "delete_quantity", "ref": ref},
             ],
             "probes": [{"assert": "log_count", "subject": "A", "kind": "input"}],
-        }]})
+        }]}
+
+    flows = flows_from_obj(flow("Q"))
+    assert [f.key for f in flows] == ["delq"]
+    for bad in ("L", "A"):
+        with pytest.raises(FlowSpecError, match="unknown alias"):
+            flows_from_obj(flow(bad))
 
 
 @pytest.mark.parametrize("term", ["lot_number", "material_quantity"])

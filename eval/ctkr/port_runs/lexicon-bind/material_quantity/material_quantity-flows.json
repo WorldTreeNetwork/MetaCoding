@@ -45,6 +45,22 @@
         {"assert": "material_quantity", "subject": "L"},
         {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"}
       ]
+    },
+    {
+      "key": "w2x-material-quantity-material-contrast",
+      "title": "An input log carrying a MATERIAL-classified quantity: the classification delivered is 'material' — the contrast that makes the bound value observable (MetaCoding-xdt). Scoring stays NO_VERDICT until the derivation is validated against farmOS's quantity-type authority.",
+      "feature": "log.input",
+      "glossary_terms": ["land", "input", "weight", "record_log", "material_quantity", "quantity_recorded"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Input Plot Four"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "input", "status": "done", "name": "w2x-Input with a material quantity", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 5, "unit": "kilogram", "label": "applied", "bundle": "material"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "material_quantity", "subject": "L"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"}
+      ]
     }
   ]
 }

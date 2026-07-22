@@ -41,14 +41,32 @@ def apply_when(
     at = resolve_effective_time(w.at, now) if w.at else None
 
     if w.action == "record_log":
-        h = adapter.record_log(
-            w.kind, w.name or f"{w.kind} log", w.status or "done",
-            [handles[a] for a in w.against], w.quantities,
-        )
+        args = (w.kind, w.name or f"{w.kind} log", w.status or "done",
+                [handles[a] for a in w.against], w.quantities)
+        # Keep the 5-argument call for adapters written before lot_number existed.
+        h = (adapter.record_log(*args, lot_number=w.lot_number)
+             if w.lot_number else adapter.record_log(*args))
         if at is not None:
             adapter.set_effective_time(h, at)
         if w.alias:
             handles[w.alias] = h
+        if any(q.alias for q in w.quantities):
+            # Bind flow-declared quantity aliases positionally against the
+            # handles the implementation states for the log (MetaCoding-xdt).
+            # A count mismatch is a boundary lie — fail loudly, never guess.
+            qhandles = adapter.quantities_of(h)
+            if len(qhandles) != len(w.quantities):
+                raise AdapterError(
+                    f"record_log stated {len(w.quantities)} quantities but the "
+                    f"implementation delivers {len(qhandles)} for the log — "
+                    f"refusing to bind quantity aliases positionally"
+                )
+            for q, qh in zip(w.quantities, qhandles):
+                if not q.alias:
+                    continue
+                if q.alias in handles:
+                    raise AdapterError(f"duplicate alias {q.alias!r}")
+                handles[q.alias] = qh
     elif w.action == "set_log_status":
         adapter.set_log_status(handles[w.ref], w.status)
     elif w.action == "assign_to_group":

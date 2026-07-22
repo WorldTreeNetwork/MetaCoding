@@ -61,6 +61,20 @@ class QuantitySpec(BaseModel):
     value: float
     unit: str  # domain unit name, e.g. "kilogram", "head", "liter"
     label: str = ""  # glossary role, e.g. "yield" (free text, storage-free)
+    # --- write-surface extensions (MetaCoding-xdt). Both are hash-inert at    #
+    # their defaults (see SemanticFixture._body_for_hash) so every fixture     #
+    # sealed before they existed keeps its id.                                 #
+    alias: str = ""  # logical handle for THIS quantity, so a later step
+    # (delete_quantity) can target it; unique within the fixture
+    bundle: str = ""  # quantity classification ("material", "test"); "" means
+    # the standard quantity — one of QUANTITY_BUNDLES
+
+
+#: The closed set of quantity classifications the DSL can create. "standard"
+#: is the default ("" in a spec); "material"/"test" are the farmOS bundle
+#: names the material_quantity probe delivers as values, used here as creation
+#: inputs so a flow can observe a contrast against "standard".
+QUANTITY_BUNDLES: frozenset[str] = frozenset({"standard", "material", "test"})
 
 
 class GivenStep(BaseModel):
@@ -100,6 +114,11 @@ class WhenStep(BaseModel):
     # --- lineage ------------------------------------------------------------
     parents: list[str] = Field(default_factory=list)  # aliases of parent animals
     names: list[str] = Field(default_factory=list)  # ordered informal names
+    # --- write-surface extensions (MetaCoding-xdt) --------------------------
+    # The lot/batch identifier a record_log states on the log (the harvest /
+    # input / seeding bundles' lot_number string field). An INPUT, never an
+    # expected value; hash-inert at "" so pre-existing fixtures keep their ids.
+    lot_number: str = ""
 
 
 class ThenAssertion(BaseModel):
@@ -256,13 +275,30 @@ class SemanticFixture(BaseModel):
     schema_version: int = SCHEMA_VERSION
 
     # ---- content addressing ------------------------------------------------ #
+    @staticmethod
+    def _dump_when_for_hash(w: WhenStep) -> dict[str, Any]:
+        """A ``when`` step's hash form. Fields added to the DSL after fixtures
+        were first sealed (MetaCoding-xdt: ``lot_number``; quantity ``alias``/
+        ``bundle``) are dropped AT THEIR DEFAULTS so every fixture sealed before
+        they existed keeps its id — while any USE of them still changes the id.
+        A new optional field must be added here, or it silently re-ids every
+        sealed pack."""
+        d = w.model_dump()
+        if d.get("lot_number", "") == "":
+            d.pop("lot_number", None)
+        for q in d.get("quantities", []):
+            for late in ("alias", "bundle"):
+                if q.get(late, "") == "":
+                    q.pop(late, None)
+        return d
+
     def _body_for_hash(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "feature": self.feature,
             "glossary_terms": sorted(self.glossary_terms),
             "given": [g.model_dump() for g in self.given],
-            "when": [w.model_dump() for w in self.when],
+            "when": [self._dump_when_for_hash(w) for w in self.when],
             "then": [t.dump_aliased() for t in self.then],
             "schema_version": self.schema_version,
             # The evidence class is a CLAIM ABOUT THIS FIXTURE, not a recording
@@ -524,6 +560,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
 
     # --- when: action terms legal, refs resolve, required fields present ----
     log_aliases: set[str] = set()
+    quantity_aliases: set[str] = set()
     for i, w in enumerate(fx.when):
         if w.action not in glossary.ACTION_TERMS:
             err(f"when[{i}].action", f"{w.action!r} is not a glossary action term")
@@ -531,6 +568,9 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         for req in _ACTION_REQUIRED.get(w.action, ()):
             if not getattr(w, req):
                 err(f"when[{i}].{req}", f"{w.action} requires {req!r}")
+        if w.lot_number and w.action != "record_log":
+            err(f"when[{i}].lot_number",
+                "lot_number is only recordable on record_log")
         if w.action == "record_log":
             if w.kind and w.kind not in glossary.LOG_KINDS:
                 err(f"when[{i}].kind", f"{w.kind!r} is not a glossary log kind")
@@ -543,6 +583,17 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
                 if q.measure not in glossary.MEASURES:
                     err(f"when[{i}].quantities[{j}].measure",
                         f"{q.measure!r} is not a glossary measure")
+                if q.bundle and q.bundle not in QUANTITY_BUNDLES:
+                    err(f"when[{i}].quantities[{j}].bundle",
+                        f"{q.bundle!r} is not a quantity bundle "
+                        f"({sorted(QUANTITY_BUNDLES)})")
+                if q.alias:
+                    if (q.alias in aliases or q.alias in log_aliases
+                            or q.alias in quantity_aliases):
+                        err(f"when[{i}].quantities[{j}].alias",
+                            f"duplicate alias {q.alias!r}")
+                    else:
+                        quantity_aliases.add(q.alias)
             if w.alias:
                 log_aliases.add(w.alias)
         elif w.action == "set_log_status":
@@ -609,6 +660,16 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         elif w.action == "set_nicknames":
             if w.ref and w.ref not in aliases:
                 err(f"when[{i}].ref", f"unknown animal alias {w.ref!r}")
+        elif w.action == "delete_log":
+            if w.ref and w.ref not in log_aliases:
+                err(f"when[{i}].ref",
+                    f"delete_log ref {w.ref!r} is not a recorded-log alias")
+        elif w.action == "delete_quantity":
+            # Flow-reachable since MetaCoding-xdt: the ref resolves against the
+            # quantity aliases record_log minted, and nothing else.
+            if w.ref and w.ref not in quantity_aliases:
+                err(f"when[{i}].ref",
+                    f"delete_quantity ref {w.ref!r} is not a quantity alias")
 
     # --- then: assertion terms legal, subjects resolve, required fields -----
     known = set(aliases) | log_aliases

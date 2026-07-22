@@ -69,8 +69,14 @@ class ImplementationAdapter(ABC):
         status: str,
         asset_handles: list[Handle],
         quantities: list[QuantitySpec],
+        lot_number: str = "",
     ) -> Handle:
-        """Record a log of ``kind`` against assets, with quantities; return handle."""
+        """Record a log of ``kind`` against assets, with quantities; return handle.
+
+        ``lot_number`` is an optional lot/batch identifier the log states
+        (MetaCoding-xdt). The interpreter only passes it when the step sets it,
+        so adapters written before the field existed keep working unchanged.
+        """
 
     @abstractmethod
     def set_log_status(self, log_handle: Handle, status: str) -> None:
@@ -138,6 +144,17 @@ class ImplementationAdapter(ABC):
     def set_effective_time(self, log_handle: Handle, effective_time: Any) -> None:
         """Restate when a recorded event took effect."""
         raise self._unsupported("set_effective_time")
+
+    def quantities_of(self, log_handle: Handle) -> list[Handle]:
+        """The handles of the quantities a recorded log owns, in the order the
+        log states them (which is the order ``record_log`` received them).
+
+        A handle-resolution MECHANISM, not a probe: the interpreter calls it
+        once after ``record_log`` to bind the quantity aliases a flow declares
+        (MetaCoding-xdt), so ``delete_quantity`` can target one recorded
+        quantity. It delivers no value an assertion could score.
+        """
+        raise self._unsupported("quantities_of")
 
     def stock_on_hand(self, asset_handle: Handle, measure: str, unit: str) -> float:
         """The stock the asset currently holds for one (measure, unit) pair."""

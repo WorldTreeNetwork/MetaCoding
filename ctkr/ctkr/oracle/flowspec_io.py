@@ -37,6 +37,7 @@ from ctkr.oracle.fixtures import (
     _ACTION_REQUIRED,
     _OFFSET_RE,
     GivenStep,
+    QUANTITY_BUNDLES,
     QuantitySpec,
     WhenStep,
     _is_effective_time,
@@ -60,9 +61,9 @@ _FLOW_KEYS = frozenset(
 _GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
-     "quantities", "at", "parents", "names"}
+     "quantities", "at", "parents", "names", "lot_number"}
 )
-_QUANTITY_KEYS = frozenset({"measure", "value", "unit", "label"})
+_QUANTITY_KEYS = frozenset({"measure", "value", "unit", "label", "alias", "bundle"})
 _PROBE_KEYS = frozenset(
     {"assert", "subject", "measure", "unit", "kind", "group", "other", "op"}
 )
@@ -100,7 +101,13 @@ def flow_to_dict(f: FlowSpec) -> dict[str, Any]:
         "feature": f.feature,
         "glossary_terms": list(f.glossary_terms),
         "given": [_drop_empty(g.model_dump()) for g in f.given],
-        "when": [_drop_empty(w.model_dump()) for w in f.when],
+        "when": [
+            {**_drop_empty(w.model_dump()),
+             **({"quantities": [_drop_empty(q.model_dump())
+                                for q in w.quantities]}
+                if w.quantities else {})}
+            for w in f.when
+        ],
         "probes": [probe_to_dict(p) for p in f.probes],
         **({"expect_refusal": True} if f.expect_refusal else {}),
         **({"corroboration_only": True,
@@ -171,9 +178,16 @@ def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
             f"{where}.measure: {measure!r} is not a glossary measure "
             f"({sorted(glossary.MEASURES)})"
         )
+    bundle = _str(d, "bundle", where)
+    if bundle and bundle not in QUANTITY_BUNDLES:
+        raise FlowSpecError(
+            f"{where}.bundle: {bundle!r} is not a quantity bundle "
+            f"({sorted(QUANTITY_BUNDLES)})"
+        )
     return QuantitySpec(
         measure=measure, value=float(raw),
         unit=_str(d, "unit", where), label=_str(d, "label", where),
+        alias=_str(d, "alias", where), bundle=bundle,
     )
 
 
@@ -232,6 +246,11 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
             f"{where}.at: {at!r} is neither an ISO-8601 instant nor a signed "
             "offset in seconds from the moment the flow runs (e.g. '-3600')"
         )
+    lot_number = _str(d, "lot_number", where)
+    if lot_number and action != "record_log":
+        raise FlowSpecError(
+            f"{where}.lot_number: only record_log states a lot number"
+        )
     step = WhenStep(
         action=action, alias=_str(d, "alias", where), ref=_str(d, "ref", where),
         name=_str(d, "name", where), kind=kind, status=status,
@@ -242,6 +261,7 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         ],
         at=at, parents=_str_list(d, "parents", where),
         names=_str_list(d, "names", where),
+        lot_number=lot_number,
     )
     for req in _ACTION_REQUIRED.get(action, ()):
         if not getattr(step, req):
@@ -320,9 +340,11 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
 
     when: list[WhenStep] = []
     log_aliases: set[str] = set()
+    quantity_aliases: set[str] = set()
     for i, w in enumerate(d.get("when") or []):
         step = when_from_dict(w, f"{where}.when[{i}]")
         known_logs = set(log_aliases)
+        known_quantities = set(quantity_aliases)
         for field, pool, label in (
             ("against", aliases, "entity"),
             ("parents", aliases, "entity"),
@@ -338,24 +360,46 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             )
         if step.ref:
             # delete_log targets a recorded LOG by its alias (like
-            # set_log_status et al.). delete_quantity is deliberately absent:
-            # the DSL cannot yet mint a quantity alias, so a delete_quantity
-            # ref resolves against no pool and fails loudly — the honest signal
-            # that the action is adapter-reachable but not yet flow-reachable.
-            pool = (known_logs if step.action in
-                    ("set_log_status", "set_effective_time", "correct_birth",
-                     "delete_log")
-                    else aliases)
+            # set_log_status et al.). delete_quantity targets a QUANTITY alias
+            # a record_log step minted (MetaCoding-xdt) — and nothing else, so
+            # a ref naming an entity or log still fails loudly.
+            if step.action in ("set_log_status", "set_effective_time",
+                               "correct_birth", "delete_log"):
+                pool = known_logs
+            elif step.action == "delete_quantity":
+                pool = known_quantities
+            else:
+                pool = aliases
             if step.ref not in pool:
                 raise FlowSpecError(
                     f"{where}.when[{i}].ref: unknown alias {step.ref!r}"
                 )
         if step.alias:
-            if step.alias in aliases or step.alias in log_aliases:
+            if (step.alias in aliases or step.alias in log_aliases
+                    or step.alias in quantity_aliases):
                 raise FlowSpecError(
                     f"{where}.when[{i}].alias: duplicate alias {step.alias!r}"
                 )
             log_aliases.add(step.alias)
+        for j, q in enumerate(step.quantities):
+            # Aliasing and non-standard bundles are record_log's write surface;
+            # on any other step they would be silently inert (the interpreter
+            # neither binds nor creates them there), which is worse than a
+            # refusal.
+            if (q.alias or q.bundle) and step.action != "record_log":
+                raise FlowSpecError(
+                    f"{where}.when[{i}].quantities[{j}]: only record_log "
+                    f"quantities may state an alias or a bundle"
+                )
+            if not q.alias:
+                continue
+            if (q.alias in aliases or q.alias in log_aliases
+                    or q.alias in quantity_aliases):
+                raise FlowSpecError(
+                    f"{where}.when[{i}].quantities[{j}].alias: duplicate "
+                    f"alias {q.alias!r}"
+                )
+            quantity_aliases.add(q.alias)
         when.append(step)
 
     known = aliases | log_aliases

@@ -3,12 +3,26 @@
   "flows": [
     {
       "key": "w2x-lot-number-unset-reads-empty",
-      "title": "A harvest recorded without a lot number: the boundary delivers no lot value (the DSL has no write path to set one)",
+      "title": "A harvest recorded without a lot number: the boundary delivers no lot value",
       "feature": "harvest",
       "glossary_terms": ["land", "harvest", "weight", "record_log", "lot_number", "log_count"],
       "given": [{"entity": "land", "alias": "A", "name": "w2x-Lot Bed One"}],
       "when": [
         {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w2x-Harvest with no lot recorded", "against": ["A"], "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]}
+      ],
+      "probes": [
+        {"assert": "lot_number", "subject": "L"},
+        {"assert": "log_count", "subject": "A", "kind": "harvest"}
+      ]
+    },
+    {
+      "key": "w2x-lot-number-set-reads-back",
+      "title": "A harvest recorded WITH a lot number: the boundary delivers the stated lot value — the discriminating contrast the binder required (MetaCoding-xdt)",
+      "feature": "harvest",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "lot_number", "log_count"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2x-Lot Bed Two"}],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "w2x-Harvest with a lot recorded", "against": ["A"], "lot_number": "w2x-LOT-A1", "quantities": [{"measure": "weight", "value": 5, "unit": "kilogram", "label": "yield"}]}
       ],
       "probes": [
         {"assert": "lot_number", "subject": "L"},

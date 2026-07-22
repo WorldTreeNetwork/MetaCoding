@@ -340,13 +340,37 @@ class PortAdapter(ImplementationAdapter):
     def record_log(
         self, kind: str, name: str, status: str,
         asset_handles: list[Handle], quantities: list[QuantitySpec],
+        lot_number: str = "",
     ) -> Handle:
         self._need_operation("record_log")
         return str(self._bridge.call(
             "record_log", kind=kind, name=name, status=status,
             assets=list(asset_handles),
             quantities=[q.model_dump() for q in quantities],
+            # Only on the wire when stated, so bridges written before the field
+            # existed see the exact payload they always saw (MetaCoding-xdt).
+            **({"lot_number": lot_number} if lot_number else {}),
         ))
+
+    def quantities_of(self, log_handle: Handle) -> list[Handle]:
+        # A handle-resolution mechanism (like create_asset), not a glossary
+        # term: invoked only when a flow declares quantity aliases; a bridge
+        # without the op fails the call loudly at the point of use.
+        got = self._bridge.call("quantities_of", log=log_handle)
+        if not isinstance(got, list):
+            raise BridgeError(
+                f"port bridge answered 'quantities_of' with "
+                f"{type(got).__name__} {got!r}; expected a list of handles"
+            )
+        return [str(h) for h in got]
+
+    def delete_log(self, subject_handle: Handle) -> Any:
+        self._need_operation("delete_log")
+        return self._bridge.call("delete_log", log=subject_handle)
+
+    def delete_quantity(self, subject_handle: Handle) -> Any:
+        self._need_operation("delete_quantity")
+        return self._bridge.call("delete_quantity", quantity=subject_handle)
 
     def set_log_status(self, log_handle: Handle, status: str) -> None:
         self._need_operation("set_log_status")

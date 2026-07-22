@@ -237,7 +237,12 @@ class FarmOSAdapter(ImplementationAdapter):
         uid = self.client.request("POST", f"/api/asset/{bundle}", doc)["data"]["id"]
         return f"asset:{bundle}:{uid}"
 
-    def _create_quantity(self, q: QuantitySpec) -> str:
+    def _create_quantity(self, q: QuantitySpec) -> tuple[str, str]:
+        """POST one quantity resource; returns ``(bundle, uuid)``. The bundle is
+        the spec's classification ("material"/"test") or "standard" (MetaCoding-xdt:
+        the DSL previously created only quantity--standard, so material_quantity's
+        bound contrast could never observe 'material' itself)."""
+        bundle = q.bundle or "standard"
         num, den = _as_fraction(q.value)
         attrs: dict[str, Any] = {
             "measure": q.measure,
@@ -249,10 +254,11 @@ class FarmOSAdapter(ImplementationAdapter):
         if q.unit:
             unit_id = self._ensure_unit(q.unit)
             rels["units"] = {"data": {"type": "taxonomy_term--unit", "id": unit_id}}
-        doc = {"data": {"type": "quantity--standard", "attributes": attrs}}
+        doc = {"data": {"type": f"quantity--{bundle}", "attributes": attrs}}
         if rels:
             doc["data"]["relationships"] = rels
-        return self.client.request("POST", "/api/quantity/standard", doc)["data"]["id"]
+        uid = self.client.request("POST", f"/api/quantity/{bundle}", doc)["data"]["id"]
+        return bundle, uid
 
     def record_log(
         self,
@@ -261,6 +267,7 @@ class FarmOSAdapter(ImplementationAdapter):
         status: str,
         asset_handles: list[Handle],
         quantities: list[QuantitySpec],
+        lot_number: str = "",
     ) -> Handle:
         assets = [self._split(h) for h in asset_handles]
         rels: dict[str, Any] = {}
@@ -269,20 +276,37 @@ class FarmOSAdapter(ImplementationAdapter):
                 {"type": f"asset--{b}", "id": u} for _, b, u in assets
             ]}
         if quantities:
-            qids = [self._create_quantity(q) for q in quantities]
+            created = [self._create_quantity(q) for q in quantities]
             rels["quantity"] = {"data": [
-                {"type": "quantity--standard", "id": qid} for qid in qids
+                {"type": f"quantity--{b}", "id": qid} for b, qid in created
             ]}
+        attrs: dict[str, Any] = {"name": name, "status": status or "done"}
+        if lot_number:
+            # The lot_number string field the harvest/input/seeding bundles
+            # declare. Written only when stated; a bundle without the field will
+            # refuse the write at the boundary, loudly.
+            attrs["lot_number"] = lot_number
         doc: dict[str, Any] = {
-            "data": {
-                "type": f"log--{kind}",
-                "attributes": {"name": name, "status": status or "done"},
-            }
+            "data": {"type": f"log--{kind}", "attributes": attrs}
         }
         if rels:
             doc["data"]["relationships"] = rels
         uid = self.client.request("POST", f"/api/log/{kind}", doc)["data"]["id"]
         return f"log:{kind}:{uid}"
+
+    def quantities_of(self, log_handle: Handle) -> list[Handle]:
+        """The log's owned quantities as handles, in the log's stated order —
+        a boundary readback of the ``quantity`` relationship, used only to bind
+        flow-declared quantity aliases (MetaCoding-xdt)."""
+        _, kind, uid = self._split(log_handle)
+        doc = self.client.request("GET", f"/api/log/{kind}/{uid}")
+        rel = ((doc["data"].get("relationships") or {}).get("quantity") or {})
+        out: list[Handle] = []
+        for row in rel.get("data") or []:
+            rtype = row.get("type") or ""
+            bundle = rtype.split("--", 1)[1] if "--" in rtype else "standard"
+            out.append(f"quantity:{bundle}:{row['id']}")
+        return out
 
     def set_log_status(self, log_handle: Handle, status: str) -> None:
         _, kind, uid = self._split(log_handle)
