@@ -17,3 +17,11 @@ https://goo.gle/gpt-message#175 @ https://securepubads.g.doubleclick.net/pagead/
 [ 6980086ms] [ERROR] Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED @ https://api.x.com/live_pipeline/events?topic=%2Ftweet_engagement%2F2076679468186513600:0
 [ 7737001ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ https://x.com/i/api/2/badge_count/badge_count.json?supports_ntab_urt=1&include_xchat_count=1:0
 [ 7777065ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://api.x.com/1.1/live_pipeline/update_subscriptions:0
+[ 8904948ms] [ERROR] Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED @ https://api.x.com/live_pipeline/events?topic=%2Ftweet_engagement%2F2076679468186513600:0
+[ 8984418ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://api.x.com/1.1/live_pipeline/update_subscriptions:0
+[ 9922635ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ https://api.x.com/live_pipeline/events?topic=%2Ftweet_engagement%2F2076679468186513600:0
+[ 9983432ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://api.x.com/1.1/live_pipeline/update_subscriptions:0
+[10495335ms] [ERROR] Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED @ https://api.x.com/live_pipeline/events?topic=%2Ftweet_engagement%2F2076679468186513600:0
+[10738970ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://api.x.com/1.1/live_pipeline/update_subscriptions:0
+[10994992ms] [ERROR] Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED @ https://api.x.com/live_pipeline/events?topic=%2Ftweet_engagement%2F2076679468186513600:0
+[11206669ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://api.x.com/1.1/live_pipeline/update_subscriptions:0
