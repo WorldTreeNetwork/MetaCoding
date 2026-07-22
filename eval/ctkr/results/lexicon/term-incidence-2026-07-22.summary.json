@@ -1,0 +1,607 @@
+{
+  "features": [
+    "animal",
+    "birth",
+    "core.inventory",
+    "harvest",
+    "log.activity",
+    "log.input",
+    "log.observation"
+  ],
+  "n_features": 7,
+  "spine_threshold": 0.8,
+  "classification_split": {
+    "SPINE": 0,
+    "SHARED": 12,
+    "IDENTITY": 12
+  },
+  "terms": [
+    {
+      "term": "log_status",
+      "degree": 5,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "core.inventory",
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 30
+    },
+    {
+      "term": "set_effective_time",
+      "degree": 5,
+      "roles": [
+        "action"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "core.inventory",
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 5
+    },
+    {
+      "term": "set_log_status",
+      "degree": 5,
+      "roles": [
+        "action"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "core.inventory",
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 9
+    },
+    {
+      "term": "asset_active",
+      "degree": 4,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "animal",
+        "harvest",
+        "log.activity",
+        "log.observation"
+      ],
+      "total_count": 5
+    },
+    {
+      "term": "log_count",
+      "degree": 4,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 44
+    },
+    {
+      "term": "quantity_recorded",
+      "degree": 4,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 26
+    },
+    {
+      "term": "record_log",
+      "degree": 4,
+      "roles": [
+        "action"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 61
+    },
+    {
+      "term": "yield_total",
+      "degree": 4,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "harvest",
+        "log.activity",
+        "log.input",
+        "log.observation"
+      ],
+      "total_count": 44
+    },
+    {
+      "term": "archive_asset",
+      "degree": 2,
+      "roles": [
+        "action"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "log.activity",
+        "log.observation"
+      ],
+      "total_count": 2
+    },
+    {
+      "term": "has_parent",
+      "degree": 2,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "animal",
+        "birth"
+      ],
+      "total_count": 9
+    },
+    {
+      "term": "parent_count",
+      "degree": 2,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "animal",
+        "birth"
+      ],
+      "total_count": 7
+    },
+    {
+      "term": "set_parents",
+      "degree": 2,
+      "roles": [
+        "action"
+      ],
+      "classification": "SHARED",
+      "features": [
+        "animal",
+        "birth"
+      ],
+      "total_count": 3
+    },
+    {
+      "term": "adjustment_count",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "core.inventory"
+      ],
+      "total_count": 7
+    },
+    {
+      "term": "animal_sex",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "animal"
+      ],
+      "total_count": 3
+    },
+    {
+      "term": "birth_date",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "birth"
+      ],
+      "total_count": 4
+    },
+    {
+      "term": "birth_record_count",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "birth"
+      ],
+      "total_count": 6
+    },
+    {
+      "term": "correct_birth",
+      "degree": 1,
+      "roles": [
+        "action"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "birth"
+      ],
+      "total_count": 2
+    },
+    {
+      "term": "nicknames",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "animal"
+      ],
+      "total_count": 3
+    },
+    {
+      "term": "record_birth",
+      "degree": 1,
+      "roles": [
+        "action"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "birth"
+      ],
+      "total_count": 8
+    },
+    {
+      "term": "record_inventory_adjustment",
+      "degree": 1,
+      "roles": [
+        "action"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "core.inventory"
+      ],
+      "total_count": 25
+    },
+    {
+      "term": "refused",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "birth"
+      ],
+      "total_count": 1
+    },
+    {
+      "term": "set_nicknames",
+      "degree": 1,
+      "roles": [
+        "action"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "animal"
+      ],
+      "total_count": 4
+    },
+    {
+      "term": "stock_on_hand",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "core.inventory"
+      ],
+      "total_count": 14
+    },
+    {
+      "term": "stock_pair_count",
+      "degree": 1,
+      "roles": [
+        "assertion"
+      ],
+      "classification": "IDENTITY",
+      "features": [
+        "core.inventory"
+      ],
+      "total_count": 7
+    }
+  ],
+  "per_feature": {
+    "animal": {
+      "n_fixtures": 5,
+      "n_assertion_terms": 5,
+      "n_action_terms": 2,
+      "assertion_terms": {
+        "animal_sex": 3,
+        "asset_active": 1,
+        "has_parent": 2,
+        "nicknames": 3,
+        "parent_count": 1
+      },
+      "action_terms": {
+        "set_nicknames": 4,
+        "set_parents": 2
+      },
+      "adapters": [
+        "AnimalLifecycleAdapter"
+      ],
+      "identity_terms": [
+        "animal_sex",
+        "nicknames",
+        "set_nicknames"
+      ],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "birth": {
+      "n_fixtures": 7,
+      "n_assertion_terms": 5,
+      "n_action_terms": 3,
+      "assertion_terms": {
+        "birth_date": 4,
+        "birth_record_count": 6,
+        "has_parent": 7,
+        "parent_count": 6,
+        "refused": 1
+      },
+      "action_terms": {
+        "correct_birth": 2,
+        "record_birth": 8,
+        "set_parents": 1
+      },
+      "adapters": [
+        "AnimalLifecycleAdapter"
+      ],
+      "identity_terms": [
+        "birth_date",
+        "birth_record_count",
+        "correct_birth",
+        "record_birth",
+        "refused"
+      ],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "core.inventory": {
+      "n_fixtures": 12,
+      "n_assertion_terms": 4,
+      "n_action_terms": 3,
+      "assertion_terms": {
+        "adjustment_count": 7,
+        "log_status": 2,
+        "stock_on_hand": 14,
+        "stock_pair_count": 7
+      },
+      "action_terms": {
+        "record_inventory_adjustment": 25,
+        "set_effective_time": 1,
+        "set_log_status": 1
+      },
+      "adapters": [
+        "AssetInventoryAdapter"
+      ],
+      "identity_terms": [
+        "adjustment_count",
+        "record_inventory_adjustment",
+        "stock_on_hand",
+        "stock_pair_count"
+      ],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "harvest": {
+      "n_fixtures": 12,
+      "n_assertion_terms": 5,
+      "n_action_terms": 3,
+      "assertion_terms": {
+        "asset_active": 2,
+        "log_count": 13,
+        "log_status": 6,
+        "quantity_recorded": 2,
+        "yield_total": 14
+      },
+      "action_terms": {
+        "record_log": 17,
+        "set_effective_time": 1,
+        "set_log_status": 2
+      },
+      "adapters": [
+        "HarvestLoggingAdapter"
+      ],
+      "identity_terms": [],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "log.activity": {
+      "n_fixtures": 12,
+      "n_assertion_terms": 5,
+      "n_action_terms": 4,
+      "assertion_terms": {
+        "asset_active": 1,
+        "log_count": 11,
+        "log_status": 9,
+        "quantity_recorded": 5,
+        "yield_total": 2
+      },
+      "action_terms": {
+        "archive_asset": 1,
+        "record_log": 13,
+        "set_effective_time": 1,
+        "set_log_status": 2
+      },
+      "adapters": [
+        "ActivityLogAdapter"
+      ],
+      "identity_terms": [],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "log.input": {
+      "n_fixtures": 12,
+      "n_assertion_terms": 4,
+      "n_action_terms": 3,
+      "assertion_terms": {
+        "log_count": 9,
+        "log_status": 6,
+        "quantity_recorded": 10,
+        "yield_total": 14
+      },
+      "action_terms": {
+        "record_log": 16,
+        "set_effective_time": 1,
+        "set_log_status": 2
+      },
+      "adapters": [
+        "InputLogAdapter"
+      ],
+      "identity_terms": [],
+      "identity_coverage": "n/a (no role classes supplied)"
+    },
+    "log.observation": {
+      "n_fixtures": 12,
+      "n_assertion_terms": 5,
+      "n_action_terms": 4,
+      "assertion_terms": {
+        "asset_active": 1,
+        "log_count": 11,
+        "log_status": 7,
+        "quantity_recorded": 9,
+        "yield_total": 14
+      },
+      "action_terms": {
+        "archive_asset": 1,
+        "record_log": 15,
+        "set_effective_time": 1,
+        "set_log_status": 2
+      },
+      "adapters": [
+        "ObservationAdapter"
+      ],
+      "identity_terms": [],
+      "identity_coverage": "n/a (no role classes supplied)"
+    }
+  },
+  "packs": [
+    {
+      "path": "eval/ctkr/port_runs/wave0-pilot/w0a-observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave0-pilot/w0a-adapter_contract.json",
+      "adapter_name": "AssetInventoryAdapter",
+      "n_fixtures": 12,
+      "n_new_fixtures": 12,
+      "features": [
+        "core.inventory"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave0-pilot/w0a-ordersensitive-observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave0-pilot/w0a-adapter_contract.json",
+      "adapter_name": "AssetInventoryAdapter",
+      "n_fixtures": 1,
+      "n_new_fixtures": 0,
+      "features": []
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave0-pilot/w0b-observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave0-pilot/w0b-adapter_contract.json",
+      "adapter_name": "AnimalLifecycleAdapter",
+      "n_fixtures": 11,
+      "n_new_fixtures": 11,
+      "features": [
+        "animal",
+        "birth"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave0-pilot/w0b-refusal-observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave0-pilot/w0b-adapter_contract.json",
+      "adapter_name": "AnimalLifecycleAdapter",
+      "n_fixtures": 1,
+      "n_new_fixtures": 1,
+      "features": [
+        "birth"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave1/activity/observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave1/activity/adapter_contract.json",
+      "adapter_name": "ActivityLogAdapter",
+      "n_fixtures": 12,
+      "n_new_fixtures": 12,
+      "features": [
+        "log.activity"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave1/activity/observe-partial-run1/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave1/activity/adapter_contract.json",
+      "adapter_name": "ActivityLogAdapter",
+      "n_fixtures": 7,
+      "n_new_fixtures": 0,
+      "features": []
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave1/harvest/observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave1/harvest/adapter_contract.json",
+      "adapter_name": "HarvestLoggingAdapter",
+      "n_fixtures": 12,
+      "n_new_fixtures": 12,
+      "features": [
+        "harvest"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave1/input/observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave1/input/adapter_contract.json",
+      "adapter_name": "InputLogAdapter",
+      "n_fixtures": 12,
+      "n_new_fixtures": 12,
+      "features": [
+        "log.input"
+      ]
+    },
+    {
+      "path": "eval/ctkr/port_runs/wave1/observation/observe/fixtures.jsonl",
+      "sealed": true,
+      "adapter_contract": "eval/ctkr/port_runs/wave1/observation/adapter_contract.json",
+      "adapter_name": "ObservationAdapter",
+      "n_fixtures": 12,
+      "n_new_fixtures": 12,
+      "features": [
+        "log.observation"
+      ]
+    }
+  ]
+}
