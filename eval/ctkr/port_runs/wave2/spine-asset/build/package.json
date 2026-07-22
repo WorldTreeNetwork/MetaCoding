@@ -1,0 +1,9 @@
+{
+  "name": "w2-spine-asset",
+  "private": true,
+  "type": "module",
+  "description": "wave-2 spine-asset cluster: seven concrete asset bundles (compost/equipment/material/plant/product/seed/water) on one shared event-sourced asset-bundle spine over the frozen kernel v1.3. Shared store + thin per-bundle typed creation surfaces + port.manifest.json/port_bridge.ts per bundle.",
+  "scripts": {
+    "test": "bun test"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "port": "w2-spine-asset-compost",
+  "description": "wave-2 compost asset bundle on the shared kernel v1.3 + spine-asset store. Barest bundle: no typed fields, no farm_location flags (defaults is_location/is_fixed false). Verified surface is the asset spine (create/archive) through bundle 'compost'.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_asset", "archive_asset"],
+    "probes": ["asset_active", "asset_bundle", "is_location", "is_fixed"]
+  },
+  "divergences": []
+}

@@ -1,0 +1,13 @@
+{
+  "port": "w2-spine-asset-seed",
+  "description": "wave-2 seed asset bundle on the shared spine-asset store. Same field shape as plant (required multi-valued plant_type + optional multi-valued season); no farm_location flags.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_asset", "archive_asset"],
+    "probes": ["asset_active", "asset_bundle", "is_location", "is_fixed", "asset_field"]
+  },
+  "divergences": []
+}

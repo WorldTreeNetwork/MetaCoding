@@ -1,0 +1,22 @@
+{
+  "port": "w2-equipment_type",
+  "description": "wave-2 equipment_type vocabulary port on the shared kernel v1.3 + spine-taxonomy-a term store. A pure taxonomy shell (editable name/parent/weight/status terms, latest-wins per field; no field/fold/workflow added by the module). Probes are the honest term-store surface; no fixtures recorded yet.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_term", "update_term", "delete_term"],
+    "probes": [
+      "term_name",
+      "term_parent",
+      "term_status",
+      "term_weight",
+      "term_vocabulary",
+      "term_depth",
+      "term_children",
+      "list_terms"
+    ]
+  },
+  "divergences": []
+}

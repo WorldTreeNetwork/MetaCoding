@@ -1,0 +1,8 @@
+{
+  "name": "w2b-product-type-port",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  }
+}

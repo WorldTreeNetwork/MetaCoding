@@ -1,0 +1,30 @@
+{
+  "port": "w2b-product-type",
+  "description": "wave-2 spine port for the 'product_type' taxonomy vocabulary (\"Product type\") on kernel v1.3 + the shared taxonomy-vocabulary store. Pure vocabulary shell: the module adds no fields/values/measures (partition vocab_new 0). Term hierarchy (parent/children) is a core-taxonomy fold not introduced by this module and is a declared gap, not implemented here — see punts.jsonl (b-shared-1).",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15
+  },
+  "capabilities": {
+    "operations": [
+      "create_term",
+      "rename_term",
+      "set_term_description",
+      "set_term_weight",
+      "delete_term"
+    ],
+    "probes": [
+      "term_name",
+      "term_description",
+      "term_weight",
+      "term_count",
+      "list_terms",
+      "vocabulary_name"
+    ]
+  },
+  "divergences": []
+}

@@ -1,0 +1,6 @@
+{
+  "name": "w2-quantity-standard-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

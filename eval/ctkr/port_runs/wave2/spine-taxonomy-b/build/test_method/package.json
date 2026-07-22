@@ -1,0 +1,8 @@
+{
+  "name": "w2b-test-method-port",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  }
+}

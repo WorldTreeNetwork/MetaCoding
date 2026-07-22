@@ -1,0 +1,39 @@
+{
+  "port": "w2-spine-log-maintenance",
+  "description": "wave-2 spine maintenance log port on the shared kernel v1.3 + the ONE wave-1 shared log-family store. maintenance is the log-family identity element (empty FarmLogType subclass, farm_log_workflow: done/pending/abandoned), distinguished only by payload.kind=\"maintenance\". Official numerics (yield_total, log_count) are confirmed-only per the bound pending-status-gates decision (the one chosen divergence); abandoned and pending mass live in the undeclared pending-only partner projections.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [
+      "record_log",
+      "set_log_status",
+      "set_effective_time",
+      "archive_asset"
+    ],
+    "probes": [
+      "log_status",
+      "log_count",
+      "yield_total",
+      "quantity_recorded",
+      "asset_active"
+    ]
+  },
+  "divergences": [
+    {
+      "assert": "log_count",
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate: pending AND abandoned maintenance logs are inert to log_count, whereas the observed source counts pending logs (the ONE chosen pending-gate divergence, Duke 2026-07-20). No oracle-observed maintenance fixtures at spine tier, so no fixture_id is asserted; trailing readings bind the recorded pack.",
+      "decision_id": "pending-status-gates"
+    },
+    {
+      "assert": "yield_total",
+      "reason": "kernel STATUS_CONTRACT confirmed-only gate: pending AND abandoned maintenance logs contribute 0 to yield_total, whereas the observed source folds pending (the ONE chosen pending-gate divergence, Duke 2026-07-20). No oracle-observed maintenance fixtures at spine tier, so no fixture_id is asserted; trailing readings bind the recorded pack.",
+      "decision_id": "pending-status-gates"
+    }
+  ]
+}

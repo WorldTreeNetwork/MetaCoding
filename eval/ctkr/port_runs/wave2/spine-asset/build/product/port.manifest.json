@@ -1,0 +1,13 @@
+{
+  "port": "w2-spine-asset-product",
+  "description": "wave-2 product asset bundle on the shared spine-asset store. One REQUIRED typed field (product_type); no farm_location flags.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_asset", "archive_asset"],
+    "probes": ["asset_active", "asset_bundle", "is_location", "is_fixed", "asset_field"]
+  },
+  "divergences": []
+}

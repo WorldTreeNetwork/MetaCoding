@@ -1,0 +1,22 @@
+{
+  "port": "w2-log_category",
+  "description": "wave-2 log_category vocabulary port on the shared kernel v1.3 + spine-taxonomy-a term store. TERM-STORE SHELL ONLY: the log_category vocabulary (editable name/parent/weight/status terms, latest-wins per field). The module's `category` base field injected onto all logs and its LogCategorize append/replace bulk action are a fold PUNTED UP (see punts.jsonl) and are intentionally NOT in this surface — an honest gap. No fixtures recorded yet.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_term", "update_term", "delete_term"],
+    "probes": [
+      "term_name",
+      "term_parent",
+      "term_status",
+      "term_weight",
+      "term_vocabulary",
+      "term_depth",
+      "term_children",
+      "list_terms"
+    ]
+  },
+  "divergences": []
+}

@@ -1,0 +1,6 @@
+{
+  "name": "w2-spine-taxonomy-a-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

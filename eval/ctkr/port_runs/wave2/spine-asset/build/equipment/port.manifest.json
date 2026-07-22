@@ -1,0 +1,13 @@
+{
+  "port": "w2-spine-asset-equipment",
+  "description": "wave-2 equipment asset bundle on the shared spine-asset store. Four optional typed fields (equipment_type[multi], manufacturer, model, serial_number); no farm_location flags. NOTE: farm_equipment's log-side 'equipment' base field is PUNTED UP (cross-family, out of asset-spine scope).",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_asset", "archive_asset"],
+    "probes": ["asset_active", "asset_bundle", "is_location", "is_fixed", "asset_field"]
+  },
+  "divergences": []
+}

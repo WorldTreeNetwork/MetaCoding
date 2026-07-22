@@ -1,0 +1,13 @@
+{
+  "port": "w2-spine-asset-water",
+  "description": "wave-2 water asset bundle on the shared spine-asset store. The ONLY cluster bundle declaring farm_location third-party settings: is_location=true, is_fixed=true by default (per-asset overridable, LocationDefaultValues semantics). No typed fields.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_asset", "archive_asset"],
+    "probes": ["asset_active", "asset_bundle", "is_location", "is_fixed"]
+  },
+  "divergences": []
+}

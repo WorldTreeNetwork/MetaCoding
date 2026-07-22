@@ -1,0 +1,22 @@
+{
+  "port": "w2-animal_type",
+  "description": "wave-2 animal_type vocabulary port on the shared kernel v1.3 + spine-taxonomy-a term store. A pure taxonomy shell (term entities with editable name/parent/weight/status, latest-wins per field; the farmOS module adds no field, fold, or workflow). Probes are the honest term-store surface; no fixtures recorded yet, so gaps are declared, not overclaimed.",
+  "bridge": {
+    "command": ["bun", "run", "port_bridge.ts"],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": ["create_term", "update_term", "delete_term"],
+    "probes": [
+      "term_name",
+      "term_parent",
+      "term_status",
+      "term_weight",
+      "term_vocabulary",
+      "term_depth",
+      "term_children",
+      "list_terms"
+    ]
+  },
+  "divergences": []
+}
