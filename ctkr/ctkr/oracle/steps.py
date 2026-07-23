@@ -25,6 +25,16 @@ def flow_now() -> datetime:
 
 def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
     """Instantiate one ``given`` entity and return its handle."""
+    if g.entity == "plant_type":
+        # A plant_type is a TAXONOMY TERM carrying its own planning fields, not
+        # an asset (MetaCoding plant-type). crop_family/companions are term NAMES
+        # the adapter resolves/creates (the field's own auto_create is false, so
+        # the adapter ensures the referenced terms exist) — never aliases, so
+        # nothing is resolved through handles here, the `lab` name form.
+        return adapter.create_plant_type_term(
+            g.name, maturity_days=g.maturity_days, harvest_days=g.harvest_days,
+            crop_family=g.crop_family, companions=list(g.companions),
+        )
     if g.sex:
         return adapter.create_asset(g.entity, g.name, g.descriptor, g.sex)
     # Keep the 3-argument call for adapters written before the trait existed.

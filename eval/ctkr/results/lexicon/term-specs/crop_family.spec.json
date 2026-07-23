@@ -1,0 +1,26 @@
+{
+  "term": "crop_family",
+  "kind": "assertion",
+  "subject_kind": "entity",
+  "value_shape": "scalar",
+  "description": "The crop family a plant type is a member of, recorded on the plant_type term as a single-valued reference to a crop_family term.",
+  "probe_semantics": "Deliver the NAME of the crop_family term the subject plant_type TERM references (its single-valued crop_family reference), or the empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a plant_type term whose crop_family is the family named Solanaceae", "a second plant_type term whose crop_family is the family named Brassicaceae", "a third plant_type term with no crop_family"],
+    "when": [],
+    "then": ["crop_family of the first term == Solanaceae", "crop_family of the second term == Brassicaceae", "crop_family of the third term == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/taxonomy/plant_type/config/install/field.field.taxonomy_term.plant_type.crop_family.yml:field_name (entity_reference -> taxonomy_term--crop_family, cardinality 1, auto_create false; storage field.storage.taxonomy_term.crop_family.yml)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a config YAML on the plant_type vocabulary term, not a log bundle",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read the subject as 'a land asset' set via 'record_log with crop_family set' (the log-record shape the proposer defaults to) and delivered 'the crop-family value'. Corrected: the subject is a plant_type TERM (subject_kind=entity) created via the new plant_type `given` write surface (MetaCoding plant-type); the value is the referenced crop_family term's NAME (a reproducible string), read off the term's single-valued crop_family reference — a raw per-run taxonomy term UUID could never reproduce across runs or ports and so could never score. The material_type_recorded/laboratory name-readback house form.",
+      "SHAPE DEVIATION (cardinality): the reference is SINGLE-valued, so the value is a scalar name, not a list — VALIDATED LIVE (oracle taxonomy_term/plant_type, MetaCoding plant-type): the crop_family relationship delivered as one object (data is a single {type,id}, not an array); an unset crop_family delivered data:null, read back as the empty value \"\" (the laboratory house form).",
+      "REFERENCE ENSURE: the field's own auto_create is false, so the referenced crop_family term must exist. The adapter ensures it by NAME (_ensure_term find-or-create, the unit/lab form) at term-creation time and references it by id — the fixture never carries a per-run UUID.",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(plant_type) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

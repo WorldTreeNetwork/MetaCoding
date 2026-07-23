@@ -25,7 +25,8 @@ from ctkr.oracle.glossary_provenance import load_registry
 from ctkr.term_codegen import CodegenError, apply_edits, plan_edits, render_diffs
 
 _ORACLE_FILES = ("glossary.py", "probes.py", "steps.py", "adapter.py",
-                 "farmos_adapter.py", "recorder.py", "fixtures.py")
+                 "farmos_adapter.py", "recorder.py", "fixtures.py",
+                 "port_adapter.py")
 
 
 def make_spec(term: str, kind: str, **extra) -> dict:
@@ -216,6 +217,118 @@ def test_apply_action_term_generates_the_interpreter_arm(tree, tmp_path) -> None
         _bare(a["ImplementationAdapter"]).record_widget("H1")
 
 
+# --------------------------------------------------------------------------- #
+# Port-adapter dispatch (MetaCoding-wob): the seam the lab_test builder had to  #
+# hand-write mid-build. Generated now, and it FORWARDS (never raises) — gated   #
+# on the port having declared the surface.                                      #
+# --------------------------------------------------------------------------- #
+def _port_instance(pa_mod: dict, *, probes=(), operations=(), bridge=None):
+    """A PortAdapter with its declaration + bridge faked, without a live port."""
+    import types as _types
+
+    PortAdapter = pa_mod["PortAdapter"]
+    inst = PortAdapter.__new__(PortAdapter)
+    inst._declared = _types.SimpleNamespace(
+        probes=list(probes), operations=list(operations))
+    inst._bridge = bridge
+    inst.manifest = _types.SimpleNamespace(port="p")
+    return inst
+
+
+def test_apply_assertion_generates_forwarding_port_dispatch(tree, tmp_path) -> None:
+    spec = make_spec("widget_count", "assertion")
+    assert main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+                 "--apply", "--root", str(tree)]) == 0
+    pa = _exec_module(tree, "ctkr/oracle/port_adapter.py")
+
+    calls: list[tuple] = []
+
+    class _Bridge:
+        def call(self, op, **kw):
+            calls.append((op, kw))
+            return 7
+
+    # Declared -> forwards to the bridge op, subject under the `subject` key.
+    inst = _port_instance(pa, probes=["widget_count"], bridge=_Bridge())
+    assert inst.widget_count("H1") == 7
+    assert calls == [("widget_count", {"subject": "H1"})]
+
+    # NOT declared -> Unanswerable (a gap), and the bridge is never touched.
+    calls.clear()
+    undeclared = _port_instance(pa, probes=[], bridge=_Bridge())
+    with pytest.raises(pa["Unanswerable"], match="widget_count"):
+        undeclared.widget_count("H1")
+    assert calls == []
+
+
+def test_apply_list_shape_port_dispatch_guards_the_wire(tree, tmp_path) -> None:
+    spec = make_spec("widget_names", "assertion", value_shape="list")
+    assert main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+                 "--apply", "--root", str(tree)]) == 0
+    pa = _exec_module(tree, "ctkr/oracle/port_adapter.py")
+
+    class _ListBridge:
+        def __init__(self, value):
+            self.value = value
+
+        def call(self, op, **kw):
+            return self.value
+
+    # A list is coerced to names.
+    ok = _port_instance(pa, probes=["widget_names"], bridge=_ListBridge([1, "b"]))
+    assert ok.widget_names("H1") == ["1", "b"]
+
+    # A non-list answer is a BridgeError (NO VERDICT), never a silent compare.
+    bad = _port_instance(pa, probes=["widget_names"], bridge=_ListBridge("x"))
+    with pytest.raises(pa["BridgeError"], match="expected a list"):
+        bad.widget_names("H1")
+
+
+def test_apply_action_generates_operation_gated_port_dispatch(tree, tmp_path) -> None:
+    spec = make_spec("record_widget", "action")
+    assert main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+                 "--apply", "--root", str(tree)]) == 0
+    pa = _exec_module(tree, "ctkr/oracle/port_adapter.py")
+
+    class _Bridge:
+        def call(self, op, **kw):
+            return {"op": op, **kw}
+
+    # Gated on the OPERATION declaration, not the probe declaration.
+    inst = _port_instance(pa, operations=["record_widget"], bridge=_Bridge())
+    assert inst.record_widget("H9") == {"op": "record_widget", "subject": "H9"}
+    undeclared = _port_instance(pa, operations=[], bridge=_Bridge())
+    with pytest.raises(pa["Unanswerable"], match="record_widget"):
+        undeclared.record_widget("H9")
+
+
+def test_apply_entity_reference_port_dispatch_passes_the_resolved_handle(
+    tree, tmp_path,
+) -> None:
+    spec = _ref_spec("holds_widget")
+    assert main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+                 "--apply", "--root", str(tree)]) == 0
+    pa = _exec_module(tree, "ctkr/oracle/port_adapter.py")
+
+    seen: list[dict] = []
+
+    class _Bridge:
+        def call(self, op, **kw):
+            seen.append(kw)
+            return True
+
+    inst = _port_instance(pa, probes=["holds_widget"], bridge=_Bridge())
+    assert inst.holds_widget("H1", "H2") is True
+    # subject under `subject`, the alias param under its own field name.
+    assert seen == [{"subject": "H1", "other": "H2"}]
+
+
+def test_value_shape_only_on_assertion(tree, tmp_path) -> None:
+    spec = make_spec("record_widget", "action", value_shape="list")
+    assert main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+                 "--root", str(tree)]) == 2
+
+
 def test_apply_entity_term_touches_only_glossary_and_tests(tree, tmp_path) -> None:
     probes_before = (tree / "ctkr" / "oracle" / "probes.py").read_bytes()
     spec = make_spec("widget", "entity")
@@ -367,6 +480,27 @@ def test_a_registered_term_is_refused_before_any_edit(tree, tmp_path) -> None:
     assert (tree / "ctkr" / "oracle" / "glossary.py").read_bytes() == glossary_after
 
 
+def test_a_read_term_named_like_a_write_field_is_not_a_false_duplicate(
+    tree, tmp_path,
+) -> None:
+    """A dict key elsewhere in fixtures.py (e.g. a GivenStep write-field) that
+    shares a read-term's name must NOT trip the _ASSERT_REQUIRED duplicate check
+    — the row lives only inside the table (MetaCoding plant-type: crop_family is
+    both a plant_type WRITE field and a glossary READ term)."""
+    fx = tree / "ctkr" / "oracle" / "fixtures.py"
+    src = fx.read_text(encoding="utf-8")
+    # A decoy dict key OUTSIDE the _ASSERT_REQUIRED table, exactly the shape a
+    # GivenStep validation dict has.
+    fx.write_text(
+        src + '\n_DECOY = {"widget_count": True}\n', encoding="utf-8")
+    spec = make_spec("widget_count", "assertion")
+    rc = main(["add-term", "--spec", str(_spec_file(tmp_path, spec)),
+               "--apply", "--root", str(tree)])
+    assert rc == 0
+    x = _exec_module(tree, "ctkr/oracle/fixtures.py")
+    assert x["_ASSERT_REQUIRED"]["widget_count"] == ("value",)
+
+
 def test_a_broken_spec_is_refused(tree, tmp_path) -> None:
     spec = make_spec("widget_count", "assertion")
     spec["kind"] = "adjective"
@@ -415,5 +549,6 @@ def test_render_diffs_names_every_file(tree) -> None:
     for rel in ("ctkr/oracle/glossary.py", "ctkr/oracle/probes.py",
                 "ctkr/oracle/adapter.py", "ctkr/oracle/farmos_adapter.py",
                 "ctkr/oracle/recorder.py", "ctkr/oracle/fixtures.py",
+                "ctkr/oracle/port_adapter.py",
                 "tests/test_term_widget_count.py"):
         assert f"b/{rel}" in diff

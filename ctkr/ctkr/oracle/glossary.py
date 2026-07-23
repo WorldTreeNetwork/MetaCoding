@@ -35,6 +35,14 @@ ENTITY_TERMS: frozenset[str] = frozenset(
         "equipment",  # a tool / machine
         "group",  # a membership grouping of assets
         "material",  # A material asset: a stock of some substance (compost, fertilizer, s… [PROVISIONAL]
+        # A plant_type is a TAXONOMY TERM, not an asset (farm_plant_type: a
+        # crop/variety in the plant_type vocabulary). It is an entity a `given`
+        # can instantiate because the plant_type identity port (MetaCoding
+        # plant-type) asserts the planning fields carried ON the term
+        # (maturity_days, harvest_days, crop_family, companions). Adding a member
+        # to ENTITY_TERMS gates validation, not hashing, so no existing fixture
+        # re-ids.
+        "plant_type",  # a crop/variety term in the plant_type vocabulary
     }
 )
 
@@ -151,6 +159,10 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "lab_processing_date",  # The date on which a laboratory processed a sample for a lab test. [PROVISIONAL]
         "sample_received_date",  # The date on which a laboratory received a sample for a lab test. [PROVISIONAL]
         "soil_texture",  # The soil texture reported by a laboratory test. [PROVISIONAL]
+        "days_to_maturity",  # The number of days a plant type is expected to take to reach maturi… [PROVISIONAL]
+        "days_to_harvest",  # The expected number of days a plant type stays in harvest, recorded… [PROVISIONAL]
+        "companion_plants",  # The plant types recorded as companions of a plant type, held on the… [PROVISIONAL]
+        "crop_family",  # The crop family a plant type is a member of, recorded on the plant_… [PROVISIONAL]
     }
 )
 

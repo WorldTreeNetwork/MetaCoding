@@ -58,7 +58,14 @@ _FLOW_KEYS = frozenset(
      # Evidence quality, carried BY THE PACK rather than a caller's side file.
      "corroboration_only", "corroboration_reason"}
 )
-_GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
+_GIVEN_KEYS = frozenset(
+    {"entity", "alias", "name", "descriptor", "sex",
+     # plant_type term planning fields (MetaCoding plant-type) — INPUTS on a
+     # plant_type `given`, never expected values. The day counts are the raw
+     # farmOS field names (read back under the glossary terms days_to_maturity /
+     # days_to_harvest); crop_family / companions are term NAMES.
+     "maturity_days", "harvest_days", "crop_family", "companions"}
+)
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
      "quantities", "at", "parents", "names", "lot_number", "equipment",
@@ -171,6 +178,15 @@ def _str_list(d: dict[str, Any], key: str, where: str) -> list[str]:
     return list(v)
 
 
+def _opt_int(d: dict[str, Any], key: str, where: str) -> int | None:
+    v = d.get(key)
+    if v is None:
+        return None
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise FlowSpecError(f"{where}.{key}: expected an integer, got {v!r}")
+    return v
+
+
 def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
     _check_keys(d, _QUANTITY_KEYS, where)
     # NOTE: `value` here is an INPUT — the magnitude to record — not an expected
@@ -219,6 +235,10 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
     return GivenStep(
         entity=entity, alias=alias, name=_str(d, "name", where),
         descriptor=_str(d, "descriptor", where), sex=sex,
+        maturity_days=_opt_int(d, "maturity_days", where),
+        harvest_days=_opt_int(d, "harvest_days", where),
+        crop_family=_str(d, "crop_family", where),
+        companions=_str_list(d, "companions", where),
     )
 
 

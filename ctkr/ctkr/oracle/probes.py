@@ -398,6 +398,61 @@ _PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec('soil_texture', 'soil_texture', (), subject_kind="event",
               doc='The soil texture reported by a laboratory test.',
               authority=BOUNDARY),
+    # add-term generates every probe DERIVED-with-no-validated_against (it cannot
+    # know a term's authority). AUTHORITY REFINED post-generation, after the
+    # derivation was validated against the live source (the 5ln/1cv/wgy step,
+    # missed on the first plant_type pass — see the recipe note): the two day
+    # counts read an integer field the source STATES directly on the term at its
+    # published interface — BOUNDARY transcription, nothing of ours to validate,
+    # exactly the soil_texture/lab_processing_date form. The two references
+    # follow a source-stated reference to a term's own stated NAME — DERIVED,
+    # validated the laboratory / lab_test_measurement way. All four stay
+    # PROVISIONAL (the provenance registry) until a sealed recording binds them;
+    # the authority here is what makes a BOUND value scorable rather than NO
+    # VERDICT. (Refining authority changes each fixture's authority/derivation
+    # stamp, so the pack was RE-RECORDED and RE-BOUND against the refined
+    # contract — a correction cannot retroactively bless the old stamps.)
+    ProbeSpec('days_to_maturity', 'days_to_maturity', (),
+              doc='The number of days a plant type is expected to take to reach maturity, recorded on the plant_type term.',
+              authority=BOUNDARY),
+    ProbeSpec('days_to_harvest', 'days_to_harvest', (),
+              doc="The expected number of days a plant type stays in harvest, recorded on the plant_type term (farmOS label 'Days of harvest').",
+              authority=BOUNDARY),
+    ProbeSpec('companion_plants', 'companion_plants', (),
+              doc='The plant types recorded as companions of a plant type, held on the plant_type term as a multi-valued reference to other plant_type terms.',
+              authority=DERIVED,
+              derivation="the ordered NAMES of the plant_type terms the term's "
+                         "multi-valued `companions` entity_reference points to, in "
+                         "the source's stated relationship order; [] when the term "
+                         "records none",
+              validated_against="the companions reference is stated by the source "
+                                "(farm_plant_type "
+                                "field.field.taxonomy_term.plant_type.companions.yml, "
+                                "target taxonomy_term--plant_type, cardinality -1; "
+                                "the term's JSON:API companions relationship) and "
+                                "each name is the referenced term's own stated "
+                                "attribute; the ORDER is the source's stated "
+                                "relationship order (validated live: delivered as a "
+                                "JSON array). The reference-follow, name readback, "
+                                "and order preservation add no semantics; unlike "
+                                "lab_test_measurement there is NO 'first' SELECTION — "
+                                "the value is ALL companions, so no selection punt"),
+    ProbeSpec('crop_family', 'crop_family', (),
+              doc='The crop family a plant type is a member of, recorded on the plant_type term as a single-valued reference to a crop_family term.',
+              authority=DERIVED,
+              derivation="the NAME of the term the plant_type term's single-valued "
+                         "`crop_family` entity_reference points to; '' when the term "
+                         "records none",
+              validated_against="the crop_family reference is stated by the source "
+                                "(farm_plant_type "
+                                "field.field.taxonomy_term.plant_type.crop_family.yml, "
+                                "target taxonomy_term--crop_family, cardinality 1; "
+                                "the term's JSON:API crop_family relationship) and "
+                                "the name is the referenced term's own stated "
+                                "attribute — the reference-follow and name readback "
+                                "add no semantics; the reference is single-valued "
+                                "(validated live: delivered as one object, not a "
+                                "list)"),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

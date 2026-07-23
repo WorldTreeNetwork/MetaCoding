@@ -22,9 +22,18 @@ What it generates, by kind (all as text edits against a TARGET TREE — the
   live runs — MetaCoding-td9). A spec may declare ``params`` (extra probe
   fields, alias-resolved when ``alias_noun`` is set — the ``has_parent`` shape)
   and a non-default ``subject_kind``; both flow into the ProbeSpec, the stub
-  signatures, the recorder call, and the required-fields row;
+  signatures, the recorder call, and the required-fields row. A spec may also
+  declare ``value_shape`` (``"scalar"`` default, or ``"list"``) which shapes the
+  PORT-adapter dispatch alone;
 * ``action`` — an :class:`OperationSpec` in ``probes._OPERATIONS``, the
-  interpreter arm in ``steps.apply_when``, and the same adapter stubs.
+  interpreter arm in ``steps.apply_when``, and the same adapter stubs;
+* ``action``/``assertion`` also — the :class:`~ctkr.oracle.port_adapter.PortAdapter`
+  dispatch method (MetaCoding-wob). Unlike every other adapter stub it does NOT
+  raise and is NOT hand-implemented: it only forwards to the port's declared
+  bridge op, gated on the declaration. The lab_test builder had to hand-write
+  these six methods mid-build because the generator left this seam — the whole
+  measurement chain from probe to bridge is now emitted, so a builder never
+  touches the instrument.
 
 **The fake-green rule, structurally.** Every generated adapter stub RAISES
 (``AdapterError`` on the ABC, ``NotImplementedError`` on the farmOS adapter,
@@ -52,6 +61,7 @@ ADAPTER = "ctkr/oracle/adapter.py"
 FARMOS = "ctkr/oracle/farmos_adapter.py"
 RECORDER = "ctkr/oracle/recorder.py"
 FIXTURES = "ctkr/oracle/fixtures.py"
+PORT_ADAPTER = "ctkr/oracle/port_adapter.py"
 
 _SET_FOR_KIND = {
     "entity": "ENTITY_TERMS",
@@ -267,6 +277,64 @@ def _farmos_stub(
     )
 
 
+def _bridge_call_tail(params: tuple[tuple[str, str], ...]) -> str:
+    """Keyword args after ``subject`` in the bridge call: an alias param passes
+    its resolved handle, a plain param passes the assertion's own string field.
+    Mirrors the hand-written ``equipment_used``/``material_type_recorded`` port
+    methods so a generated dispatch is indistinguishable from a written one."""
+    return "".join(
+        f", {f}={f}_handle" if noun else f", {f}={f}" for f, noun in params
+    )
+
+
+def _port_adapter_stub(
+    term: str, kind: str, probe_semantics: str,
+    params: tuple[tuple[str, str], ...], value_shape: str,
+) -> str:
+    """The :class:`PortAdapter` dispatch method — the seam the FIRST live run of
+    this generator missed (MetaCoding-wob): every other adapter stub RAISES and
+    is hand-implemented, but the port adapter method only FORWARDS to the port's
+    declared bridge op, so it is fully mechanical — and a human hand-writing it
+    (as the lab_test builder had to, mid-build) is pure toil plus an instrument
+    the builder should never touch. Unlike the ABC/farmOS stubs this does NOT
+    raise: it gates on the port having declared the surface (``_need_probe`` /
+    ``_need_operation``, which raise ``Unanswerable`` when it did not) and then
+    speaks to the bridge. A ``list`` value_shape guards the wire shape so a
+    bridge that answers a non-list is a BridgeError (NO VERDICT), never a silent
+    wrong compare; a ``scalar`` shape forwards the value raw so a type mismatch
+    surfaces as a real comparison, never masked by a coercion."""
+    sig = _stub_signature_tail(params)
+    call_tail = _bridge_call_tail(params)
+    gate = "_need_operation" if kind == "action" else "_need_probe"
+    ret = "list[str]" if value_shape == "list" else "Any"
+    head = (
+        f"\n    # --- generated: {term} ({kind}, PROVISIONAL) --- #\n"
+        f"    def {term}(self, subject_handle: Handle{sig}) -> {ret}:\n"
+        f'        """{_short(probe_semantics, 300)}\n'
+        f"\n"
+        f"        Generated dispatch: forwards to the port's declared bridge op,\n"
+        f"        gated on the port having declared it. Nothing to implement — the\n"
+        f"        bridge the build produced answers, or the gate raises.\n"
+        f'        """\n'
+        f'        self.{gate}("{term}")\n'
+    )
+    if value_shape == "list":
+        return (
+            head
+            + f'        got = self._bridge.call("{term}", subject=subject_handle{call_tail})\n'
+            + f"        if not isinstance(got, list):\n"
+            + f"            raise BridgeError(\n"
+            + f'                f"port bridge answered {term!r} with "\n'
+            + f'                f"{{type(got).__name__}} {{got!r}}; expected a list of names"\n'
+            + f"            )\n"
+            + f"        return [str(n) for n in got]\n"
+        )
+    return (
+        head
+        + f'        return self._bridge.call("{term}", subject=subject_handle{call_tail})\n'
+    )
+
+
 def _recorder_arm(term: str, params: tuple[tuple[str, str], ...]) -> str:
     """The ``_observe_probe`` dispatch arm — the seam the first live run of this
     generator missed (MetaCoding-td9): everything else was wired, and the first
@@ -278,11 +346,28 @@ def _recorder_arm(term: str, params: tuple[tuple[str, str], ...]) -> str:
     )
 
 
+_ASSERT_REQUIRED_MARKER = "_ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {"
+
+
+def _assert_required_has_row(src: str, term: str) -> bool:
+    """Whether ``term`` already has a row INSIDE the ``_ASSERT_REQUIRED`` table.
+
+    Scoped to the table region so an identically named dict key elsewhere in
+    fixtures.py (a GivenStep write-field, say) is not mistaken for a row."""
+    start = src.find(_ASSERT_REQUIRED_MARKER)
+    if start < 0:
+        raise CodegenError(f"{FIXTURES}: cannot find the _ASSERT_REQUIRED table")
+    close = src.find("\n}", start)
+    if close < 0:
+        raise CodegenError(f"{FIXTURES}: cannot find the end of _ASSERT_REQUIRED")
+    return f'"{term}":' in src[start:close]
+
+
 def _fixtures_edit(src: str, term: str, params: tuple[tuple[str, str], ...]) -> str:
     """Register the assertion's required fields in ``_ASSERT_REQUIRED`` so the
     validator demands exactly the fields the probe consumes (plus the observed
     value) — previously a hand edit after every generation."""
-    marker = "_ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {"
+    marker = _ASSERT_REQUIRED_MARKER
     start = src.find(marker)
     if start < 0:
         raise CodegenError(f"{FIXTURES}: cannot find the _ASSERT_REQUIRED table")
@@ -374,6 +459,7 @@ def plan_edits(spec: dict, root: str | Path) -> list[FileEdit]:
     description, semantics = spec["description"], spec["probe_semantics"]
     params = _spec_params(spec)
     subject_kind = spec.get("subject_kind", "entity")
+    value_shape = spec.get("value_shape", "scalar")
 
     edits: list[FileEdit] = []
 
@@ -396,7 +482,13 @@ def plan_edits(spec: dict, root: str | Path) -> list[FileEdit]:
             _recorder_arm(term, params), RECORDER)
         edits.append(FileEdit(RECORDER, r, r2))
         x = _read(root, FIXTURES)
-        if f'"{term}":' in x:
+        # Scope the "already has a row" check to the _ASSERT_REQUIRED table: a
+        # whole-file substring match on '"{term}":' also trips on an unrelated
+        # dict key elsewhere in fixtures.py — e.g. a GivenStep write-field named
+        # the same as a read-term (crop_family: a plant_type WRITE field and a
+        # glossary READ term both exist, MetaCoding plant-type). The row lives
+        # only inside the table.
+        if _assert_required_has_row(x, term):
             raise CodegenError(f"{FIXTURES}: {term!r} already has a required-fields row")
         edits.append(FileEdit(FIXTURES, x, _fixtures_edit(x, term, params)))
     elif kind == "action":
@@ -422,6 +514,17 @@ def plan_edits(spec: dict, root: str | Path) -> list[FileEdit]:
         f2 = _insert_at_class_end(f, "\ndef _iso(",
                                   _farmos_stub(term, kind, semantics, params), FARMOS)
         edits.append(FileEdit(FARMOS, f, f2))
+
+        # The port-side dispatch method (MetaCoding-wob). PortAdapter is the last
+        # class in the file and nothing module-level follows it, so the stub is
+        # appended at end-of-file exactly like the ABC's — a class-body method.
+        pa = _read(root, PORT_ADAPTER)
+        if f"def {term}(" in pa:
+            raise CodegenError(f"{PORT_ADAPTER}: method {term!r} already exists")
+        edits.append(FileEdit(
+            PORT_ADAPTER, pa,
+            pa.rstrip("\n") + "\n"
+            + _port_adapter_stub(term, kind, semantics, params, value_shape)))
 
     test_rel = f"tests/test_term_{term}.py"
     if (root / test_rel).exists():

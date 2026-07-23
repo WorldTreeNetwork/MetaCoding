@@ -1,0 +1,26 @@
+{
+  "term": "companion_plants",
+  "kind": "assertion",
+  "subject_kind": "entity",
+  "value_shape": "list",
+  "description": "The plant types recorded as companions of a plant type, held on the plant_type term as a multi-valued reference to other plant_type terms.",
+  "probe_semantics": "Deliver the ordered NAMES of the plant_type terms the subject plant_type TERM references as companions (its multi-valued companions reference), or the empty list when none were recorded.",
+  "discriminating_flow": {
+    "given": ["a plant_type term whose companions are the plant types named Basil and Marigold", "a second plant_type term whose companions are the single plant type named Basil", "a third plant_type term with no companions"],
+    "when": [],
+    "then": ["companion_plants of the first term == the names Basil and Marigold", "companion_plants of the second term == the single name Basil", "companion_plants of the third term == the empty list"]
+  },
+  "provenance": {
+    "config_source": "modules/taxonomy/plant_type/config/install/field.field.taxonomy_term.plant_type.companions.yml:field_name (entity_reference -> taxonomy_term--plant_type, cardinality -1 multi-valued, auto_create false; storage field.storage.taxonomy_term.companions.yml)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a config YAML on the plant_type vocabulary term, not a log bundle",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read the subject as 'a land asset' set via 'record_log with companions set' (the log-record shape the proposer defaults to) and named the term companion_plants. Corrected: the subject is a plant_type TERM (subject_kind=entity) created via the new plant_type `given` write surface (MetaCoding plant-type); the value is the ordered NAMES of the referenced plant_type terms (reproducible strings), read off the term's multi-valued companions reference — never per-run UUIDs. The material_type_recorded ordered-names house form.",
+      "SHAPE DEVIATION (cardinality): the reference is MULTI-valued (cardinality -1), so value_shape=list — VALIDATED LIVE (oracle taxonomy_term/plant_type, MetaCoding plant-type): the companions relationship delivered as a JSON array of {type,id} objects; an unset companions delivered data:[] (empty array), read back as the empty list [] (the material_type_recorded house form).",
+      "REFERENCE ENSURE: the field's own auto_create is false, so each referenced companion plant_type term must exist. The adapter ensures each by NAME (_ensure_term find-or-create) at term-creation time and references it by id — the fixture never carries a per-run UUID. NOTE: companions is a self-reference (plant_type -> plant_type); an ensured companion term carries no fields of its own.",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(plant_type) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

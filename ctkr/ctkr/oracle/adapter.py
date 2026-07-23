@@ -157,6 +157,25 @@ class ImplementationAdapter(ABC):
         """Restate when a recorded event took effect."""
         raise self._unsupported("set_effective_time")
 
+    # --- taxonomy-term write surface (MetaCoding plant-type) ----------------- #
+    def create_plant_type_term(
+        self, name: str, maturity_days: int | None = None,
+        harvest_days: int | None = None, crop_family: str = "",
+        companions: list[str] | None = None,
+    ) -> Handle:
+        """Create a plant_type TERM carrying its planning fields; return its handle.
+
+        The plant_type identity port asserts fields that live ON the term
+        (farm_plant_type), so ``given`` must be able to instantiate one. The two
+        day counts are integer term fields; ``crop_family`` is a crop_family term
+        NAME and ``companions`` are plant_type term NAMES the adapter
+        resolves/creates (each field's own auto_create is false, so the adapter
+        ensures the referenced terms exist) — never per-run UUIDs. Non-abstract
+        so an adapter for an implementation without the vocabulary can exist and
+        say so loudly at the point of use, never fake a term.
+        """
+        raise self._unsupported("create_plant_type_term")
+
     def quantities_of(self, log_handle: Handle) -> list[Handle]:
         """The handles of the quantities a recorded log owns, in the order the
         log states them (which is the order ``record_log`` received them).
@@ -351,3 +370,39 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("soil_texture")
+
+    # --- generated: days_to_maturity (assertion, PROVISIONAL) --- #
+    def days_to_maturity(self, subject_handle: Handle) -> Any:
+        """Deliver the integer days-to-maturity recorded on the subject plant_type TERM (the term's maturity_days integer field), or the empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("days_to_maturity")
+
+    # --- generated: days_to_harvest (assertion, PROVISIONAL) --- #
+    def days_to_harvest(self, subject_handle: Handle) -> Any:
+        """Deliver the integer days-of-harvest recorded on the subject plant_type TERM (the term's harvest_days integer field), or the empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("days_to_harvest")
+
+    # --- generated: companion_plants (assertion, PROVISIONAL) --- #
+    def companion_plants(self, subject_handle: Handle) -> Any:
+        """Deliver the ordered NAMES of the plant_type terms the subject plant_type TERM references as companions (its multi-valued companions reference), or the empty list when none were recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("companion_plants")
+
+    # --- generated: crop_family (assertion, PROVISIONAL) --- #
+    def crop_family(self, subject_handle: Handle) -> Any:
+        """Deliver the NAME of the crop_family term the subject plant_type TERM references (its single-valued crop_family reference), or the empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("crop_family")

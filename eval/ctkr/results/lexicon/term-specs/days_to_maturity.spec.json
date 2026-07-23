@@ -1,0 +1,26 @@
+{
+  "term": "days_to_maturity",
+  "kind": "assertion",
+  "subject_kind": "entity",
+  "value_shape": "scalar",
+  "description": "The number of days a plant type is expected to take to reach maturity, recorded on the plant_type term.",
+  "probe_semantics": "Deliver the integer days-to-maturity recorded on the subject plant_type TERM (the term's maturity_days integer field), or the empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a plant_type term with maturity_days set to 85", "a second plant_type term with no maturity_days"],
+    "when": [],
+    "then": ["days_to_maturity of the first term == 85", "days_to_maturity of the second term == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/taxonomy/plant_type/config/install/field.field.taxonomy_term.plant_type.maturity_days.yml:field_name (integer, min 1; storage field.storage.taxonomy_term.maturity_days.yml)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a config YAML on the plant_type vocabulary term, not a log bundle",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read the subject as 'a land asset' set via 'record_log with days_to_maturity set to 90' (the log-record shape the proposer defaults to). The plant_type planning fields live ON a plant_type TERM (farm_plant_type), not on any log — so the subject is a plant_type term (subject_kind=entity), created via the new plant_type `given` write surface (MetaCoding plant-type), and the value is read off the term itself. No record_log is involved.",
+      "SHAPE DEVIATION (name): the glossary term days_to_maturity (the proposer's semantic name, consistent with the existing days_to_* lexicon family) reads the farmOS field maturity_days. The write-side GivenStep field keeps the source field name (maturity_days); the read-side glossary term takes the semantic name — the laboratory-vs-lab house form.",
+      "DERIVATION VALIDATED LIVE (oracle taxonomy_term/plant_type, MetaCoding plant-type): maturity_days is delivered as a JSON INTEGER (85), not a string; an unset field is delivered as null, read back as the empty value \"\" (the lot_number house form), which survives distillation as a non-None value.",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(plant_type) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

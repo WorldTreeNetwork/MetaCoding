@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w3a-maturity-tracks-distinct-input",
+      "title": "Two plant types recording different days to maturity each report their own recorded count",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_maturity"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Tomato Brandywine", "maturity_days": 85},
+        {"entity": "plant_type", "alias": "P2", "name": "w3a-Pepper Habanero", "maturity_days": 110}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_maturity", "subject": "P1"},
+        {"assert": "days_to_maturity", "subject": "P2"}
+      ]
+    },
+    {
+      "key": "w3a-maturity-absent",
+      "title": "A plant type recording no days to maturity reports no maturity count",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_maturity"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Lettuce Untimed"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_maturity", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-harvest-tracks-distinct-input",
+      "title": "Two plant types recording different days of harvest each report their own recorded count",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_harvest"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Bean Bush Blue Lake", "harvest_days": 30},
+        {"entity": "plant_type", "alias": "P2", "name": "w3a-Radish Cherry", "harvest_days": 21}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_harvest", "subject": "P1"},
+        {"assert": "days_to_harvest", "subject": "P2"}
+      ]
+    },
+    {
+      "key": "w3a-harvest-absent",
+      "title": "A plant type recording no days of harvest reports no harvest count",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_harvest"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Kale Untimed"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_harvest", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-maturity-and-harvest-are-distinct-fields",
+      "title": "A plant type with a maturity count but no harvest count reports the maturity and no harvest",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_maturity", "days_to_harvest"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Carrot Nantes", "maturity_days": 70}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_maturity", "subject": "P1"},
+        {"assert": "days_to_harvest", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-crop-family-tracks-distinct-family",
+      "title": "Two plant types naming different crop families each report their own recorded family",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "crop_family"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Tomato Roma", "crop_family": "w3a-Solanaceae"},
+        {"entity": "plant_type", "alias": "P2", "name": "w3a-Cabbage Savoy", "crop_family": "w3a-Brassicaceae"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "crop_family", "subject": "P1"},
+        {"assert": "crop_family", "subject": "P2"}
+      ]
+    },
+    {
+      "key": "w3a-crop-family-absent",
+      "title": "A plant type naming no crop family reports no family",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "crop_family"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Sunflower Mammoth"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "crop_family", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-companions-multi-member",
+      "title": "A plant type naming several companion plants reports each recorded companion",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "companion_plants"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Tomato Companioned", "companions": ["w3a-Basil", "w3a-Marigold"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "companion_plants", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-companions-single",
+      "title": "A plant type naming a single companion plant reports that one companion",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "companion_plants"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Carrot Companioned", "companions": ["w3a-Chive"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "companion_plants", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-companions-empty",
+      "title": "A plant type naming no companion plants reports no companions",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "companion_plants"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Onion Solitary"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "companion_plants", "subject": "P1"}
+      ]
+    },
+    {
+      "key": "w3a-plant-type-carries-all-four-fields",
+      "title": "A plant type carrying maturity, harvest, crop family, and companions reports all four independently",
+      "feature": "taxonomy.plant_type",
+      "glossary_terms": ["plant_type", "days_to_maturity", "days_to_harvest", "crop_family", "companion_plants"],
+      "given": [
+        {"entity": "plant_type", "alias": "P1", "name": "w3a-Bean Three Sisters", "maturity_days": 95, "harvest_days": 14, "crop_family": "w3a-Fabaceae", "companions": ["w3a-Corn", "w3a-Squash"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "days_to_maturity", "subject": "P1"},
+        {"assert": "days_to_harvest", "subject": "P1"},
+        {"assert": "crop_family", "subject": "P1"},
+        {"assert": "companion_plants", "subject": "P1"}
+      ]
+    }
+  ]
+}

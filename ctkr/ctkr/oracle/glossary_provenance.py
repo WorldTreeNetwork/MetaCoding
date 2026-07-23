@@ -40,6 +40,12 @@ across five files after generation::
     "params": [{"field_name": "other",            # a ThenAssertion field
                 "alias_noun": "animal"}]          # non-empty = alias, resolved
                                                   # to a handle before the call
+
+A third OPTIONAL key (MetaCoding-wob) shapes the generated PortAdapter dispatch
+only — a ``"list"`` probe guards the wire shape and coerces to names, a scalar
+(the default) forwards raw::
+
+    "value_shape": "scalar"|"list",               # default "scalar"
 """
 
 from __future__ import annotations
@@ -68,6 +74,11 @@ PROBE_PARAM_FIELDS: frozenset[str] = frozenset(
     {"measure", "unit", "kind", "group", "other"}
 )
 SUBJECT_KINDS: frozenset[str] = frozenset({"entity", "event", "attempt"})
+#: The port-adapter dispatch shape (MetaCoding-wob): a ``scalar`` value is
+#: forwarded raw so a type mismatch surfaces as a real comparison; a ``list`` is
+#: guarded (a non-list answer is a BridgeError, NO VERDICT) and coerced to names.
+#: This shapes the generated PortAdapter method ONLY — every other stub is Any.
+VALUE_SHAPES: frozenset[str] = frozenset({"scalar", "list"})
 
 
 class ProvenanceError(RuntimeError):
@@ -106,6 +117,14 @@ def validate_term_spec(spec: Any) -> list[str]:
             f"subject_kind {spec['subject_kind']!r} is not one of "
             f"{sorted(SUBJECT_KINDS)}"
         )
+    if "value_shape" in spec:
+        if spec.get("kind") != "assertion":
+            problems.append("value_shape is only meaningful on an assertion spec")
+        elif spec["value_shape"] not in VALUE_SHAPES:
+            problems.append(
+                f"value_shape {spec['value_shape']!r} is not one of "
+                f"{sorted(VALUE_SHAPES)}"
+            )
     if "params" in spec:
         params = spec["params"]
         if spec.get("kind") != "assertion":

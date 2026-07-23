@@ -245,6 +245,46 @@ class FarmOSAdapter(ImplementationAdapter):
         uid = self.client.request("POST", f"/api/asset/{bundle}", doc)["data"]["id"]
         return f"asset:{bundle}:{uid}"
 
+    def create_plant_type_term(
+        self, name: str, maturity_days: int | None = None,
+        harvest_days: int | None = None, crop_family: str = "",
+        companions: list[str] | None = None,
+    ) -> Handle:
+        """Create a plant_type term with its planning fields (MetaCoding plant-type).
+
+        The two day counts are integer attributes farmOS delivers as JSON
+        integers (validated live). crop_family is a single crop_family term
+        reference and companions a multi-valued plant_type term reference; each
+        field's own auto_create is false, so the referenced terms are ensured by
+        NAME through :meth:`_ensure_term` (find-or-create, exactly the unit/lab
+        form) and referenced by id — the fixture never carries a per-run UUID.
+        """
+        attrs: dict[str, Any] = {"name": name}
+        if maturity_days is not None:
+            attrs["maturity_days"] = maturity_days
+        if harvest_days is not None:
+            attrs["harvest_days"] = harvest_days
+        rels: dict[str, Any] = {}
+        if crop_family:
+            cf_id = self._ensure_term("crop_family", crop_family)
+            rels["crop_family"] = {
+                "data": {"type": "taxonomy_term--crop_family", "id": cf_id}
+            }
+        if companions:
+            comp_ids = [self._ensure_term("plant_type", c) for c in companions]
+            rels["companions"] = {"data": [
+                {"type": "taxonomy_term--plant_type", "id": cid} for cid in comp_ids
+            ]}
+        doc: dict[str, Any] = {
+            "data": {"type": "taxonomy_term--plant_type", "attributes": attrs}
+        }
+        if rels:
+            doc["data"]["relationships"] = rels
+        uid = self.client.request(
+            "POST", "/api/taxonomy_term/plant_type", doc
+        )["data"]["id"]
+        return f"taxonomy_term:plant_type:{uid}"
+
     def _create_quantity(self, q: QuantitySpec) -> tuple[str, str]:
         """POST one quantity resource; returns ``(bundle, uuid)``. The bundle is
         the spec's classification ("material"/"test") or "standard" (MetaCoding-xdt:
@@ -1029,6 +1069,62 @@ class FarmOSAdapter(ImplementationAdapter):
         Boundary transcription: a plain string the source states on the log.
         """
         return self._lab_test_attr(subject_handle, "soil_texture")
+
+    # --- plant_type term planning-field readbacks (MetaCoding plant-type) --- #
+    # The subject is a plant_type TERM handle ("taxonomy_term:plant_type:{uuid}").
+    # Each reads a field OFF the term at the JSON:API boundary. The day counts
+    # come back as JSON integers (validated live); an unset scalar delivers null,
+    # read back as "" (the lot_number house form). The references deliver each
+    # target term's own stated NAME — never a per-run UUID — so the value
+    # reproduces across runs and ports. PROVISIONAL until a sealed recording
+    # binds each term.
+    def days_to_maturity(self, subject_handle: Handle) -> Any:
+        """The integer maturity_days recorded on the plant_type term, or "" when none."""
+        _, vocab, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/taxonomy_term/{vocab}/{uid}")
+        v = doc["data"]["attributes"].get("maturity_days")
+        return v if v is not None else ""
+
+    def days_to_harvest(self, subject_handle: Handle) -> Any:
+        """The integer harvest_days recorded on the plant_type term, or "" when none."""
+        _, vocab, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/taxonomy_term/{vocab}/{uid}")
+        v = doc["data"]["attributes"].get("harvest_days")
+        return v if v is not None else ""
+
+    def crop_family(self, subject_handle: Handle) -> Any:
+        """The NAME of the single-valued crop_family term the plant_type term
+        references, or "" when none. The referenced term's own name (validated
+        live: the crop_family relationship delivers one object, not a list)."""
+        _, vocab, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET", f"/api/taxonomy_term/{vocab}/{uid}?include=crop_family")
+        rel = ((doc["data"].get("relationships") or {}).get("crop_family") or {}).get("data")
+        if not isinstance(rel, dict) or not rel:
+            return ""
+        target = rel.get("id")
+        for inc in doc.get("included") or []:
+            if inc.get("id") == target:
+                return inc["attributes"]["name"]
+        return ""
+
+    def companion_plants(self, subject_handle: Handle) -> list[str]:
+        """The ordered NAMES of the plant_type terms the term references as
+        companions, or [] when none. Names in the relationship's stated order
+        (validated live: companions delivers a JSON array); each term's own
+        name, never a per-run UUID."""
+        _, vocab, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET", f"/api/taxonomy_term/{vocab}/{uid}?include=companions")
+        rows = ((doc["data"].get("relationships") or {}).get("companions") or {}).get("data") or []
+        names_by_id = {
+            inc["id"]: inc["attributes"]["name"] for inc in (doc.get("included") or [])
+        }
+        return [names_by_id[r["id"]] for r in rows if r.get("id") in names_by_id]
+
+
+
+
 
 
 

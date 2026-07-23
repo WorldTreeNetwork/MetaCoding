@@ -337,6 +337,24 @@ class PortAdapter(ImplementationAdapter):
             )
         )
 
+    def create_plant_type_term(
+        self, name: str, maturity_days: int | None = None,
+        harvest_days: int | None = None, crop_family: str = "",
+        companions: list[str] | None = None,
+    ) -> Handle:
+        # Backs a plant_type `given` (MetaCoding plant-type). Like create_asset,
+        # not gated on a declared term: a port that cannot make plant_type terms
+        # cannot be verified on this feature at all, so it fails the call loudly
+        # at the point of use rather than being silently skipped. The planning
+        # fields ride only when stated, so a bridge sees a stable payload.
+        return str(self._bridge.call(
+            "create_plant_type_term", name=name,
+            **({"maturity_days": maturity_days} if maturity_days is not None else {}),
+            **({"harvest_days": harvest_days} if harvest_days is not None else {}),
+            **({"crop_family": crop_family} if crop_family else {}),
+            **({"companions": list(companions)} if companions else {}),
+        ))
+
     def record_log(
         self, kind: str, name: str, status: str,
         asset_handles: list[Handle], quantities: list[QuantitySpec],
@@ -571,3 +589,53 @@ class PortAdapter(ImplementationAdapter):
     def birth_record_count(self, animal_handle: Handle) -> int:
         self._need_probe("birth_record_count")
         return int(self._bridge.call("birth_record_count", animal=animal_handle))
+
+    # --- generated: days_to_maturity (assertion, PROVISIONAL) --- #
+    def days_to_maturity(self, subject_handle: Handle) -> Any:
+        """Deliver the integer days-to-maturity recorded on the subject plant_type TERM (the term's maturity_days integer field), or the empty value when none was recorded.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("days_to_maturity")
+        return self._bridge.call("days_to_maturity", subject=subject_handle)
+
+    # --- generated: days_to_harvest (assertion, PROVISIONAL) --- #
+    def days_to_harvest(self, subject_handle: Handle) -> Any:
+        """Deliver the integer days-of-harvest recorded on the subject plant_type TERM (the term's harvest_days integer field), or the empty value when none was recorded.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("days_to_harvest")
+        return self._bridge.call("days_to_harvest", subject=subject_handle)
+
+    # --- generated: companion_plants (assertion, PROVISIONAL) --- #
+    def companion_plants(self, subject_handle: Handle) -> list[str]:
+        """Deliver the ordered NAMES of the plant_type terms the subject plant_type TERM references as companions (its multi-valued companions reference), or the empty list when none were recorded.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("companion_plants")
+        got = self._bridge.call("companion_plants", subject=subject_handle)
+        if not isinstance(got, list):
+            raise BridgeError(
+                f"port bridge answered 'companion_plants' with "
+                f"{type(got).__name__} {got!r}; expected a list of names"
+            )
+        return [str(n) for n in got]
+
+    # --- generated: crop_family (assertion, PROVISIONAL) --- #
+    def crop_family(self, subject_handle: Handle) -> Any:
+        """Deliver the NAME of the crop_family term the subject plant_type TERM references (its single-valued crop_family reference), or the empty value when none was recorded.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("crop_family")
+        return self._bridge.call("crop_family", subject=subject_handle)
