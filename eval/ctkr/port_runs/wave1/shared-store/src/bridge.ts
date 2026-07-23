@@ -36,6 +36,10 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
     "reset",
     "close",
     "create_asset",
+    // Backs a plant_type `given` (MetaCoding plant-type). Like create_asset it
+    // is an ungated write surface — the adapter calls it directly, never gated
+    // on a glossary term — so it is always available, not listed in describe.
+    "create_plant_type_term",
     ...config.operations,
     ...config.probes,
   ]);
@@ -58,6 +62,24 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           name: String(req.name ?? ""),
           descriptor: String(req.descriptor ?? "") || undefined,
           sex: String(req.sex ?? "") || undefined,
+        });
+      case "create_plant_type_term":
+        // The planning fields ride only when stated (MetaCoding plant-type):
+        // maturity_days/harvest_days as integers, crop_family as a family NAME,
+        // companions as an ordered list of plant_type NAMES. An unstated field
+        // is left off so the term folds back the recorded absent-value contrast.
+        return store.createPlantTypeTerm({
+          name: String(req.name ?? ""),
+          ...(req.maturity_days !== undefined && req.maturity_days !== null
+            ? { maturityDays: Number(req.maturity_days) }
+            : {}),
+          ...(req.harvest_days !== undefined && req.harvest_days !== null
+            ? { harvestDays: Number(req.harvest_days) }
+            : {}),
+          ...(req.crop_family ? { cropFamily: String(req.crop_family) } : {}),
+          ...(req.companions
+            ? { companions: (req.companions as unknown[]).map(String) }
+            : {}),
         });
       case "record_log": {
         // Wire quantities use the oracle DSL's key names; normalize the
@@ -184,6 +206,40 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           return { unanswerable: `no log recorded under handle ${String(req.log)}` };
         }
         return methods;
+      }
+      // --- plant_type term planning-field probes (MetaCoding plant-type) -----
+      // Each answers off the MATERIALIZED plant_type term (never an echo of the
+      // given-step input): the recorded integer or "" for the day counts, the
+      // recorded family NAME or "" for crop_family, the ordered companion NAMES
+      // or [] for companion_plants. `undefined` — a subject that is not a
+      // plant_type term — is unanswerable, never the empty value.
+      case "days_to_maturity": {
+        const v = store.daysToMaturity(req.subject as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no plant_type term recorded under handle ${String(req.subject)}` };
+        }
+        return v;
+      }
+      case "days_to_harvest": {
+        const v = store.daysToHarvest(req.subject as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no plant_type term recorded under handle ${String(req.subject)}` };
+        }
+        return v;
+      }
+      case "crop_family": {
+        const v = store.cropFamily(req.subject as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no plant_type term recorded under handle ${String(req.subject)}` };
+        }
+        return v;
+      }
+      case "companion_plants": {
+        const names = store.companionPlants(req.subject as Handle);
+        if (names === undefined) {
+          return { unanswerable: `no plant_type term recorded under handle ${String(req.subject)}` };
+        }
+        return names;
       }
       case "close":
         return true;

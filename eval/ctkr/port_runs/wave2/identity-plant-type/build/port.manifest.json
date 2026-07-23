@@ -1,0 +1,22 @@
+{
+  "port": "w2-identity-plant-type",
+  "description": "MetaCoding plant-type identity port: the plant_type TAXONOMY TERM (farm_plant_type) and its four newly-BOUND planning terms — days_to_maturity, days_to_harvest, crop_family, companion_plants — read back off the term itself. A plant_type is NOT a log: the subject is a plant_type TERM entity (subject_kind=entity), born via the ungated `given` write surface create_plant_type_term (the create_asset form), never record_log. Implemented on the shared wave-1 store: create_plant_type_term births a plant_type_term_created event carrying the four planning fields, and the four probes fold each value back off that materialized term view. days_to_maturity and days_to_harvest deliver the recorded integer verbatim (the wire's maturity_days / harvest_days integer fields), '' when the term stated none — they are DISTINCT payload fields and cannot bleed (fixture b7b986: maturity 70, harvest ''). crop_family delivers the NAME of the single-valued crop_family the term references ('' when none). companion_plants delivers the ORDERED NAMES of the multi-valued companions the term references ([] when none). crop_family and companions are recorded as the NAMES the wire delivers, never per-run term ids, so the readback reproduces across runs and ports. Bound live on pack dba1550722fa632cd2bc0c2d2ca2c7d4; 18/18 assertions scored and reproduced. READINGS the recording cannot state (all tested, none a scoring divergence): (1) the write-side field names keep the farmOS source names (maturity_days, harvest_days, crop_family, companions) while the read-side glossary terms take the semantic names (days_to_maturity, days_to_harvest, crop_family, companion_plants) — the laboratory-vs-lab house form; (2) a subject that is not a plant_type term (an asset, a log, an unknown or ghost handle) is UNANSWERABLE, never the empty value — a plant_type probe never answers about a non-plant_type subject; (3) crop_family and companions reference OTHER terms in the source (auto_create false), but the port never mints or resolves a referenced term: the wire delivers the reproducible NAME and the port records and returns exactly that name (the name IS the reproducible identity), so a companion carries no fields of its own. Source-shape finding for the reader: the day counts arrive on the wire as JSON integers and are delivered back verbatim as integers (not strings); an unstated integer field, an unstated crop_family, and unstated companions each read back as the recorded absent-value contrast the pack scores ('' / '' / []).",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [],
+    "probes": [
+      "days_to_maturity",
+      "days_to_harvest",
+      "crop_family",
+      "companion_plants"
+    ]
+  },
+  "divergences": []
+}

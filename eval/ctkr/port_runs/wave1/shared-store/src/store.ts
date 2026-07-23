@@ -108,6 +108,30 @@ export interface AssetCreatedPayload {
   sex?: string;
 }
 
+/**
+ * The birth of a plant_type TAXONOMY TERM (MetaCoding plant-type, farm_plant_type)
+ * carrying the four planning fields the plant_type identity port reads back.
+ * A plant_type is NOT a log — it is a term entity, so it births through its own
+ * event rather than record_log. Present-only fields: each planning field rides
+ * on the payload ONLY when the term stated it, so an unstated field materializes
+ * as the recorded absent-value contrast the pack scores ("" / []), never a value
+ * the term never carried.
+ *   - maturityDays / harvestDays: the term's own integer fields (distinct fields,
+ *     never blended — a term with a maturity but no harvest reads maturity and "").
+ *   - cropFamily: the NAME of the single-valued crop_family the term references
+ *     (a reproducible string the wire delivers, never a per-run term id).
+ *   - companions: the ORDERED NAMES of the plant_type terms referenced as
+ *     companions (reproducible strings, order preserved).
+ */
+export interface PlantTypeTermCreatedPayload {
+  termId: Handle;
+  name: string;
+  maturityDays?: number;
+  harvestDays?: number;
+  cropFamily?: string;
+  companions?: readonly string[];
+}
+
 export interface LogRecordedPayload {
   logId: Handle;
   /** the domain log bundle: activity | observation | harvest | input | ... */
@@ -221,6 +245,33 @@ export class Wave1LogStore {
     const assetId = this.ids.mint("asset");
     this.emit<AssetCreatedPayload>("asset_created", { assetId, ...input });
     return assetId;
+  }
+
+  /**
+   * Birth a plant_type TAXONOMY TERM carrying its planning fields (MetaCoding
+   * plant-type). Distinct terms are distinct handles. Each planning field is
+   * carried ONLY when stated, so an unstated field folds back as the recorded
+   * empty-value contrast ("" / []) — the store never invents a value the term
+   * did not carry. crop_family and companions are recorded as the NAMES the wire
+   * delivers (never per-run ids), so the readback reproduces across runs/ports.
+   */
+  createPlantTypeTerm(input: {
+    name: string;
+    maturityDays?: number;
+    harvestDays?: number;
+    cropFamily?: string;
+    companions?: readonly string[];
+  }): Handle {
+    const termId = this.ids.mint("term");
+    this.emit<PlantTypeTermCreatedPayload>("plant_type_term_created", {
+      termId,
+      name: input.name,
+      ...(input.maturityDays !== undefined ? { maturityDays: input.maturityDays } : {}),
+      ...(input.harvestDays !== undefined ? { harvestDays: input.harvestDays } : {}),
+      ...(input.cropFamily ? { cropFamily: input.cropFamily } : {}),
+      ...(input.companions?.length ? { companions: [...input.companions] } : {}),
+    });
+    return termId;
   }
 
   recordLog(input: {
@@ -440,6 +491,53 @@ export class Wave1LogStore {
     if (!v) return undefined;
     const q = v.quantities.find((x) => (x.quantityType ?? "") === "test");
     return q ? (q.testMethods ?? []) : [];
+  }
+
+  // ---- plant_type term planning-field readbacks (MetaCoding plant-type) ----
+  //
+  // The four planning fields the plant_type identity port reads off a plant_type
+  // TERM. Each folds off the term's recorded birth event — the MATERIALIZED
+  // state, never an echo of a caller-held input object. The day counts deliver
+  // the recorded integer verbatim, or "" when the term stated none; crop_family
+  // delivers the recorded family NAME or ""; companion_plants delivers the
+  // ordered companion NAMES or []. Every readback returns `undefined` when the
+  // handle is not a plant_type term (an asset, a log, an unknown handle) — a
+  // non-plant_type subject is UNANSWERABLE, never the empty value. maturityDays
+  // and harvestDays are separate payload fields, so they cannot bleed into each
+  // other: reading one never surfaces the other.
+
+  private plantTypeTerm(termId: Handle): PlantTypeTermCreatedPayload | undefined {
+    return this.eventsOf<PlantTypeTermCreatedPayload>("plant_type_term_created").find(
+      (e) => e.payload.termId === termId,
+    )?.payload;
+  }
+
+  /** The plant_type term's recorded maturity_days integer; "" when none. */
+  daysToMaturity(termId: Handle): number | string | undefined {
+    const t = this.plantTypeTerm(termId);
+    if (!t) return undefined;
+    return t.maturityDays ?? "";
+  }
+
+  /** The plant_type term's recorded harvest_days integer; "" when none. */
+  daysToHarvest(termId: Handle): number | string | undefined {
+    const t = this.plantTypeTerm(termId);
+    if (!t) return undefined;
+    return t.harvestDays ?? "";
+  }
+
+  /** The NAME of the crop_family the plant_type term references; "" when none. */
+  cropFamily(termId: Handle): string | undefined {
+    const t = this.plantTypeTerm(termId);
+    if (!t) return undefined;
+    return t.cropFamily ?? "";
+  }
+
+  /** The ordered NAMES of the plant_type term's companions; [] when none. */
+  companionPlants(termId: Handle): readonly string[] | undefined {
+    const t = this.plantTypeTerm(termId);
+    if (!t) return undefined;
+    return t.companions ?? [];
   }
 
   /**

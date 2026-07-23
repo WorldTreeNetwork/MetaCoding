@@ -32,6 +32,11 @@ export const WAVE1_CORE_KINDS: readonly KindSpec[] = [
   // to the whole log family, so it lives in the shared taxonomy.
   { kind: "log_deleted", family: "lifecycle", isLog: false, description: "NEW w1: deletion of a log; its quantities cascade via quantity_deleted" },
   { kind: "quantity_deleted", family: "lifecycle", isLog: false, description: "NEW w1: deletion of one quantity; referencing logs gain a removal revision" },
+  // NEW in wave 2 (MetaCoding plant-type): a plant_type is a TAXONOMY TERM
+  // (farm_plant_type), not a log — its own birth event carrying the four
+  // planning fields the plant_type identity port reads back. isLog:false so it
+  // never touches logCount/yield; family "taxonomy" marks it off the log spine.
+  { kind: "plant_type_term_created", family: "taxonomy", isLog: false, description: "NEW w2: births a plant_type taxonomy term carrying its planning fields (maturity/harvest days, crop_family name, companion names)" },
 ];
 
 /**
