@@ -222,7 +222,7 @@ def test_folds_read_their_bundle_set_from_the_source_index() -> None:
     """
     adapter = _adapter(FakeFarmOS())
     assert "birth" in adapter.log_bundles()
-    src = Path("ctkr/oracle/farmos_adapter.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "ctkr" / "oracle" / "farmos_adapter.py").read_text(encoding="utf-8")  # cwd-independent (MetaCoding-dbw)
     assert '("harvest", "input", "activity", "observation", "seeding")' not in src
 
 
@@ -231,7 +231,7 @@ def test_the_adapter_no_longer_shapes_the_source_ordering() -> None:
     that its own ``sort=-timestamp`` read would be well-defined — i.e. it shaped
     the observation to suit its query. farmOS breaks the tie itself on
     ``lfd2.id > lfd.id``; the derivation now reads it that way."""
-    src = Path("ctkr/oracle/farmos_adapter.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "ctkr" / "oracle" / "farmos_adapter.py").read_text(encoding="utf-8")  # cwd-independent (MetaCoding-dbw)
     assert "_last_assign_ts" not in src
     assert "-timestamp,-drupal_internal__id" in src
 
