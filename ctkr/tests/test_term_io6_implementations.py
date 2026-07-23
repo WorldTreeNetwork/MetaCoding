@@ -294,14 +294,31 @@ def test_non_land_descriptor_stays_free_text() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The whole batch stays PROVISIONAL / non-evidence                             #
+# Authorities validated (MetaCoding-spf) — the batch now scores                #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("term", ["lot_number", "material_quantity"])
-def test_new_assertion_probes_are_not_yet_evidence(term: str) -> None:
-    spec = PROBE_CONTRACT[term]
+def test_lot_number_probe_is_boundary_evidence() -> None:
+    """Reclassified DERIVED -> BOUNDARY at validation (MetaCoding-spf): a
+    direct transcription of a source-stated string attribute (Harvest.php /
+    Input.php / Seeding.php, validated live). BOUNDARY keeps derivation_id
+    empty, so the sealed pack recorded before the refinement stays VALID."""
+    spec = PROBE_CONTRACT["lot_number"]
+    assert spec.authority == "boundary"
+    assert spec.is_evidence
+    assert spec.derivation_id == ""  # the pack-preserving property
+    assert spec.subject_kind == "event"
+
+
+def test_material_quantity_probe_is_validated_evidence() -> None:
+    """DERIVED with validated_against (MetaCoding-spf): the bundle VALUE is
+    source-stated (Material.php/Standard.php + quantity.type.*.yml, validated
+    live); the FIRST-quantity SELECTION is ours and must stay DISCLOSED in the
+    derivation — dropping either silently un-evidences or un-discloses."""
+    spec = PROBE_CONTRACT["material_quantity"]
     assert spec.authority == "derived"
-    assert not spec.is_evidence  # DERIVED, no validated_against
-    assert spec.subject_kind == "event"  # subject is a recorded log
+    assert spec.is_evidence
+    assert "FIRST" in spec.derivation  # the selection disclosure
+    assert "stated by the source" in spec.validated_against
+    assert spec.subject_kind == "event"
 
 
 # --------------------------------------------------------------------------- #

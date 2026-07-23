@@ -1,6 +1,6 @@
 {
-  "pack_id": "6361aa306334",
-  "recorded_at": "2026-07-22T19:50:13.530160+00:00",
+  "pack_id": "30b513677625",
+  "recorded_at": "2026-07-23T14:30:16.421390+00:00",
   "source_system": "farmOS",
   "source_version": "4.x",
   "fixture_ids": [
@@ -9,8 +9,8 @@
     "5b695b109ead8c3e525627ea26d9f86e",
     "6e2c3c900a76369ebdddbfa82c0daa1d"
   ],
-  "fixtures_blake3": "f4791eaef09baea2427164f31d4e2c1a",
-  "observations_blake3": "55b5c81dbb468a67df0128fbfb6666d4",
+  "fixtures_blake3": "a4ce10c723ed6f27722388aec61356b9",
+  "observations_blake3": "036bbc264c2e47548ca7b49f943b1ee4",
   "derivations": {
     "yield_total": "3f299470a126f329",
     "log_count": "6c6869b9e8a9b6e4",
@@ -22,9 +22,15 @@
     "parent_count": "c6bf3671e7c4df31",
     "has_parent": "b72317e3a75bc406",
     "birth_record_count": "dada0d951d78c63e",
-    "lot_number": "a6269061cb84ba4a",
-    "material_quantity": "4e05c434576dc240",
-    "birth_mother": "570d5ec038cb8ce8"
+    "material_quantity": "f88718f45e120f9b",
+    "birth_mother": "570d5ec038cb8ce8",
+    "equipment_used": "42ec272b5a5ea157",
+    "material_type_recorded": "eb003b443bc7588a",
+    "laboratory": "609a77be86c5246e",
+    "lab_test_measurement": "63b4a2862268ef51",
+    "companion_plants": "a121c8cbb1235539",
+    "crop_family": "a33f72f8d3f24308",
+    "sensor_data_stream": "364254b5b1662fe3"
   },
-  "seal": "6361aa306334f62329eab7ad9dfa4214"
+  "seal": "30b513677625aaf6b8677753f26abdf7"
 }

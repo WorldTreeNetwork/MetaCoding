@@ -45,8 +45,13 @@ def test_lot_number_unimplemented_stub_fails_loudly() -> None:
         getattr(bare(), TERM)('H')
 
 
-def test_lot_number_is_not_yet_evidence() -> None:
-    """PROVISIONAL: derived, unvalidated — its values cannot score."""
-    from ctkr.oracle.probes import PROBE_CONTRACT
+def test_lot_number_is_boundary_evidence() -> None:
+    """The source STATES this string field directly on exactly three log
+    bundles at its published interface — BOUNDARY transcription (authority
+    validated post-binding, MetaCoding-spf), evidence by construction. The
+    null->'' fold is representation, not semantics."""
+    from ctkr.oracle.probes import BOUNDARY, PROBE_CONTRACT
 
-    assert not PROBE_CONTRACT[TERM].is_evidence
+    spec = PROBE_CONTRACT[TERM]
+    assert spec.authority == BOUNDARY
+    assert spec.is_evidence

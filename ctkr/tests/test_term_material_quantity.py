@@ -46,8 +46,15 @@ def test_material_quantity_unimplemented_stub_fails_loudly() -> None:
         getattr(bare(), TERM)('H')
 
 
-def test_material_quantity_is_not_yet_evidence() -> None:
-    """PROVISIONAL: derived, unvalidated — its values cannot score."""
+def test_material_quantity_is_validated_evidence() -> None:
+    """Validated (MetaCoding-spf): the bundle VALUE is source-stated
+    (farm_quantity_material/standard plugin + config ids, JSON:API type
+    'quantity--{bundle}', validated live); the FIRST-quantity SELECTION is
+    ours, disclosed in the derivation — the material_type_recorded 'first'
+    punt. The validation must stay recorded: dropping validated_against
+    silently un-evidences every recorded pack."""
     from ctkr.oracle.probes import PROBE_CONTRACT
 
-    assert not PROBE_CONTRACT[TERM].is_evidence
+    spec = PROBE_CONTRACT[TERM]
+    assert spec.is_evidence
+    assert "stated by the source" in spec.validated_against
