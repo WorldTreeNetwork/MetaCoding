@@ -1,0 +1,29 @@
+{
+  "port": "w2-identity-lab-test",
+  "description": "MetaCoding-wgy identity port: the log--lab_test bundle (farm_lab_test LabTestLog.php) and its six newly-BOUND terms — five bundle fields the source states on the log plus the test method its measurement quantity carries. Implemented feature-local on the shared wave-1 store: record_log carries lab_test_type / lab / lab_processed_date / lab_received_date / soil_texture onto the log_recorded event's extras and each quantity--test's test_method onto the quantity; the six probes fold every value back off the materialized log view. lab_sample_type, lab_processing_date, sample_received_date, soil_texture are BOUNDARY transcriptions (verbatim string / ISO instant / free string, '' when the field was not recorded). laboratory is the recorded lab NAME (the source's single-valued `lab` entity_reference to taxonomy_term--lab; the port carries the name the boundary delivers verbatim). lab_test_measurement is the ordered test_method NAMES on the FIRST quantity--test — the material_type_recorded / has_parent house form. Bound live on pack 066d1701271199f5cec70e0d742000ba; 22/22 observed values reproduced. READINGS the recording cannot state (all tested, none a scoring divergence): (1) test_method is modeled as a one-name list because the flow DSL delivers at most one method per quantity, wrapping the single wire value to honour the source's multi-valued ordered-list shape; (2) the 'first test quantity' selection is our unambiguity convention, sound while a flow carries at most one test quantity per log (the material_type_recorded 'two firsts' caveat — the bound flows carry exactly one); (3) a log that did not state a lab field (a non-lab_test log, or a lab_test log leaving the field empty) reads back the empty value '' / [], exactly the recorded absent-field contrast the pack scores — a lab probe never invents a value it was not given. Source-shape finding for the reader: `lab` arrives on the wire as a laboratory NAME string and is delivered back verbatim, so the port never needs to mint or resolve a taxonomy term to reproduce the observed value; the name IS the reproducible identity.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [
+      "record_log",
+      "set_log_status",
+      "set_effective_time",
+      "archive_asset"
+    ],
+    "probes": [
+      "lab_sample_type",
+      "laboratory",
+      "lab_test_measurement",
+      "lab_processing_date",
+      "sample_received_date",
+      "soil_texture"
+    ]
+  },
+  "divergences": []
+}

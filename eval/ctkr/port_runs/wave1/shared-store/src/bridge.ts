@@ -12,7 +12,7 @@
 // (never guessed): port-verify only reaches it when manifest and bridge
 // disagree, which must surface as a declaration problem.
 
-import type { Wave1LogStore, Handle, QuantityInput } from "./store.ts";
+import type { Wave1LogStore, Handle, QuantityInput, LogExtras } from "./store.ts";
 import type { LifecycleStatus } from "../../../../../../src/kernel/index.ts";
 
 export interface BridgeConfig {
@@ -65,21 +65,37 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         // quantityType, `inventory_asset` handle -> inventoryAssetId).
         const quantities = ((req.quantities ?? []) as Record<string, unknown>[])
           .map((q) => {
-            const { bundle, inventory_asset, alias: _alias, ...rest } = q;
+            const { bundle, inventory_asset, alias: _alias, test_method, ...rest } = q;
             return {
               ...rest,
               ...(bundle ? { quantityType: String(bundle) } : {}),
               ...(inventory_asset
                 ? { inventoryAssetId: inventory_asset as Handle }
                 : {}),
+              // quantity--test `test_method` (MetaCoding-wgy): the wire delivers
+              // at most one method name per quantity; wrap it as a one-name list
+              // so labTestMeasurement folds the source's ordered-list shape.
+              ...(test_method
+                ? { testMethods: [String(test_method)] }
+                : {}),
             } as QuantityInput;
           });
+        // lab_test bundle fields (MetaCoding-wgy) — top-level on the wire only
+        // when stated; absent ones leave the log's field empty (the recorded
+        // absent-field contrast the pack scores).
+        const labExtras: LogExtras = {};
+        if (req.lab_test_type) labExtras.labSampleType = String(req.lab_test_type);
+        if (req.lab) labExtras.laboratory = String(req.lab);
+        if (req.lab_processed_date) labExtras.labProcessedDate = String(req.lab_processed_date);
+        if (req.lab_received_date) labExtras.labReceivedDate = String(req.lab_received_date);
+        if (req.soil_texture) labExtras.soilTexture = String(req.soil_texture);
         return store.recordLog({
           kind: String(req.kind),
           name: String(req.name ?? ""),
           status: String(req.status ?? "done") as LifecycleStatus,
           assetIds: (req.assets ?? []) as Handle[],
           quantities,
+          ...(Object.keys(labExtras).length ? { extras: labExtras } : {}),
           // The cross-family `equipment` base field (MetaCoding-1cv); absent
           // on the wire from pre-1cv oracles, so default [].
           equipmentIds: (req.equipment ?? []) as Handle[],
@@ -122,6 +138,52 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           return { unanswerable: `no log recorded under handle ${String(req.log)}` };
         }
         return names;
+      }
+      // --- lab_test bundle-field probes (MetaCoding-wgy) --------------------
+      // Scalar readbacks answer "" (a value, not unanswerable) when the log
+      // recorded no such field; unanswerable only when the log is unknown or
+      // deleted. lab_test_measurement answers [] the same way.
+      case "lab_sample_type": {
+        const v = store.labSampleType(req.log as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return v;
+      }
+      case "laboratory": {
+        const v = store.laboratory(req.log as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return v;
+      }
+      case "lab_processing_date": {
+        const v = store.labProcessingDate(req.log as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return v;
+      }
+      case "sample_received_date": {
+        const v = store.sampleReceivedDate(req.log as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return v;
+      }
+      case "soil_texture": {
+        const v = store.soilTexture(req.log as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return v;
+      }
+      case "lab_test_measurement": {
+        const methods = store.labTestMeasurement(req.log as Handle);
+        if (methods === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log)}` };
+        }
+        return methods;
       }
       case "close":
         return true;

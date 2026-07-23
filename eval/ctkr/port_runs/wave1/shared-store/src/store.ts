@@ -57,6 +57,15 @@ export interface QuantityInput {
    * not restate recorded quantities.
    */
   inventoryAssetId?: Handle;
+  /**
+   * The testing methods a quantity--test states (core farm_quantity_test
+   * TestQuantity.php `test_method`, a multi-valued entity_reference to
+   * taxonomy_term--test_method), carried as ordered term NAMES (MetaCoding-wgy
+   * lab_test_measurement). Only a `quantityType === "test"` quantity carries
+   * one; the wire delivers at most a single method per quantity, wrapped as a
+   * one-name list so the fold honours the source's ordered-list shape.
+   */
+  testMethods?: readonly string[];
 }
 
 export interface QuantityRecord extends QuantityInput {
@@ -72,6 +81,23 @@ export interface LogExtras {
   source?: string;
   /** harvest: the exact recorded quantity payload incl. [null] (contract w1c). */
   quantityPayload?: readonly (QuantityInput | null)[];
+  // --- lab_test bundle fields (MetaCoding-wgy) -----------------------------
+  // The five attributes farm_lab_test LabTestLog.php adds to log--lab_test.
+  // Verbatim boundary transcriptions (a list_string category, two absolute
+  // ISO dates, a free string, a laboratory NAME): the source states each on
+  // the log; the port carries each unchanged and reads it back as recorded.
+  // Present only on logs that stated them (i.e. lab_test logs) — a log without
+  // the field reads back the empty value, exactly as the absent-field contrast.
+  /** lab_test_type — the specimen category (soil / tissue / water / …). */
+  labSampleType?: string;
+  /** lab — the NAME of the laboratory that performed the test. */
+  laboratory?: string;
+  /** lab_processed_date — absolute ISO-8601 date the lab processed the sample. */
+  labProcessedDate?: string;
+  /** lab_received_date — absolute ISO-8601 date the lab received the sample. */
+  labReceivedDate?: string;
+  /** soil_texture — free-string texture the lab reported. */
+  soilTexture?: string;
 }
 
 export interface AssetCreatedPayload {
@@ -356,6 +382,64 @@ export class Wave1LogStore {
     if (!v) return undefined;
     const q = v.quantities.find((x) => (x.quantityType ?? "") === "material");
     return q ? (q.materialTypes ?? []) : [];
+  }
+
+  // ---- lab_test bundle-field readbacks (MetaCoding-wgy) --------------------
+  //
+  // Four boundary transcriptions (sample type, two dates, soil texture) and
+  // one laboratory NAME read straight off the log's recorded extras; the sixth
+  // (lab_test_measurement) folds the test methods off the log's first
+  // quantity--test — the material_type_recorded house form. Each returns the
+  // empty value ("" or []) when the log recorded no such field, and `undefined`
+  // when the log is unknown or deleted (unanswerable, never the empty value).
+
+  /** lab_test_type recorded on the log; "" when none. */
+  labSampleType(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.labSampleType ?? "";
+  }
+
+  /** The recorded laboratory NAME (the log's single-valued `lab`); "" when none. */
+  laboratory(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.laboratory ?? "";
+  }
+
+  /** lab_processed_date recorded on the log (verbatim ISO); "" when none. */
+  labProcessingDate(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.labProcessedDate ?? "";
+  }
+
+  /** lab_received_date recorded on the log (verbatim ISO); "" when none. */
+  sampleReceivedDate(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.labReceivedDate ?? "";
+  }
+
+  /** soil_texture recorded on the log (verbatim string); "" when none. */
+  soilTexture(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.soilTexture ?? "";
+  }
+
+  /**
+   * The ordered test_method names on the log's FIRST quantity--test; [] when
+   * the log carries no test quantity or that quantity records no method (the
+   * 'first test quantity' selection is our unambiguity convention, sound while
+   * a flow carries at most one test quantity per log — the material_type_recorded
+   * 'two firsts' caveat). `undefined` when the log is unknown or deleted.
+   */
+  labTestMeasurement(logId: Handle): readonly string[] | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    const q = v.quantities.find((x) => (x.quantityType ?? "") === "test");
+    return q ? (q.testMethods ?? []) : [];
   }
 
   /**
