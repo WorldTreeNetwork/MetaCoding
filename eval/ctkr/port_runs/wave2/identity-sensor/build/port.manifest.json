@@ -1,0 +1,22 @@
+{
+  "port": "w2-identity-sensor",
+  "description": "MetaCoding-ej0 identity port: the SENSOR ASSET (farm_sensor asset--sensor) and its three bundle terms — sensor_data_stream, sensor_private_key, publicly_readable — plus asset_active over the sensor's handle. A sensor IS an asset (feature asset.sensor): archive/active apply to its handle through the shared asset lifecycle fold. It births via the ungated `given` write surface create_sensor_asset (the create_asset / create_plant_type_term form, never a declared operation) onto its OWN feature-local event sensor_asset_created (isLog:false, family asset, zero new kernel surface) — its own event, not asset_created, precisely so a sensor probe can refuse a non-sensor subject: a plain asset, a log, a plant_type term, or an unknown handle is UNANSWERABLE, never the empty value. sensor_data_stream delivers the ORDERED NAMES of the sensor's recorded data streams verbatim — recorded order, NOT name order (fixture 569c36: B before A) — or [] when none; stream names are the reproducible identity, so two sensors naming the same stream name each report their own recorded copy (fixture 616009) and the port keeps no global stream registry. sensor_private_key delivers the recorded key string verbatim or '' when none stated. publicly_readable delivers the STATED flag: true or false as recorded — false is a VALUE, distinct from unstated — and '' when the sensor stated no flag (fixture d59876: false vs '' contrast). READINGS the recording cannot state (all tested, none a scoring divergence): (1) the wire's unstated shapes are '' for private_key, [] for data_streams, null for public — each is left OFF the birth payload so the readback materializes the recorded absent-value contrast, while public:false rides because false is stated; (2) an unstated private_key reads back '' (the house scalar-absent form; the pack never scores an unstated key — inferred from the publicly_readable '' contrast and the laboratory house form); (3) the given may arrive as create_asset with entity 'sensor' (the uniform given-record dispatch) — the bridge routes that shape to the same sensor birth, so both plausible adapter dispatches land on one event; likewise the probe subject is read from `subject` with `asset` accepted as the asset-family fallback, because the pack cannot state the adapter's wire key; (4) data stream names are recorded verbatim per sensor with no dedup and no cross-sensor linkage — the name IS the reproducible identity, the port never mints or resolves a data_stream entity, and a stream name carries no fields of its own. Source-shape finding for the reader: the sensor asserts arrive with empty measure/unit/kind/group/other — pure subject readbacks off the asset itself, the plant_type identity form on the asset side.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [],
+    "probes": [
+      "asset_active",
+      "sensor_data_stream",
+      "sensor_private_key",
+      "publicly_readable"
+    ]
+  },
+  "divergences": []
+}

@@ -132,6 +132,31 @@ export interface PlantTypeTermCreatedPayload {
   companions?: readonly string[];
 }
 
+/**
+ * The birth of a SENSOR ASSET (MetaCoding-ej0, farm_sensor asset--sensor)
+ * carrying the three bundle fields the sensor identity port reads back.
+ * A sensor IS an asset — asset_active / archive_asset apply to its handle —
+ * but it births through its own event, not asset_created, so a sensor probe
+ * can refuse a non-sensor subject (unanswerable, never an empty value).
+ * Present-only fields: each rides on the payload ONLY when the sensor stated
+ * it, so an unstated field materializes as the recorded absent-value contrast
+ * ("" / []), never a value the sensor never carried.
+ *   - dataStreams: the ORDERED NAMES of the sensor's data streams, verbatim as
+ *     recorded (recorded order, NOT name order — the non-alphabetical fixture).
+ *     Names are the reproducible identity; two sensors naming the same stream
+ *     name each carry their own recorded copy (no global stream registry).
+ *   - privateKey: the recorded key string, verbatim.
+ *   - public: the recorded flag. `false` is a stated VALUE distinct from
+ *     unstated — the field rides whenever the flag was stated, either way.
+ */
+export interface SensorAssetCreatedPayload {
+  assetId: Handle;
+  name: string;
+  dataStreams?: readonly string[];
+  privateKey?: string;
+  public?: boolean;
+}
+
 export interface LogRecordedPayload {
   logId: Handle;
   /** the domain log bundle: activity | observation | harvest | input | ... */
@@ -272,6 +297,32 @@ export class Wave1LogStore {
       ...(input.companions?.length ? { companions: [...input.companions] } : {}),
     });
     return termId;
+  }
+
+  /**
+   * Birth a SENSOR ASSET carrying its bundle fields (MetaCoding-ej0). Distinct
+   * sensors are distinct handles. Each field is carried ONLY when stated:
+   * an empty-string key and an empty stream list are the wire's "unstated"
+   * shapes and are left off, while `public: false` is a stated VALUE and rides
+   * (false !== unstated — the public-false-is-a-value fixture contrast). The
+   * store copies the stream list, so the readback is materialized state, never
+   * an echo of a caller-held array.
+   */
+  createSensorAsset(input: {
+    name: string;
+    dataStreams?: readonly string[];
+    privateKey?: string;
+    public?: boolean;
+  }): Handle {
+    const assetId = this.ids.mint("asset");
+    this.emit<SensorAssetCreatedPayload>("sensor_asset_created", {
+      assetId,
+      name: input.name,
+      ...(input.dataStreams?.length ? { dataStreams: [...input.dataStreams] } : {}),
+      ...(input.privateKey ? { privateKey: input.privateKey } : {}),
+      ...(input.public !== undefined ? { public: input.public } : {}),
+    });
+    return assetId;
   }
 
   recordLog(input: {
@@ -538,6 +589,49 @@ export class Wave1LogStore {
     const t = this.plantTypeTerm(termId);
     if (!t) return undefined;
     return t.companions ?? [];
+  }
+
+  // ---- sensor bundle-field readbacks (MetaCoding-ej0) ----------------------
+  //
+  // The three bundle fields the sensor identity port reads off a SENSOR asset.
+  // Each folds off the sensor's recorded birth event — the MATERIALIZED state,
+  // never an echo of a caller-held input. sensor_data_stream delivers the
+  // ordered recorded stream NAMES or []; sensor_private_key the recorded key
+  // verbatim or ""; publicly_readable the recorded flag (true/false are both
+  // stated VALUES) or "" when the sensor stated no flag. Every readback returns
+  // `undefined` when the handle is not a sensor asset (a plain asset, a log, a
+  // plant_type term, an unknown handle) — a non-sensor subject is UNANSWERABLE,
+  // never the empty value.
+
+  private sensorAsset(assetId: Handle): SensorAssetCreatedPayload | undefined {
+    return this.eventsOf<SensorAssetCreatedPayload>("sensor_asset_created").find(
+      (e) => e.payload.assetId === assetId,
+    )?.payload;
+  }
+
+  /** The ordered NAMES of the sensor's recorded data streams; [] when none. */
+  sensorDataStreams(assetId: Handle): readonly string[] | undefined {
+    const s = this.sensorAsset(assetId);
+    if (!s) return undefined;
+    return s.dataStreams ?? [];
+  }
+
+  /** The sensor's recorded private key, verbatim; "" when none stated. */
+  sensorPrivateKey(assetId: Handle): string | undefined {
+    const s = this.sensorAsset(assetId);
+    if (!s) return undefined;
+    return s.privateKey ?? "";
+  }
+
+  /**
+   * The sensor's recorded public flag: true or false when STATED (false is a
+   * value, not absence), "" when the sensor stated no flag — the recorded
+   * absent-value contrast the pack scores.
+   */
+  publiclyReadable(assetId: Handle): boolean | string | undefined {
+    const s = this.sensorAsset(assetId);
+    if (!s) return undefined;
+    return s.public ?? "";
   }
 
   /**

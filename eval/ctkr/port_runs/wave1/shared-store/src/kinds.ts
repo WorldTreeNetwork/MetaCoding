@@ -37,6 +37,14 @@ export const WAVE1_CORE_KINDS: readonly KindSpec[] = [
   // planning fields the plant_type identity port reads back. isLog:false so it
   // never touches logCount/yield; family "taxonomy" marks it off the log spine.
   { kind: "plant_type_term_created", family: "taxonomy", isLog: false, description: "NEW w2: births a plant_type taxonomy term carrying its planning fields (maturity/harvest days, crop_family name, companion names)" },
+  // NEW in wave 2 (MetaCoding-ej0 sensor): a sensor is an ASSET (farm_sensor
+  // asset--sensor) carrying three bundle fields (data stream names, private
+  // key, public flag). It births through its OWN event — not asset_created —
+  // so the sensor probes can tell a sensor subject from a non-sensor subject
+  // (a probe about a non-sensor is UNANSWERABLE, never an empty value).
+  // isLog:false so it never touches logCount/yield; family "asset" keeps it on
+  // the asset side of the taxonomy. Zero new kernel surface.
+  { kind: "sensor_asset_created", family: "asset", isLog: false, description: "NEW w2: births a sensor asset carrying its bundle fields (ordered data stream names, private key, public flag)" },
 ];
 
 /**

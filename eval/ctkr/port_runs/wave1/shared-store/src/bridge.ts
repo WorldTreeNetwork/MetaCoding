@@ -40,6 +40,10 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
     // is an ungated write surface — the adapter calls it directly, never gated
     // on a glossary term — so it is always available, not listed in describe.
     "create_plant_type_term",
+    // Backs a sensor `given` (MetaCoding-ej0) — the same ungated write surface
+    // family. create_asset with entity "sensor" routes here too, so either
+    // adapter dispatch shape lands on the one sensor birth event.
+    "create_sensor_asset",
     ...config.operations,
     ...config.probes,
   ]);
@@ -57,11 +61,33 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         store = config.makeStore();
         return true;
       case "create_asset":
+        // A sensor `given` may arrive as create_asset with entity "sensor"
+        // (the uniform given-record schema, dispatch on entity) — route it to
+        // the sensor birth so its bundle fields are recorded and its probes
+        // can recognize the subject as a sensor (MetaCoding-ej0).
+        if (String(req.entity ?? "") === "sensor") {
+          return handle({ ...req, op: "create_sensor_asset" });
+        }
         return store.createAsset({
           entity: String(req.entity ?? ""),
           name: String(req.name ?? ""),
           descriptor: String(req.descriptor ?? "") || undefined,
           sex: String(req.sex ?? "") || undefined,
+        });
+      case "create_sensor_asset":
+        // The bundle fields ride only when STATED (MetaCoding-ej0): wire "" is
+        // an unstated key, wire [] an unstated stream list, wire null an
+        // unstated public flag — but `public: false` is a stated VALUE and
+        // rides (the public-false-is-a-value contrast).
+        return store.createSensorAsset({
+          name: String(req.name ?? ""),
+          ...(Array.isArray(req.data_streams) && req.data_streams.length
+            ? { dataStreams: (req.data_streams as unknown[]).map(String) }
+            : {}),
+          ...(req.private_key ? { privateKey: String(req.private_key) } : {}),
+          ...(req.public !== undefined && req.public !== null
+            ? { public: Boolean(req.public) }
+            : {}),
         });
       case "create_plant_type_term":
         // The planning fields ride only when stated (MetaCoding plant-type):
@@ -240,6 +266,36 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           return { unanswerable: `no plant_type term recorded under handle ${String(req.subject)}` };
         }
         return names;
+      }
+      // --- sensor bundle-field probes (MetaCoding-ej0) -----------------------
+      // Each answers off the MATERIALIZED sensor asset. sensor_data_stream
+      // answers the ordered recorded stream NAMES ([] when none stated);
+      // sensor_private_key the recorded key verbatim ("" when none);
+      // publicly_readable the STATED flag (true/false both values) or "" when
+      // no flag was stated. `undefined` — a subject that is not a sensor
+      // asset — is unanswerable, never the empty value. The subject arrives as
+      // `subject` (the newly-bound-term wire form; `asset` accepted as the
+      // asset-family fallback).
+      case "sensor_data_stream": {
+        const names = store.sensorDataStreams((req.subject ?? req.asset) as Handle);
+        if (names === undefined) {
+          return { unanswerable: `no sensor asset recorded under handle ${String(req.subject ?? req.asset)}` };
+        }
+        return names;
+      }
+      case "sensor_private_key": {
+        const v = store.sensorPrivateKey((req.subject ?? req.asset) as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no sensor asset recorded under handle ${String(req.subject ?? req.asset)}` };
+        }
+        return v;
+      }
+      case "publicly_readable": {
+        const v = store.publiclyReadable((req.subject ?? req.asset) as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no sensor asset recorded under handle ${String(req.subject ?? req.asset)}` };
+        }
+        return v;
       }
       case "close":
         return true;
