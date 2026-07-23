@@ -267,6 +267,21 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         }
         return names;
       }
+      // --- structure kind probe (MetaCoding-xq7) -----------------------------
+      // Answers the structure's recorded structure_type machine id off the
+      // MATERIALIZED asset birth (entity "structure" through the generic
+      // create_asset path — structures need no dedicated create op): the
+      // recorded descriptor, or the stated fallback "other" when the structure
+      // was born without one. A subject that is not a structure asset is
+      // UNANSWERABLE, never "other" and never "". Subject arrives as `subject`
+      // (`asset` accepted as the asset-family fallback).
+      case "structure_kind": {
+        const v = store.structureKind((req.subject ?? req.asset) as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no structure asset recorded under handle ${String(req.subject ?? req.asset)}` };
+        }
+        return v;
+      }
       // --- sensor bundle-field probes (MetaCoding-ej0) -----------------------
       // Each answers off the MATERIALIZED sensor asset. sensor_data_stream
       // answers the ordered recorded stream NAMES ([] when none stated);

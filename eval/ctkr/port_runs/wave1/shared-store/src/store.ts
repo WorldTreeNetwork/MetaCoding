@@ -634,6 +634,36 @@ export class Wave1LogStore {
     return s.public ?? "";
   }
 
+  // ---- structure kind readback (MetaCoding-xq7) ----------------------------
+  //
+  // A structure is a plain ASSET (farmOS asset--structure) born through the
+  // pre-existing generic asset_created path with entity "structure" — it needs
+  // no dedicated birth event (unlike the sensor, whose three bundle fields
+  // motivate one). Its single bundle field is the structure_type machine id,
+  // carried as the asset's recorded descriptor. Zero new event kinds, zero new
+  // kernel surface.
+
+  /**
+   * The structure's kind machine id: the recorded descriptor when stated,
+   * "other" when the structure was born without one — the source's default
+   * structure_type, a stated FALLBACK VALUE, never an empty string. Wire ""
+   * is the unstated shape and falls back too (the bridge normalizes "" off
+   * before recording, and the fold guards it here as well so a direct store
+   * caller cannot materialize an empty kind). Answers ONLY for an asset born
+   * with entity "structure": any other handle — a non-structure asset (even
+   * one carrying a descriptor, e.g. a typed material), a sensor, a log, a
+   * plant_type term, a ghost — is `undefined`: UNANSWERABLE, never "other"
+   * and never "". Archive never touches it: kind folds off the birth event,
+   * asset_active off the lifecycle events — independent by construction.
+   */
+  structureKind(assetId: Handle): string | undefined {
+    const a = this.eventsOf<AssetCreatedPayload>("asset_created").find(
+      (e) => e.payload.assetId === assetId,
+    );
+    if (!a || a.payload.entity !== "structure") return undefined;
+    return a.payload.descriptor || "other";
+  }
+
   /**
    * Logs referencing an asset, ascending (effectiveTime, HLC) — the source's
    * LogQueryFactory order with the forbidden id tie-break replaced by the

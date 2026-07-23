@@ -1,0 +1,6 @@
+{
+  "name": "w2-identity-structure-port",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

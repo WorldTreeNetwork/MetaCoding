@@ -1,0 +1,22 @@
+{
+  "port": "w2-identity-structure",
+  "description": "MetaCoding-xq7 identity port: the STRUCTURE ASSET (farmOS asset--structure) and its one bundle term structure_kind, plus archive_asset / asset_active over the structure's handle. A structure IS a plain asset (feature asset.structure): it births through the pre-existing GENERIC create_asset given path with entity 'structure' and its structure_type machine id riding as the descriptor — no dedicated create op and, unlike the sensor, NO feature-local birth event: with exactly one bundle field the generic asset_created payload already carries everything, so this port adds ZERO new event kinds and zero kernel surface (only a read fold). structure_kind delivers the recorded descriptor machine id verbatim ('greenhouse', 'building', ... — fixture 69747c: two structures each report their OWN recorded kind), with the source's default 'other' when the structure was born without one (fixture c1a108) — a stated FALLBACK VALUE, never an empty string — and 'other' recorded explicitly reads identically (fixture 6f4625: fallback and explicit 'other' are indistinguishable at the boundary, deliberately). Archive touches ONLY the lifecycle fold: an archived structure leaves the active set (asset_active false) while still reporting its recorded kind (fixture 024795) — kind folds off the birth event, asset_active off asset_archived events, independent by construction, so kind survival is structural, not accidental. READINGS the recording cannot state (all tested, none a scoring divergence): (1) a subject that is not a structure asset — a non-structure asset EVEN WHEN it carries a descriptor (e.g. a typed material, whose descriptor feeds the material fold), a sensor asset, a log, a plant_type term, a ghost handle — is UNANSWERABLE, never 'other' and never '': the entity recorded at birth is the discriminator, so the fallback can never leak onto a non-structure; (2) the wire's unstated descriptor shape is '' (the pack's fallback fixture carries descriptor:'', not an absent key) — the bridge's generic create_asset path normalizes '' to unstated before recording and the fold guards '' again ('descriptor || other'), so no path materializes an empty kind; (3) the probe subject is read from `subject` with `asset` accepted as the asset-family fallback, because the pack cannot state the adapter's wire key; (4) the kind is a machine id recorded verbatim with no vocabulary: the port never validates 'greenhouse'/'building'/'other' against a term list — the recorded id IS the reproducible identity, exactly the sensor/plant-type NAME-not-id house form. Source-shape finding for the reader: the structure asserts arrive with empty measure/unit/kind/group/other — pure subject readbacks off the asset itself, the sensor/plant-type identity form on the asset side.",
+  "bridge": {
+    "command": [
+      "bun",
+      "run",
+      "port_bridge.ts"
+    ],
+    "timeout": 15.0
+  },
+  "capabilities": {
+    "operations": [
+      "archive_asset"
+    ],
+    "probes": [
+      "asset_active",
+      "structure_kind"
+    ]
+  },
+  "divergences": []
+}
