@@ -61,10 +61,14 @@ _FLOW_KEYS = frozenset(
 _GIVEN_KEYS = frozenset({"entity", "alias", "name", "descriptor", "sex"})
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
-     "quantities", "at", "parents", "names", "lot_number", "equipment"}
+     "quantities", "at", "parents", "names", "lot_number", "equipment",
+     # lab_test bundle fields (MetaCoding-wgy)
+     "lab_received_date", "lab_processed_date", "lab_test_type",
+     "soil_texture", "lab"}
 )
 _QUANTITY_KEYS = frozenset(
-    {"measure", "value", "unit", "label", "alias", "bundle", "inventory_asset"}
+    {"measure", "value", "unit", "label", "alias", "bundle", "inventory_asset",
+     "test_method"}
 )
 _PROBE_KEYS = frozenset(
     {"assert", "subject", "measure", "unit", "kind", "group", "other", "op"}
@@ -191,6 +195,7 @@ def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
         unit=_str(d, "unit", where), label=_str(d, "label", where),
         alias=_str(d, "alias", where), bundle=bundle,
         inventory_asset=_str(d, "inventory_asset", where),
+        test_method=_str(d, "test_method", where),
     )
 
 
@@ -259,6 +264,15 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         raise FlowSpecError(
             f"{where}.equipment: only record_log states equipment used"
         )
+    # lab_test bundle fields (MetaCoding-wgy) — only record_log states them.
+    lab_fields = {
+        f: _str(d, f, where)
+        for f in ("lab_received_date", "lab_processed_date", "lab_test_type",
+                  "soil_texture", "lab")
+    }
+    for f, v in lab_fields.items():
+        if v and action != "record_log":
+            raise FlowSpecError(f"{where}.{f}: only record_log states {f}")
     step = WhenStep(
         action=action, alias=_str(d, "alias", where), ref=_str(d, "ref", where),
         name=_str(d, "name", where), kind=kind, status=status,
@@ -270,6 +284,7 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         at=at, parents=_str_list(d, "parents", where),
         names=_str_list(d, "names", where),
         lot_number=lot_number, equipment=equipment,
+        **lab_fields,
     )
     for req in _ACTION_REQUIRED.get(action, ()):
         if not getattr(step, req):
@@ -395,16 +410,23 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             # on any other step they would be silently inert (the interpreter
             # neither binds nor creates them there), which is worse than a
             # refusal.
-            if (q.alias or q.bundle or q.inventory_asset) \
+            if (q.alias or q.bundle or q.inventory_asset or q.test_method) \
                     and step.action != "record_log":
                 raise FlowSpecError(
                     f"{where}.when[{i}].quantities[{j}]: only record_log "
-                    f"quantities may state an alias, bundle, or inventory_asset"
+                    f"quantities may state an alias, bundle, inventory_asset, "
+                    f"or test_method"
                 )
             if q.inventory_asset and q.inventory_asset not in aliases:
                 raise FlowSpecError(
                     f"{where}.when[{i}].quantities[{j}].inventory_asset: "
                     f"unknown entity alias {q.inventory_asset!r}"
+                )
+            if q.test_method and q.bundle != "test":
+                # test_method exists only on quantity--test (TestQuantity.php).
+                raise FlowSpecError(
+                    f"{where}.when[{i}].quantities[{j}].test_method: only a "
+                    f"bundle='test' quantity may state a test_method"
                 )
             if not q.alias:
                 continue

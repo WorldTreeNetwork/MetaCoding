@@ -71,15 +71,23 @@ class ImplementationAdapter(ABC):
         quantities: list[QuantitySpec],
         lot_number: str = "",
         equipment_handles: list[Handle] | None = None,
+        lab_received_date: str = "",
+        lab_processed_date: str = "",
+        lab_test_type: str = "",
+        soil_texture: str = "",
+        lab: str = "",
     ) -> Handle:
         """Record a log of ``kind`` against assets, with quantities; return handle.
 
         ``lot_number`` (MetaCoding-xdt) is an optional lot/batch identifier the
         log states. ``equipment_handles`` (MetaCoding-1cv) are the equipment
         assets the log states as used — the multi-valued ``equipment`` base
-        field farm_equipment adds to every log. The interpreter only passes
-        each when the step sets it, so adapters written before these fields
-        existed keep working unchanged.
+        field farm_equipment adds to every log. The ``lab_test`` bundle fields
+        (MetaCoding-wgy) — two ISO-8601 date strings, the sample-type and
+        soil-texture strings, and a laboratory NAME — are the fields
+        farm_lab_test declares on the ``lab_test`` log. The interpreter only
+        passes each when the step sets it, so adapters written before these
+        fields existed keep working unchanged.
         """
 
     @abstractmethod
@@ -289,3 +297,57 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("material_type_recorded")
+
+    # --- generated: lab_sample_type (assertion, PROVISIONAL) --- #
+    def lab_sample_type(self, subject_handle: Handle) -> Any:
+        """Deliver the sample category recorded on the subject lab-test log (the lab_test_type value, e.g. soil, tissue, or water), or an empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("lab_sample_type")
+
+    # --- generated: laboratory (assertion, PROVISIONAL) --- #
+    def laboratory(self, subject_handle: Handle) -> Any:
+        """Deliver the name of the laboratory recorded as having performed the subject lab test (the log's lab reference), or an empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("laboratory")
+
+    # --- generated: lab_test_measurement (assertion, PROVISIONAL) --- #
+    def lab_test_measurement(self, subject_handle: Handle) -> Any:
+        """Deliver the ordered test_method term names recorded on the first test-classified quantity of the subject lab-test log, or an empty list when the log carries no test measurement or the measurement records no method.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("lab_test_measurement")
+
+    # --- generated: lab_processing_date (assertion, PROVISIONAL) --- #
+    def lab_processing_date(self, subject_handle: Handle) -> Any:
+        """Deliver the recorded date on which the laboratory processed the sample for the subject lab test (the log's lab_processed_date), or an empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("lab_processing_date")
+
+    # --- generated: sample_received_date (assertion, PROVISIONAL) --- #
+    def sample_received_date(self, subject_handle: Handle) -> Any:
+        """Deliver the recorded date on which the laboratory received the sample for the subject lab test (the log's lab_received_date), or an empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("sample_received_date")
+
+    # --- generated: soil_texture (assertion, PROVISIONAL) --- #
+    def soil_texture(self, subject_handle: Handle) -> Any:
+        """Deliver the soil texture string recorded on the subject lab test (the log's soil_texture), or an empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("soil_texture")

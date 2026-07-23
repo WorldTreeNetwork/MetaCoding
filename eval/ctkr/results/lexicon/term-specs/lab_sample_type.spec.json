@@ -1,0 +1,23 @@
+{
+  "term": "lab_sample_type",
+  "kind": "assertion",
+  "subject_kind": "event",
+  "description": "The laboratory specimen category recorded on a lab test log, such as soil, tissue, or water.",
+  "probe_semantics": "Deliver the sample category recorded on the subject lab-test log (the lab_test_type value, e.g. soil, tissue, or water), or an empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a land asset"],
+    "when": ["record_log of kind lab_test against the land asset with lab_test_type set to soil"],
+    "then": ["lab_sample_type of the lab test log == soil", "lab_sample_type of a second lab test log recorded with no lab_test_type == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/log/lab_test/src/Plugin/Log/LogType/LabTestLog.php:fields.lab_test_type",
+    "first_pack_seal": null,
+    "punts": [
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal guessed kind='entity' (deterministically, from gap_kind='allowed_values') and its discriminating flow read 'lab_sample_type == soil' as if the term named a standalone entity. Implemented instead as a value-delivering ASSERTION over the log's own lab_test_type attribute — the material_type_recorded / material_quantity house form (a value-delivering assertion on a recorded log). An entity term has no recordable observable here: farmOS states the sample category as a list_string ATTRIBUTE on the log, not as a referenced entity, so the reproducible, scorable value is the recorded category string itself.",
+      "the list members soil/tissue/water are config-entity-driven allowed values (farm_lab_test.lab_test_type.* config entities via FarmLabTestHelper::labTestTypeAllowedValues); they are NOT gated against a glossary closed set — the value flows in as a free input string and the source's own allowed-values function validates it at the boundary (validated live: 'soil' accepted and delivered verbatim)",
+      "subject is a lab_test LOG (subject_kind=event); the value read is the log's lab_test_type attribute, delivered verbatim by the boundary",
+      "role_class_id f1bb250fc8649675 (features: birth, lab_test) carried from the original proposal by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": "f1bb250fc8649675"
+  }
+}

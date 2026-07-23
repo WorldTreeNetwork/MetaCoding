@@ -342,8 +342,24 @@ class PortAdapter(ImplementationAdapter):
         asset_handles: list[Handle], quantities: list[QuantitySpec],
         lot_number: str = "",
         equipment_handles: list[Handle] | None = None,
+        lab_received_date: str = "",
+        lab_processed_date: str = "",
+        lab_test_type: str = "",
+        soil_texture: str = "",
+        lab: str = "",
     ) -> Handle:
         self._need_operation("record_log")
+        # lab_test bundle fields (MetaCoding-wgy) — only on the wire when
+        # stated (test_method rides inside each quantity's model_dump).
+        lab_fields = {
+            k: v for k, v in (
+                ("lab_received_date", lab_received_date),
+                ("lab_processed_date", lab_processed_date),
+                ("lab_test_type", lab_test_type),
+                ("soil_texture", soil_texture),
+                ("lab", lab),
+            ) if v
+        }
         return str(self._bridge.call(
             "record_log", kind=kind, name=name, status=status,
             assets=list(asset_handles),
@@ -354,6 +370,7 @@ class PortAdapter(ImplementationAdapter):
             **({"lot_number": lot_number} if lot_number else {}),
             **({"equipment": list(equipment_handles)}
                if equipment_handles else {}),
+            **lab_fields,
         ))
 
     def quantities_of(self, log_handle: Handle) -> list[Handle]:
@@ -383,6 +400,42 @@ class PortAdapter(ImplementationAdapter):
         if not isinstance(got, list):
             raise BridgeError(
                 f"port bridge answered 'material_type_recorded' with "
+                f"{type(got).__name__} {got!r}; expected a list of names"
+            )
+        return [str(n) for n in got]
+
+    # --- lab_test bundle-field probes (MetaCoding-wgy) ---------------------- #
+    # Five scalar readbacks (four boundary transcriptions plus the laboratory
+    # NAME) and one ordered-names fold, dispatched to the port bridge exactly
+    # like material_type_recorded. The base ImplementationAdapter raises
+    # _unsupported for these; a PortAdapter answers them from its declared,
+    # bridged surface.
+    def lab_sample_type(self, subject_handle: Handle) -> str:
+        self._need_probe("lab_sample_type")
+        return str(self._bridge.call("lab_sample_type", log=subject_handle))
+
+    def laboratory(self, subject_handle: Handle) -> str:
+        self._need_probe("laboratory")
+        return str(self._bridge.call("laboratory", log=subject_handle))
+
+    def lab_processing_date(self, subject_handle: Handle) -> str:
+        self._need_probe("lab_processing_date")
+        return str(self._bridge.call("lab_processing_date", log=subject_handle))
+
+    def sample_received_date(self, subject_handle: Handle) -> str:
+        self._need_probe("sample_received_date")
+        return str(self._bridge.call("sample_received_date", log=subject_handle))
+
+    def soil_texture(self, subject_handle: Handle) -> str:
+        self._need_probe("soil_texture")
+        return str(self._bridge.call("soil_texture", log=subject_handle))
+
+    def lab_test_measurement(self, subject_handle: Handle) -> list[str]:
+        self._need_probe("lab_test_measurement")
+        got = self._bridge.call("lab_test_measurement", log=subject_handle)
+        if not isinstance(got, list):
+            raise BridgeError(
+                f"port bridge answered 'lab_test_measurement' with "
                 f"{type(got).__name__} {got!r}; expected a list of names"
             )
         return [str(n) for n in got]

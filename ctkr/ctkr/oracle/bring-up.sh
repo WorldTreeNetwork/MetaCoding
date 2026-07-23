@@ -35,7 +35,7 @@ step "enable domain modules"
 docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
   farm_land farm_animal farm_plant farm_harvest farm_seeding farm_input \
   farm_activity farm_observation farm_group farm_structure farm_quantity_standard \
-  farm_inventory farm_birth farm_equipment farm_material'
+  farm_inventory farm_birth farm_equipment farm_material farm_lab_test'
 # farm_equipment:  without it POST /api/asset/equipment 404s — w0a's stock flows
 #   hold inventory on equipment assets and cannot record on a fresh oracle.
 # farm_inventory: without it `quantity--standard` has no inventory_adjustment /
@@ -46,6 +46,10 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
 #   quantity_presave fold (MetaCoding-5ln) cannot fire — farm_quantity_material
 #   arrives as a farm_input dependency, but the ASSET module owning the hook
 #   does not.
+# farm_lab_test:  without it /api/log/lab_test 404s and the lab_test identity
+#   port (MetaCoding-wgy) cannot record. Enabling it pulls farm_lab,
+#   farm_quantity_test, and farm_test_method as dependencies — the slice's
+#   `test` quantity type and lab/test_method vocabularies ride in with them.
 
 step "oauth keys"
 docker exec -u root farmos-oracle-www sh -c \

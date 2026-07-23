@@ -349,6 +349,55 @@ _PROBES: tuple[ProbeSpec, ...] = (
                                 "source (farm_quantity_material Material.php "
                                 "bundle field; each term's own stated name); "
                                 "membership and name readback add no semantics"),
+    # --- lab_test bundle-field probes (MetaCoding-wgy) ---------------------- #
+    # add-term generates every probe DERIVED-with-no-validated_against (it
+    # cannot know a term's authority). AUTHORITY REFINED post-generation, after
+    # the derivation was validated against the live source (the 5ln/1cv step):
+    # four of these read a field the source STATES on the log at its published
+    # interface (a list_string, two timestamps, a string) — BOUNDARY
+    # transcription, nothing of ours to validate. Two follow a source-stated
+    # reference to a term's own stated NAME — DERIVED, validated the
+    # material_type_recorded / has_parent way. All six stay PROVISIONAL (the
+    # provenance registry) until a sealed recording binds them; the authority
+    # here is what makes a BOUND value scorable rather than NO VERDICT.
+    ProbeSpec('lab_sample_type', 'lab_sample_type', (), subject_kind="event",
+              doc='The laboratory specimen category recorded on a lab test log, such as soil, tissue, or water.',
+              authority=BOUNDARY),
+    ProbeSpec('laboratory', 'laboratory', (), subject_kind="event",
+              doc='The laboratory that performed a recorded laboratory test.',
+              authority=DERIVED,
+              derivation="the NAME of the term the log's single-valued `lab` "
+                         "entity_reference points to; '' when the log records none",
+              validated_against="the lab reference is stated by the source "
+                                "(farm_lab_test LabTestLog.php fields.lab, target "
+                                "taxonomy_term--lab; the log's JSON:API lab "
+                                "relationship) and the name is the term's own "
+                                "stated attribute — the reference-follow and name "
+                                "readback add no semantics"),
+    ProbeSpec('lab_test_measurement', 'lab_test_measurement', (), subject_kind="event",
+              doc="The testing methods recorded on a lab test's measurement quantity, as an ordered list of term names.",
+              authority=DERIVED,
+              derivation="the ordered `test_method` term NAMES on the FIRST "
+                         "quantity--test of the log; [] when the log carries no "
+                         "test quantity or it records no method",
+              validated_against="the test_method reference is stated by the "
+                                "source (farm_quantity_test TestQuantity.php "
+                                "fields.test_method, target "
+                                "taxonomy_term--test_method; the quantity's "
+                                "JSON:API test_method relationship) and each "
+                                "term's name is its own stated attribute; the "
+                                "'first test quantity' SELECTION is ours, sound "
+                                "while a flow carries at most one (the "
+                                "material_type_recorded 'two firsts' caveat)"),
+    ProbeSpec('lab_processing_date', 'lab_processing_date', (), subject_kind="event",
+              doc='The date on which a laboratory processed a sample for a lab test.',
+              authority=BOUNDARY),
+    ProbeSpec('sample_received_date', 'sample_received_date', (), subject_kind="event",
+              doc='The date on which a laboratory received a sample for a lab test.',
+              authority=BOUNDARY),
+    ProbeSpec('soil_texture', 'soil_texture', (), subject_kind="event",
+              doc='The soil texture reported by a laboratory test.',
+              authority=BOUNDARY),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

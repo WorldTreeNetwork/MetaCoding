@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w2z-sample-type-tracks-input",
+      "title": "Two lab tests recording different sample types each report their own recorded type",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "lab_sample_type"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot One"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Soil panel", "against": ["A"], "lab_test_type": "soil"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Water panel", "against": ["A"], "lab_test_type": "water"}
+      ],
+      "probes": [
+        {"assert": "lab_sample_type", "subject": "L1"},
+        {"assert": "lab_sample_type", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-sample-type-absent",
+      "title": "A lab test recording no sample type reports no sample type",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "lab_sample_type"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Two"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Untyped panel", "against": ["A"]}
+      ],
+      "probes": [{"assert": "lab_sample_type", "subject": "L1"}]
+    },
+    {
+      "key": "w2z-laboratory-recorded-and-absent",
+      "title": "A lab test naming its laboratory reports that lab; one naming none reports none",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "laboratory"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Three"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Lab-attributed panel", "against": ["A"], "lab": "w2z-Redwood Analytical"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Unattributed panel", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "laboratory", "subject": "L1"},
+        {"assert": "laboratory", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-laboratory-tracks-distinct-input",
+      "title": "Two lab tests naming different laboratories each report their own recorded lab",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "laboratory"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Four"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Cascade panel", "against": ["A"], "lab": "w2z-Cascade Soil Lab"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Basin panel", "against": ["A"], "lab": "w2z-Basin Ag Testing"}
+      ],
+      "probes": [
+        {"assert": "laboratory", "subject": "L1"},
+        {"assert": "laboratory", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-measurement-method-recorded",
+      "title": "A lab test whose measurement carries a testing method reports that method",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "ratio", "lab_test_measurement"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Five"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Titration panel", "against": ["A"],
+         "quantities": [
+           {"measure": "ratio", "value": 12, "unit": "percent", "label": "measured",
+            "bundle": "test", "test_method": "w2z-Titration"}
+         ]}
+      ],
+      "probes": [{"assert": "lab_test_measurement", "subject": "L1"}]
+    },
+    {
+      "key": "w2z-measurement-standard-quantity-contrast",
+      "title": "A lab test whose measurement is an ordinary quantity reports no testing method",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "ratio", "lab_test_measurement"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Six"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Ordinary-quantity panel", "against": ["A"],
+         "quantities": [
+           {"measure": "ratio", "value": 12, "unit": "percent", "label": "measured"}
+         ]}
+      ],
+      "probes": [{"assert": "lab_test_measurement", "subject": "L1"}]
+    },
+    {
+      "key": "w2z-measurement-test-quantity-no-method",
+      "title": "A lab test whose measurement is a test quantity carrying no method reports no method",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "ratio", "lab_test_measurement"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Seven"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Methodless test panel", "against": ["A"],
+         "quantities": [
+           {"measure": "ratio", "value": 7, "unit": "percent", "label": "measured",
+            "bundle": "test"}
+         ]}
+      ],
+      "probes": [{"assert": "lab_test_measurement", "subject": "L1"}]
+    },
+    {
+      "key": "w2z-processing-date-recorded-and-absent",
+      "title": "A lab test recording a processing date reports it; one recording none reports none",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "lab_processing_date"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Eight"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Processed panel", "against": ["A"],
+         "lab_processed_date": "2026-06-15T00:00:00+00:00"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Unprocessed panel", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "lab_processing_date", "subject": "L1"},
+        {"assert": "lab_processing_date", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-received-date-recorded-and-absent",
+      "title": "A lab test recording a received date reports it; one recording none reports none",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "sample_received_date"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Nine"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Received panel", "against": ["A"],
+         "lab_received_date": "2026-06-10T00:00:00+00:00"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Unreceived panel", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "sample_received_date", "subject": "L1"},
+        {"assert": "sample_received_date", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-soil-texture-recorded-and-absent",
+      "title": "A lab test recording a soil texture reports it; one recording none reports none",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "soil_texture"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Panel Plot Ten"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Textured panel", "against": ["A"], "soil_texture": "w2z-Silty clay loam"},
+        {"action": "record_log", "alias": "L2", "kind": "lab_test", "status": "done",
+         "name": "w2z-Textureless panel", "against": ["A"]}
+      ],
+      "probes": [
+        {"assert": "soil_texture", "subject": "L1"},
+        {"assert": "soil_texture", "subject": "L2"}
+      ]
+    },
+    {
+      "key": "w2z-full-panel-binds-all-six",
+      "title": "A lab test recording every field reports each field back on the one log",
+      "feature": "log.lab_test",
+      "glossary_terms": ["land", "lab_test", "record_log", "ratio",
+                         "lab_sample_type", "laboratory", "lab_test_measurement",
+                         "lab_processing_date", "sample_received_date", "soil_texture"],
+      "given": [{"entity": "land", "alias": "A", "name": "w2z-Full Panel Plot"}],
+      "when": [
+        {"action": "record_log", "alias": "L1", "kind": "lab_test", "status": "done",
+         "name": "w2z-Complete soil panel", "against": ["A"],
+         "lab_received_date": "2026-05-20T00:00:00+00:00",
+         "lab_processed_date": "2026-05-25T00:00:00+00:00",
+         "lab_test_type": "tissue",
+         "soil_texture": "w2z-Sandy loam",
+         "lab": "w2z-Meridian Labs",
+         "quantities": [
+           {"measure": "ratio", "value": 3, "unit": "percent", "label": "measured",
+            "bundle": "test", "test_method": "w2z-Spectrometry"}
+         ]}
+      ],
+      "probes": [
+        {"assert": "lab_sample_type", "subject": "L1"},
+        {"assert": "laboratory", "subject": "L1"},
+        {"assert": "lab_test_measurement", "subject": "L1"},
+        {"assert": "lab_processing_date", "subject": "L1"},
+        {"assert": "sample_received_date", "subject": "L1"},
+        {"assert": "soil_texture", "subject": "L1"}
+      ]
+    }
+  ]
+}

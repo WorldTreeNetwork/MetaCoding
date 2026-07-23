@@ -52,12 +52,21 @@ def apply_when(
         args = (w.kind, w.name or f"{w.kind} log", w.status or "done",
                 [handles[a] for a in w.against], quantities)
         # Keep the 5-argument call for adapters written before the optional
-        # write-surface fields (lot_number, equipment) existed.
+        # write-surface fields (lot_number, equipment, the lab_test bundle
+        # fields) existed. Each is passed only when the step sets it.
         extras: dict = {}
         if w.lot_number:
             extras["lot_number"] = w.lot_number
         if w.equipment:
             extras["equipment_handles"] = [handles[e] for e in w.equipment]
+        # lab_test bundle fields (MetaCoding-wgy) — plain input strings; `lab`
+        # is a laboratory NAME the adapter resolves to a taxonomy term (like a
+        # unit), not an alias, so nothing is resolved through `handles` here.
+        for f in ("lab_received_date", "lab_processed_date", "lab_test_type",
+                  "soil_texture", "lab"):
+            v = getattr(w, f)
+            if v:
+                extras[f] = v
         h = adapter.record_log(*args, **extras)
         if at is not None:
             adapter.set_effective_time(h, at)

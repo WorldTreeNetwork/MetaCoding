@@ -1,0 +1,23 @@
+{
+  "term": "sample_received_date",
+  "kind": "assertion",
+  "subject_kind": "event",
+  "description": "The date on which a laboratory received a sample for a lab test.",
+  "probe_semantics": "Deliver the recorded date on which the laboratory received the sample for the subject lab test (the log's lab_received_date), or an empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a land asset"],
+    "when": ["record_log of kind lab_test against the land asset with lab_received_date set to an absolute date"],
+    "then": ["sample_received_date of the lab test log == the recorded date", "sample_received_date of a second lab test log recorded with no lab_received_date == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/log/lab_test/src/Plugin/Log/LogType/LabTestLog.php:fields.lab_received_date",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "TIMESTAMP NOTE: this probe returns an instant, but its value is an absolute ISO-8601 date AUTHORED as a bundle-field input (not the log's effective time and not derived from the recording run's wall clock), so the MetaCoding-bdy relative-offset trap does not apply. add-term does not emit ProbeSpec.returns_timestamp, so it is left False (the codegen default) — accurate for the guard that flag drives, since the flows date this field absolutely and never with a relative offset. Reported as a codegen limitation, not silently hand-edited.",
+      "subject is a lab_test LOG (subject_kind=event); the value read is the log's lab_received_date attribute, delivered verbatim (validated live)",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

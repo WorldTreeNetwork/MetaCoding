@@ -1,0 +1,23 @@
+{
+  "term": "laboratory",
+  "kind": "assertion",
+  "subject_kind": "event",
+  "description": "The laboratory that performed a recorded laboratory test.",
+  "probe_semantics": "Deliver the name of the laboratory recorded as having performed the subject lab test (the log's lab reference), or an empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a land asset"],
+    "when": ["record_log of kind lab_test against the land asset with lab set to a laboratory name"],
+    "then": ["laboratory of the lab test log == the recorded laboratory name", "laboratory of a second lab test log recorded with no lab == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/log/lab_test/src/Plugin/Log/LogType/LabTestLog.php:fields.lab",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read 'deliver the laboratory ... as the laboratory value itself'. Implemented as the recorded lab term's NAME (a reproducible string), read off the log's single-valued `lab` entity_reference (target taxonomy_term--lab, auto_create) — the material_type_recorded name-readback house form. A raw per-run taxonomy term UUID could never reproduce across runs or ports and so could never score; the term's own stated name is the reproducible, scorable value. The reference is single-valued (validated live: lab rel delivered as one object, not a list), so the value is a scalar name, not a list.",
+      "subject is a lab_test LOG (subject_kind=event); the value read follows the log's lab reference to the term's stated name",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

@@ -270,6 +270,15 @@ class FarmOSAdapter(ImplementationAdapter):
             rels["inventory_asset"] = {
                 "data": [{"type": f"asset--{abundle}", "id": aid}]
             }
+        if q.test_method:
+            # The `test_method` entity_reference field on quantity--test
+            # (TestQuantity.php), target taxonomy_term--test_method, auto_create.
+            # A NAME resolved/minted like a unit, delivered as a single-valued
+            # reference (validated live, MetaCoding-wgy).
+            method_id = self._ensure_term("test_method", q.test_method)
+            rels["test_method"] = {
+                "data": {"type": "taxonomy_term--test_method", "id": method_id}
+            }
         doc = {"data": {"type": f"quantity--{bundle}", "attributes": attrs}}
         if rels:
             doc["data"]["relationships"] = rels
@@ -285,6 +294,11 @@ class FarmOSAdapter(ImplementationAdapter):
         quantities: list[QuantitySpec],
         lot_number: str = "",
         equipment_handles: list[Handle] | None = None,
+        lab_received_date: str = "",
+        lab_processed_date: str = "",
+        lab_test_type: str = "",
+        soil_texture: str = "",
+        lab: str = "",
     ) -> Handle:
         assets = [self._split(h) for h in asset_handles]
         rels: dict[str, Any] = {}
@@ -310,6 +324,25 @@ class FarmOSAdapter(ImplementationAdapter):
             # declare. Written only when stated; a bundle without the field will
             # refuse the write at the boundary, loudly.
             attrs["lot_number"] = lot_number
+        # lab_test bundle fields (MetaCoding-wgy). Written only when stated; a
+        # bundle without the field refuses the write at the boundary, loudly.
+        # The date fields take an absolute ISO-8601 instant farmOS stores and
+        # delivers verbatim (validated live); lab_test_type/soil_texture are
+        # plain strings.
+        if lab_received_date:
+            attrs["lab_received_date"] = lab_received_date
+        if lab_processed_date:
+            attrs["lab_processed_date"] = lab_processed_date
+        if lab_test_type:
+            attrs["lab_test_type"] = lab_test_type
+        if soil_texture:
+            attrs["soil_texture"] = soil_texture
+        if lab:
+            # `lab` entity_reference (LabTestLog.php), target taxonomy_term--lab,
+            # auto_create — a NAME resolved/minted like a unit, delivered as a
+            # single-valued reference (validated live).
+            lab_id = self._ensure_term("lab", lab)
+            rels["lab"] = {"data": {"type": "taxonomy_term--lab", "id": lab_id}}
         doc: dict[str, Any] = {
             "data": {"type": f"log--{kind}", "attributes": attrs}
         }
@@ -876,6 +909,132 @@ class FarmOSAdapter(ImplementationAdapter):
                     names.append(term["attributes"]["name"])
             return names
         return []
+
+    # --- lab_test bundle-field readbacks (MetaCoding-wgy) ------------------- #
+    # Each reads ONE field farm_lab_test declares on the lab_test log
+    # (LabTestLog.php). The four attribute fields are BOUNDARY transcription —
+    # the source states the value at its published interface and we read it
+    # verbatim ("" when unset, delivered as JSON null). `laboratory` and
+    # `lab_test_measurement` follow a stated reference to a term's own stated
+    # NAME (never a per-run UUID), the material_type_recorded house form.
+    def _lab_test_attr(self, subject_handle: Handle, attr: str) -> str:
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/log/{kind}/{uid}")
+        return doc["data"]["attributes"].get(attr) or ""
+
+    # --- lab_sample_type (assertion — MetaCoding-wgy) ----------------------- #
+    def lab_sample_type(self, subject_handle: Handle) -> str:
+        """The sample category recorded on the subject lab-test log — the
+        `lab_test_type` list_string attribute farm_lab_test declares
+        (LabTestLog.php:fields.lab_test_type), delivered verbatim ("soil",
+        "tissue", "water"); "" when the log records none.
+
+        Boundary transcription: the source states the category as an attribute
+        on the log; reading it is not a computation of ours.
+        """
+        return self._lab_test_attr(subject_handle, "lab_test_type")
+
+    # --- laboratory (assertion — MetaCoding-wgy) ---------------------------- #
+    def laboratory(self, subject_handle: Handle) -> str:
+        """The NAME of the laboratory recorded as having performed the subject
+        lab test — the term the log's single-valued `lab` entity_reference
+        points to (LabTestLog.php:fields.lab, target taxonomy_term--lab); ""
+        when the log records none.
+
+        A boundary readback that follows a source-stated reference to the
+        term's own stated name (validated live: `lab` delivered as one
+        reference, not a list) — the material_type_recorded house form for an
+        entity reference. A raw per-run term UUID could never reproduce across
+        runs or ports; the name can.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET", f"/api/log/{kind}/{uid}?include=lab"
+        )
+        rel = ((doc["data"].get("relationships") or {}).get("lab") or {}).get("data")
+        if not isinstance(rel, dict) or not rel:
+            return ""
+        for inc in doc.get("included") or []:
+            if inc.get("type") == rel.get("type") and inc.get("id") == rel.get("id"):
+                return inc["attributes"].get("name") or ""
+        return ""
+
+    # --- lab_test_measurement (assertion — MetaCoding-wgy) ------------------ #
+    def lab_test_measurement(self, subject_handle: Handle) -> list[str]:
+        """The ordered `test_method` term NAMES recorded on the first
+        test-classified quantity of the subject lab-test log; [] when the log
+        carries no test measurement or the measurement records no method.
+
+        The identity of a *lab test measurement*: a quantity--test carrying its
+        test_method (TestQuantity.php:fields.test_method, the default quantity
+        type of the lab_test log). A boundary readback — the log's own quantity
+        relationship, the first quantity--test's own test_method relationship,
+        and each term's own stated name (names, never per-run UUIDs, so the
+        value reproduces). The material_type_recorded twin; the "first test
+        quantity" selection is ours, sound while a flow carries at most one.
+        """
+        _, kind, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET",
+            f"/api/log/{kind}/{uid}?include=quantity,quantity.test_method",
+        )
+        included = {(inc["type"], inc["id"]): inc for inc in doc.get("included") or []}
+        for inc in doc.get("included") or []:
+            if inc.get("type") != "quantity--test":
+                continue
+            rel = ((inc.get("relationships") or {}).get("test_method") or {})
+            data = rel.get("data")
+            # test_method is single-valued (validated live) but read defensively
+            # for either shape — one object or a list.
+            rows = data if isinstance(data, list) else ([data] if data else [])
+            names: list[str] = []
+            for row in rows:
+                term = included.get((row.get("type"), row.get("id")))
+                if term is not None:
+                    names.append(term["attributes"]["name"])
+            return names
+        return []
+
+    # --- lab_processing_date (assertion — MetaCoding-wgy) ------------------- #
+    def lab_processing_date(self, subject_handle: Handle) -> str:
+        """The date the laboratory processed the sample — the log's
+        `lab_processed_date` timestamp attribute (LabTestLog.php), delivered
+        verbatim as the ISO-8601 instant it was written with (validated live);
+        "" when the log records none.
+
+        Boundary transcription. The value is an absolute date authored as an
+        input field, not the log's effective time and not wall-clock derived,
+        so the MetaCoding-bdy relative-offset trap does not apply.
+        """
+        return self._lab_test_attr(subject_handle, "lab_processed_date")
+
+    # --- sample_received_date (assertion — MetaCoding-wgy) ------------------ #
+    def sample_received_date(self, subject_handle: Handle) -> str:
+        """The date the laboratory received the sample — the log's
+        `lab_received_date` timestamp attribute (LabTestLog.php), delivered
+        verbatim as the ISO-8601 instant it was written with (validated live);
+        "" when the log records none.
+
+        Boundary transcription; the same absolute-authored-date reasoning as
+        lab_processing_date.
+        """
+        return self._lab_test_attr(subject_handle, "lab_received_date")
+
+    # --- soil_texture (assertion — MetaCoding-wgy) -------------------------- #
+    def soil_texture(self, subject_handle: Handle) -> str:
+        """The soil texture reported by the test — the log's `soil_texture`
+        string attribute (LabTestLog.php), delivered verbatim (validated live:
+        "Loam" delivered unchanged); "" when the log records none.
+
+        Boundary transcription: a plain string the source states on the log.
+        """
+        return self._lab_test_attr(subject_handle, "soil_texture")
+
+
+
+
+
+
 
 
 

@@ -1,0 +1,23 @@
+{
+  "term": "soil_texture",
+  "kind": "assertion",
+  "subject_kind": "event",
+  "description": "The soil texture reported by a laboratory test.",
+  "probe_semantics": "Deliver the soil texture string recorded on the subject lab test (the log's soil_texture), or an empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": ["a land asset"],
+    "when": ["record_log of kind lab_test against the land asset with soil_texture set to a texture string"],
+    "then": ["soil_texture of the lab test log == the recorded texture", "soil_texture of a second lab test log recorded with no soil_texture == the empty value"]
+  },
+  "provenance": {
+    "config_source": "modules/log/lab_test/src/Plugin/Log/LogType/LabTestLog.php:fields.soil_texture",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "the field is a plain string with no closed vocabulary in the source, so the recorded value is a free string delivered verbatim by the boundary (validated live: 'Loam' delivered unchanged) — not gated against any glossary set",
+      "subject is a lab_test LOG (subject_kind=event); the value read is the log's soil_texture attribute, delivered verbatim",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

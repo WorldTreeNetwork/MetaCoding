@@ -59,8 +59,16 @@ ACTION_TERMS: frozenset[str] = frozenset(
 )
 
 # --- Log kinds: the domain sub-type of a recorded event. --------------------
+# ``lab_test`` (MetaCoding-wgy) is added as a VALUE in this closed set — the way
+# ``birth`` was for lineage (w0b) and ``abandoned`` was for LOG_STATUSES. The
+# lab_test feature ports as a log KIND whose identity lives in its bundle fields
+# (Duke's disposition, 2026-07-22: "record_log already takes arbitrary kinds"),
+# so record_log needs it expressible; the six lab_test terms are the fields.
+# Adding a member changes no existing fixture's id (LOG_KINDS gates validation,
+# not hashing).
 LOG_KINDS: frozenset[str] = frozenset(
-    {"harvest", "input", "activity", "observation", "seeding", "birth"}
+    {"harvest", "input", "activity", "observation", "seeding", "birth",
+     "lab_test"}
 )
 
 # --- Adjustment kinds: how a stock adjustment acts on the running total. ----
@@ -137,6 +145,12 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "birth_mother",  # The mother recorded for a birth. It identifies the animal recognize… [PROVISIONAL]
         "equipment_used",  # Whether a given equipment asset is recorded as equipment used on a … [PROVISIONAL]
         "material_type_recorded",  # The material types recorded on a log's material quantity, as an ord… [PROVISIONAL]
+        "lab_sample_type",  # The laboratory specimen category recorded on a lab test log, such a… [PROVISIONAL]
+        "laboratory",  # The laboratory that performed a recorded laboratory test. [PROVISIONAL]
+        "lab_test_measurement",  # The testing methods recorded on a lab test's measurement quantity, … [PROVISIONAL]
+        "lab_processing_date",  # The date on which a laboratory processed a sample for a lab test. [PROVISIONAL]
+        "sample_received_date",  # The date on which a laboratory received a sample for a lab test. [PROVISIONAL]
+        "soil_texture",  # The soil texture reported by a laboratory test. [PROVISIONAL]
     }
 )
 

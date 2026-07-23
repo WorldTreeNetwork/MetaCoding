@@ -1,0 +1,24 @@
+{
+  "term": "lab_test_measurement",
+  "kind": "assertion",
+  "subject_kind": "event",
+  "description": "The testing methods recorded on a lab test's measurement quantity, as an ordered list of term names.",
+  "probe_semantics": "Deliver the ordered test_method term names recorded on the first test-classified quantity of the subject lab-test log, or an empty list when the log carries no test measurement or the measurement records no method.",
+  "discriminating_flow": {
+    "given": ["a land asset"],
+    "when": ["record_log of kind lab_test against the land asset with a test-classified quantity whose test_method is set to a method name"],
+    "then": ["lab_test_measurement of the lab test log == the recorded method name(s)", "lab_test_measurement of a second lab test log recorded with a standard quantity carrying no method == the empty list"]
+  },
+  "provenance": {
+    "config_source": "modules/quantity/test/src/Plugin/Quantity/QuantityType/TestQuantity.php:fields.test_method (default_quantity_type test: modules/log/lab_test/config/install/log.type.lab_test.yml:third_party_settings.farm_log_quantity.default_quantity_type)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='quantity_type'; the quantity bundle field (test_method) lives in the quantity module, outside the log-type file",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal read 'deliver the measured value on the recorded log that is classified as a laboratory test measurement'. Implemented instead as the material_type_recorded house form — the ordered test_method term NAMES recorded on the first test-classified (quantity--test) quantity. The raw measured value is already delivered by quantity_recorded and a bare number cannot distinguish a lab test measurement from any other quantity; the test_method the measurement carries is the reproducible, scorable identity of a lab test measurement (a quantity--test with its method), and names (not per-run term UUIDs) reproduce across runs and ports. This is why the write surface gained QuantitySpec.test_method (MetaCoding-wgy).",
+      "SELECTION PUNT (the 'two firsts' caveat, inherited from material_type_recorded review of 74c499f): 'the first test quantity of the log' is OUR unambiguity convention, sound only while a flow carries at most one test-classified quantity per log; a multi-test-quantity flow would need the probe to say WHICH. The bound flows carry exactly one test quantity per log.",
+      "subject is a lab_test LOG (subject_kind=event); the value read is the log's own quantity relationship, the first quantity--test's own test_method relationship, and each referenced term's own stated name",
+      "role_class_id 174451ff9f353625 (features: birth, input) carried from the original proposal by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": "174451ff9f353625"
+  }
+}
