@@ -132,6 +132,10 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         // when stated; absent ones leave the log's field empty (the recorded
         // absent-field contrast the pack scores).
         const labExtras: LogExtras = {};
+        // lot_number (MetaCoding-87t) — a per-log batch scalar, top-level on
+        // the wire only when stated; wire "" is the unstated shape and leaves
+        // the field off so lotNumber reads back the recorded "" contrast.
+        if (req.lot_number) labExtras.lotNumber = String(req.lot_number);
         if (req.lab_test_type) labExtras.labSampleType = String(req.lab_test_type);
         if (req.lab) labExtras.laboratory = String(req.lab);
         if (req.lab_processed_date) labExtras.labProcessedDate = String(req.lab_processed_date);
@@ -169,8 +173,20 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         return store.logCount(req.asset as Handle, String(req.kind));
       case "yield_total":
         return store.yieldTotal(req.asset as Handle, String(req.measure), String(req.unit));
-      case "quantity_recorded":
-        return store.quantityRecorded(req.log as Handle, String(req.measure), String(req.unit));
+      case "quantity_recorded": {
+        // MetaCoding-87t (the 5xa house rule): a log no record event minted is
+        // UNANSWERABLE, never a 0 total — 0 is the value a live log answers
+        // when it records no matching (measure, unit) quantity.
+        const total = store.quantityRecorded(
+          (req.log ?? req.subject) as Handle,
+          String(req.measure),
+          String(req.unit),
+        );
+        if (total === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log ?? req.subject)}` };
+        }
+        return total;
+      }
       case "asset_active": {
         // MetaCoding-5xa: a handle no birth event minted is UNANSWERABLE,
         // never a value — asset_active must not read true for a ghost.
@@ -186,6 +202,28 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           return { unanswerable: `no log recorded under handle ${String(req.log)}` };
         }
         return used;
+      }
+      // --- per-log scalar probes (MetaCoding-87t) ----------------------------
+      // lot_number answers the recorded batch string ("" is a VALUE — the
+      // no-lot-stated contrast the pack scores); material_quantity answers the
+      // recorded classification of the log's subject quantity ("standard" /
+      // "material" / "" when the log carries no quantity). Unknown or deleted
+      // logs are unanswerable, never the empty value. Subject arrives as `log`
+      // (the log-family wire form; `subject` accepted as the newly-bound-term
+      // fallback).
+      case "lot_number": {
+        const v = store.lotNumber((req.log ?? req.subject) as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log ?? req.subject)}` };
+        }
+        return v;
+      }
+      case "material_quantity": {
+        const v = store.materialQuantity((req.log ?? req.subject) as Handle);
+        if (v === undefined) {
+          return { unanswerable: `no log recorded under handle ${String(req.log ?? req.subject)}` };
+        }
+        return v;
       }
       case "material_type_recorded": {
         const names = store.materialTypeRecorded(req.log as Handle);

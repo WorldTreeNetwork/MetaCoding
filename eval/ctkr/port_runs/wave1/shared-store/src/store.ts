@@ -486,6 +486,46 @@ export class Wave1LogStore {
     return q ? (q.materialTypes ?? []) : [];
   }
 
+  // ---- log-scalar readbacks (MetaCoding-87t) -------------------------------
+  //
+  // Two per-log readings the material-quantity-fold port's pack scores.
+  // lot_number is a per-log scalar off the recorded extras; material_quantity
+  // is the recorded CLASSIFICATION (the quantity bundle) of the log's subject
+  // quantity. Each answers the empty value "" for a LIVE log that recorded
+  // none, and `undefined` for an unknown or deleted log — unanswerable, never
+  // an empty value masquerading as one.
+
+  /**
+   * The lot_number recorded on the log (harvest/input/seeding batch string);
+   * "" when the log stated none — a VALUE the pack scores, distinct from the
+   * unanswerable unknown/deleted case (`undefined`).
+   */
+  lotNumber(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    return v.extras?.lotNumber ?? "";
+  }
+
+  /**
+   * The classification of the log's subject quantity — its recorded quantity
+   * bundle (MetaCoding-87t). The pack's subject is always the LOG; its
+   * two-quantity fixture (flow w2x-material-quantity-first-of-two) pins the
+   * first-quantity convention: the delivered classification is the FIRST
+   * recorded quantity's own, never "any quantity's" (a log whose first
+   * quantity is standard answers "standard" even if a later one is material).
+   * The boundary records an unstated bundle as quantity--standard, so an
+   * empty/unstated quantityType classifies as "standard" — the recorded
+   * default, a value. A log with NO quantities answers "" (the recorded
+   * no-classification contrast); an unknown or deleted log is `undefined`.
+   */
+  materialQuantity(logId: Handle): string | undefined {
+    const v = this.logView(logId);
+    if (!v) return undefined;
+    const q = v.quantities[0];
+    if (!q) return "";
+    return q.quantityType || "standard";
+  }
+
   // ---- lab_test bundle-field readbacks (MetaCoding-wgy) --------------------
   //
   // Four boundary transcriptions (sample type, two dates, soil texture) and
@@ -773,10 +813,13 @@ export class Wave1LogStore {
   }
 
   /** Σ of a (measure, unit) pair on ONE log — the log's own recorded values,
-   *  never status-gated (it reports what the event says, not a fold over many). */
-  quantityRecorded(logId: Handle, measure: string, unit: string): number {
+   *  never status-gated (it reports what the event says, not a fold over many).
+   *  `undefined` when the log is unknown or deleted (MetaCoding-87t, the 5xa
+   *  house rule): a ghost handle is UNANSWERABLE, never a 0 total — 0 is the
+   *  VALUE a live log answers when it records no matching (measure, unit). */
+  quantityRecorded(logId: Handle, measure: string, unit: string): number | undefined {
     const v = this.logView(logId);
-    if (!v) return 0;
+    if (!v) return undefined;
     let total = 0;
     for (const q of v.quantities) {
       if (q.measure === measure && q.unit === unit) total += q.value;

@@ -1,6 +1,6 @@
 {
   "port": "w2-identity-material-quantity-fold",
-  "description": "MetaCoding-5ln identity port: the material quantity_presave fold (farm_material EntityHooks.php) — a MATERIAL-bundle quantity referencing a MATERIAL asset with a stated material type inherits that type at record time (snapshot copy; guard chain on both bundles and on type emptiness). Implemented feature-local in the shared wave-1 store's recordLog; promotion to a kernel denormalize-on-write primitive is the punted kernel_candidate decision. Observed live on pack 046155d7d243; terms material + material_type_recorded BOUND on it. Source finding: material_type is REQUIRED at the JSON:API boundary, so the hook's emptiness guard is unreachable there (defense-in-depth for other write paths) — the typeless-asset contrast is unrecordable.",
+  "description": "MetaCoding-5ln identity port: the material quantity_presave fold (farm_material EntityHooks.php) — a MATERIAL-bundle quantity referencing a MATERIAL asset with a stated material type inherits that type at record time (snapshot copy; guard chain on both bundles and on type emptiness). Implemented feature-local in the shared wave-1 store's recordLog; promotion to a kernel denormalize-on-write primitive is the punted kernel_candidate decision. Observed live on pack 046155d7d243; terms material + material_type_recorded BOUND on it. Source finding: material_type is REQUIRED at the JSON:API boundary, so the hook's emptiness guard is unreachable there (defense-in-depth for other write paths) — the typeless-asset contrast is unrecordable. MetaCoding-87t READINGS (packs 0c77ca7d462e lot_number, 30b513677625 material_quantity): lot_number is a per-log scalar carried on the wire top-level and read back verbatim, '' when none stated (a VALUE, distinct from the unanswerable unknown/deleted-log case). material_quantity's subject is the LOG and the delivered value is the recorded classification (quantity bundle) of the log's FIRST quantity — the two-quantity fixture (w2x-material-quantity-first-of-two) probes the log, not a quantity handle, and both boundary quantities are quantity--standard, pinning the first-quantity convention; an unstated wire bundle is recorded by the boundary as quantity--standard, so it classifies 'standard' (the recorded default), a quantity-less log answers '' and the material-bundle contrast answers 'material'. quantity_recorded sums the (measure, unit) pair on the one log (2+3 -> 5.0 on the two-quantity fixture) and is unanswerable for a ghost log — 0 only ever means a live log recorded no matching quantity.",
   "bridge": {
     "command": [
       "bun",
@@ -20,7 +20,10 @@
       "material_type_recorded",
       "log_status",
       "log_count",
-      "asset_active"
+      "asset_active",
+      "lot_number",
+      "material_quantity",
+      "quantity_recorded"
     ]
   },
   "divergences": []
