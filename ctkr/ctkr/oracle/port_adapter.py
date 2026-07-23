@@ -639,3 +639,36 @@ class PortAdapter(ImplementationAdapter):
         """
         self._need_probe("crop_family")
         return self._bridge.call("crop_family", subject=subject_handle)
+
+    # --- generated: sensor_data_stream (assertion, PROVISIONAL) --- #
+    def sensor_data_stream(self, subject_handle: Handle) -> Any:
+        """Deliver the ordered NAMES of the data_stream entities the subject sensor ASSET references (its multi-valued data_stream reference), or the empty value when none was recorded.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("sensor_data_stream")
+        return self._bridge.call("sensor_data_stream", subject=subject_handle)
+
+    # --- generated: sensor_private_key (assertion, PROVISIONAL) --- #
+    def sensor_private_key(self, subject_handle: Handle) -> Any:
+        """Deliver the sensor ASSET's private_key string verbatim as recorded. Only explicitly-recorded keys are scoreable: when no key was stated the oracle MINTS a random one, which is machine-generated per instance and therefore unanswerable, never an empty value.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("sensor_private_key")
+        return self._bridge.call("sensor_private_key", subject=subject_handle)
+
+    # --- generated: publicly_readable (assertion, PROVISIONAL) --- #
+    def publicly_readable(self, subject_handle: Handle) -> Any:
+        """Deliver the sensor ASSET's public flag verbatim as recorded: true reads true, false reads false (false is a recorded value, distinct from absent), and an unstated flag is the empty value.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("publicly_readable")
+        return self._bridge.call("publicly_readable", subject=subject_handle)

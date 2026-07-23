@@ -176,6 +176,24 @@ class ImplementationAdapter(ABC):
         """
         raise self._unsupported("create_plant_type_term")
 
+    def create_sensor_asset(
+        self, name: str, data_streams: list[str] | None = None,
+        private_key: str = "", public: bool | None = None,
+    ) -> Handle:
+        """Create a sensor ASSET carrying its bundle fields; return its handle.
+
+        The sensor identity port (MetaCoding-ej0) asserts fields that live ON
+        the asset (farm_sensor), so ``given`` must be able to instantiate one.
+        ``data_streams`` are data_stream entity NAMES the adapter
+        resolves/creates in stated order — never per-run UUIDs. ``private_key``
+        is passed verbatim only when stated (an unstated key is minted by the
+        implementation and can never reproduce). ``public`` is tri-state:
+        ``None`` means unstated, never false. Non-abstract so an adapter for an
+        implementation without sensors can exist and say so loudly at the point
+        of use, never fake an asset.
+        """
+        raise self._unsupported("create_sensor_asset")
+
     def quantities_of(self, log_handle: Handle) -> list[Handle]:
         """The handles of the quantities a recorded log owns, in the order the
         log states them (which is the order ``record_log`` received them).
@@ -406,3 +424,30 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("crop_family")
+
+    # --- generated: sensor_data_stream (assertion, PROVISIONAL) --- #
+    def sensor_data_stream(self, subject_handle: Handle) -> Any:
+        """Deliver the ordered NAMES of the data_stream entities the subject sensor ASSET references (its multi-valued data_stream reference), or the empty value when none was recorded.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("sensor_data_stream")
+
+    # --- generated: sensor_private_key (assertion, PROVISIONAL) --- #
+    def sensor_private_key(self, subject_handle: Handle) -> Any:
+        """Deliver the sensor ASSET's private_key string verbatim as recorded. Only explicitly-recorded keys are scoreable: when no key was stated the oracle MINTS a random one, which is machine-generated per instance and therefore unanswerable, never an empty value.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("sensor_private_key")
+
+    # --- generated: publicly_readable (assertion, PROVISIONAL) --- #
+    def publicly_readable(self, subject_handle: Handle) -> Any:
+        """Deliver the sensor ASSET's public flag verbatim as recorded: true reads true, false reads false (false is a recorded value, distinct from absent), and an unstated flag is the empty value.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("publicly_readable")

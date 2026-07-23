@@ -43,6 +43,7 @@ ENTITY_TERMS: frozenset[str] = frozenset(
         # to ENTITY_TERMS gates validation, not hashing, so no existing fixture
         # re-ids.
         "plant_type",  # a crop/variety term in the plant_type vocabulary
+        "sensor",  # A sensor is a farm asset that detects and reports a measured condit… [PROVISIONAL]
     }
 )
 
@@ -163,6 +164,9 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "days_to_harvest",  # The expected number of days a plant type stays in harvest, recorded… [PROVISIONAL]
         "companion_plants",  # The plant types recorded as companions of a plant type, held on the… [PROVISIONAL]
         "crop_family",  # The crop family a plant type is a member of, recorded on the plant_… [PROVISIONAL]
+        "sensor_data_stream",  # The data streams provided by a sensor, recorded on the sensor asset… [PROVISIONAL]
+        "sensor_private_key",  # The private key of a sensor, used to authenticate data posted to or… [PROVISIONAL]
+        "publicly_readable",  # Whether data from a sensor may be read publicly without its private… [PROVISIONAL]
     }
 )
 

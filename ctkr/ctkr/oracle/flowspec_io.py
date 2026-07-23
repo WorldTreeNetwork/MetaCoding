@@ -64,7 +64,13 @@ _GIVEN_KEYS = frozenset(
      # plant_type `given`, never expected values. The day counts are the raw
      # farmOS field names (read back under the glossary terms days_to_maturity /
      # days_to_harvest); crop_family / companions are term NAMES.
-     "maturity_days", "harvest_days", "crop_family", "companions"}
+     "maturity_days", "harvest_days", "crop_family", "companions",
+     # sensor asset bundle fields (MetaCoding-ej0) — INPUTS on a sensor
+     # `given`, never expected values. data_streams are data_stream entity
+     # NAMES (ordered); private_key is stated verbatim (unstated keys are
+     # oracle-minted and can never reproduce); public is tri-state at the
+     # boundary (unset delivers null, not false — validated live).
+     "data_streams", "private_key", "public"}
 )
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
@@ -178,6 +184,17 @@ def _str_list(d: dict[str, Any], key: str, where: str) -> list[str]:
     return list(v)
 
 
+def _opt_bool(d: dict[str, Any], key: str, where: str) -> bool | None:
+    """Tri-state boolean: absent means UNSTATED (None), never false — the
+    sensor `public` flag's boundary is genuinely tri-state (MetaCoding-ej0)."""
+    v = d.get(key)
+    if v is None:
+        return None
+    if not isinstance(v, bool):
+        raise FlowSpecError(f"{where}.{key}: expected a boolean, got {v!r}")
+    return v
+
+
 def _opt_int(d: dict[str, Any], key: str, where: str) -> int | None:
     v = d.get(key)
     if v is None:
@@ -239,6 +256,13 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
         harvest_days=_opt_int(d, "harvest_days", where),
         crop_family=_str(d, "crop_family", where),
         companions=_str_list(d, "companions", where),
+        # sensor asset bundle fields (MetaCoding-ej0). A key accepted by
+        # _GIVEN_KEYS but not mapped here is SILENTLY DROPPED — the recording
+        # proceeds with defaults and every stated value is lost (caught live:
+        # the first w4a recording minted random keys and empty streams).
+        data_streams=_str_list(d, "data_streams", where),
+        private_key=_str(d, "private_key", where),
+        public=_opt_bool(d, "public", where),
     )
 
 

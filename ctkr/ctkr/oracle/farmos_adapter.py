@@ -45,6 +45,7 @@ _ASSET_BUNDLE = {
     "equipment": "equipment",
     "group": "group",
     "material": "material",
+    "sensor": "sensor",
 }
 
 
@@ -284,6 +285,61 @@ class FarmOSAdapter(ImplementationAdapter):
             "POST", "/api/taxonomy_term/plant_type", doc
         )["data"]["id"]
         return f"taxonomy_term:plant_type:{uid}"
+
+    def _ensure_data_stream(self, name: str) -> str:
+        """Find-or-create a basic data_stream by NAME; return its uuid.
+
+        The _ensure_term form lifted to a content entity (MetaCoding-ej0):
+        the sensor's data_stream reference carries no auto_create, so the
+        referenced streams must exist — ensured by name, never a per-run UUID
+        in the fixture. Validated live: POST /api/data_stream/basic 201 with
+        name-only attributes.
+        """
+        key = ("data_stream:basic", name)
+        if key in self._type_term_cache:
+            return self._type_term_cache[key]
+        q = f"/api/data_stream/basic?filter[name]={urllib.parse.quote(name)}"
+        data = self.client.request("GET", q).get("data") or []
+        if data:
+            uid = data[0]["id"]
+        else:
+            doc = {"data": {"type": "data_stream--basic",
+                            "attributes": {"name": name}}}
+            uid = self.client.request(
+                "POST", "/api/data_stream/basic", doc
+            )["data"]["id"]
+        self._type_term_cache[key] = uid
+        return uid
+
+    def create_sensor_asset(
+        self, name: str, data_streams: list[str] | None = None,
+        private_key: str = "", public: bool | None = None,
+    ) -> Handle:
+        """Create a sensor asset with its bundle fields (MetaCoding-ej0).
+
+        data_streams are basic data_stream NAMES ensured through
+        :meth:`_ensure_data_stream` and referenced by id in stated order (the
+        boundary preserves it — validated live). private_key rides only when
+        stated: an unstated key is minted by farmOS (DataStream::createUniqueKey,
+        validated live) and can never reproduce. public rides only when stated:
+        the boundary's unset value is null, not the entity-level default false
+        (validated live), and None here means unstated.
+        """
+        attrs: dict[str, Any] = {"name": name}
+        if private_key:
+            attrs["private_key"] = private_key
+        if public is not None:
+            attrs["public"] = public
+        doc: dict[str, Any] = {
+            "data": {"type": "asset--sensor", "attributes": attrs}
+        }
+        if data_streams:
+            ds_ids = [self._ensure_data_stream(n) for n in data_streams]
+            doc["data"]["relationships"] = {"data_stream": {"data": [
+                {"type": "data_stream--basic", "id": did} for did in ds_ids
+            ]}}
+        uid = self.client.request("POST", "/api/asset/sensor", doc)["data"]["id"]
+        return f"asset:sensor:{uid}"
 
     def _create_quantity(self, q: QuantitySpec) -> tuple[str, str]:
         """POST one quantity resource; returns ``(bundle, uuid)``. The bundle is
@@ -1121,6 +1177,50 @@ class FarmOSAdapter(ImplementationAdapter):
             inc["id"]: inc["attributes"]["name"] for inc in (doc.get("included") or [])
         }
         return [names_by_id[r["id"]] for r in rows if r.get("id") in names_by_id]
+
+    # --- sensor asset bundle-field readbacks (MetaCoding-ej0) --------------- #
+    # The subject is a sensor ASSET handle ("asset:sensor:{uuid}"). Each reads
+    # a field OFF the asset at the JSON:API boundary. private_key and public
+    # come back verbatim (validated live; an unset public delivers null, read
+    # back as "" — the lot_number house form). data_stream delivers each
+    # referenced stream's own stated NAME in the relationship's stated order —
+    # never a per-run UUID — so the value reproduces across runs and ports.
+    # PROVISIONAL until a sealed recording binds each term.
+    def sensor_data_stream(self, subject_handle: Handle) -> list[str]:
+        """The ordered NAMES of the data_stream entities the sensor references,
+        or [] when none. Names in the relationship's stated order (validated
+        live: two streams referenced b,a read back in exactly that order)."""
+        _, bundle, uid = self._split(subject_handle)
+        doc = self.client.request(
+            "GET", f"/api/asset/{bundle}/{uid}?include=data_stream")
+        rows = ((doc["data"].get("relationships") or {}).get("data_stream") or {}).get("data") or []
+        names_by_id = {
+            inc["id"]: inc["attributes"]["name"] for inc in (doc.get("included") or [])
+        }
+        return [names_by_id[r["id"]] for r in rows if r.get("id") in names_by_id]
+
+    def sensor_private_key(self, subject_handle: Handle) -> Any:
+        """The sensor's private_key string verbatim. Only explicitly-recorded
+        keys are scoreable: an unstated key is oracle-minted per instance
+        (DataStream::createUniqueKey — validated live) and can never
+        reproduce, so fixtures asserting on it always state it."""
+        _, bundle, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/asset/{bundle}/{uid}")
+        v = doc["data"]["attributes"].get("private_key")
+        return v if v is not None else ""
+
+    def publicly_readable(self, subject_handle: Handle) -> Any:
+        """The sensor's public flag verbatim: true reads true, false reads
+        false (a recorded value, distinct from absent), and an unstated flag
+        delivers null at the boundary (validated live — NOT the entity-level
+        default false), read back as ""."""
+        _, bundle, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/asset/{bundle}/{uid}")
+        v = doc["data"]["attributes"].get("public")
+        return v if v is not None else ""
+
+
+
 
 
 

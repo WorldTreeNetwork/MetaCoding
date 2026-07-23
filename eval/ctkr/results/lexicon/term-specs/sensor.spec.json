@@ -1,0 +1,22 @@
+{
+  "term": "sensor",
+  "kind": "entity",
+  "description": "A sensor is a farm asset that detects and reports a measured condition, optionally providing data streams.",
+  "probe_semantics": "Instantiate a sensor asset via the sensor given-step write surface and read it back from the active set.",
+  "discriminating_flow": {
+    "given": ["a sensor S"],
+    "when": [],
+    "then": ["asset_active == true"]
+  },
+  "provenance": {
+    "config_source": "modules/asset/sensor/config/install/asset.type.sensor.yml:id (AssetType plugin src/Plugin/Asset/AssetType/Sensor.php)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='entity' guessed deterministically from gap_kind='asset_type'",
+      "NEW WRITE SURFACE: sensor assets birth through a sensor given-step (the plant_type house form), carrying its bundle fields (sensor_data_stream, sensor_private_key, publicly_readable) only when stated; VALIDATED LIVE (POST /api/asset/sensor 201 after farm_sensor enabled on the oracle — module enabled 2026-07-23, documented in bring-up.sh)",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(sensor) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

@@ -35,6 +35,15 @@ def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
             g.name, maturity_days=g.maturity_days, harvest_days=g.harvest_days,
             crop_family=g.crop_family, companions=list(g.companions),
         )
+    if g.entity == "sensor":
+        # A sensor is an ASSET carrying its own bundle fields (MetaCoding-ej0).
+        # data_streams are data_stream entity NAMES the adapter ensures
+        # (find-or-create, the _ensure_term form lifted to a content entity) —
+        # never aliases, so nothing is resolved through handles here.
+        return adapter.create_sensor_asset(
+            g.name, data_streams=list(g.data_streams),
+            private_key=g.private_key, public=g.public,
+        )
     if g.sex:
         return adapter.create_asset(g.entity, g.name, g.descriptor, g.sex)
     # Keep the 3-argument call for adapters written before the trait existed.

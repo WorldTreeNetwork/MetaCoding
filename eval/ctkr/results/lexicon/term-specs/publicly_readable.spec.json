@@ -1,0 +1,31 @@
+{
+  "term": "publicly_readable",
+  "kind": "assertion",
+  "description": "Whether data from a sensor may be read publicly without its private key; recorded on the sensor asset as a boolean.",
+  "probe_semantics": "Deliver the sensor ASSET's public flag verbatim as recorded: true reads true, false reads false (false is a recorded value, distinct from absent), and an unstated flag is the empty value.",
+  "discriminating_flow": {
+    "given": [
+      "a sensor recorded publicly readable (true)",
+      "a second sensor recorded NOT publicly readable (false)",
+      "a third sensor with no public flag stated"
+    ],
+    "when": [],
+    "then": [
+      "publicly_readable of the first sensor == true",
+      "publicly_readable of the second sensor == false",
+      "publicly_readable of the third sensor == the empty value"
+    ]
+  },
+  "provenance": {
+    "config_source": "modules/asset/sensor/src/Plugin/Asset/AssetType/Sensor.php:fields.public (boolean, default FALSE)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "SHAPE DEVIATION from the propose-terms sketch: set at sensor-asset creation via the sensor given-step write surface, not via record_log — the field lives on the ASSET.",
+      "AUTHORITY REFINEMENT (BOUNDARY over source default): Sensor.php declares default FALSE at the entity level, yet the boundary delivers null for an unstated flag — VALIDATED LIVE (bare create and GET both read public:null; explicit true reads true; explicit false reads false). The boundary form wins: unset is the EMPTY value, not false, and recorded false is distinguishable from absent (the '0 would read 0, not \"\"' lesson, boolean edition).",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(sensor) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w4a-sensor-is-an-active-asset",
+      "title": "A sensor instantiated bare is an active asset",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "asset_active"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Greenhouse Probe"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "asset_active", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w4a-data-streams-ordered-non-alphabetical",
+      "title": "A sensor naming two data streams reports them in recorded order, not name order",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_data_stream"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Soil Station", "data_streams": ["w4a-Stream-B", "w4a-Stream-A"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_data_stream", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w4a-data-stream-single",
+      "title": "A sensor naming a single data stream reports that one stream",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_data_stream"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Weather Mast", "data_streams": ["w4a-Wind Speed"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_data_stream", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w4a-data-streams-empty",
+      "title": "A sensor naming no data streams reports no streams",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_data_stream"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Streamless Node"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_data_stream", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w4a-data-stream-shared-by-name",
+      "title": "Two sensors naming the same data stream each report that shared stream",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_data_stream"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-North Meter", "data_streams": ["w4a-Shared Flow"]},
+        {"entity": "sensor", "alias": "S2", "name": "w4a-South Meter", "data_streams": ["w4a-Shared Flow"]}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_data_stream", "subject": "S1"},
+        {"assert": "sensor_data_stream", "subject": "S2"}
+      ]
+    },
+    {
+      "key": "w4a-private-key-tracks-distinct-input",
+      "title": "Two sensors recording different private keys each report their own recorded key",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_private_key"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Keyed Alpha", "private_key": "w4a-key-alpha-0001"},
+        {"entity": "sensor", "alias": "S2", "name": "w4a-Keyed Beta", "private_key": "w4a-key-beta-0002"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_private_key", "subject": "S1"},
+        {"assert": "sensor_private_key", "subject": "S2"}
+      ]
+    },
+    {
+      "key": "w4a-public-true",
+      "title": "A sensor recorded publicly readable reports true",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "publicly_readable"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Open Gauge", "public": true}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "publicly_readable", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w4a-public-false-is-a-value",
+      "title": "A sensor recorded not publicly readable reports false, and one with no flag stated reports nothing",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "publicly_readable"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Closed Gauge", "public": false},
+        {"entity": "sensor", "alias": "S2", "name": "w4a-Unstated Gauge"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "publicly_readable", "subject": "S1"},
+        {"assert": "publicly_readable", "subject": "S2"}
+      ]
+    },
+    {
+      "key": "w4a-sensor-carries-all-three-fields",
+      "title": "A sensor carrying data streams, a private key, and a public flag reports all three independently",
+      "feature": "asset.sensor",
+      "glossary_terms": ["sensor", "sensor_data_stream", "sensor_private_key", "publicly_readable"],
+      "given": [
+        {"entity": "sensor", "alias": "S1", "name": "w4a-Full Kit", "data_streams": ["w4a-Moisture", "w4a-Temperature"], "private_key": "w4a-key-fullkit-0003", "public": true}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "sensor_data_stream", "subject": "S1"},
+        {"assert": "sensor_private_key", "subject": "S1"},
+        {"assert": "publicly_readable", "subject": "S1"}
+      ]
+    }
+  ]
+}

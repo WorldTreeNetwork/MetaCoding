@@ -1,0 +1,28 @@
+{
+  "term": "sensor_private_key",
+  "kind": "assertion",
+  "description": "The private key of a sensor, used to authenticate data posted to or read from its streams; recorded on the sensor asset as a string.",
+  "probe_semantics": "Deliver the sensor ASSET's private_key string verbatim as recorded. Only explicitly-recorded keys are scoreable: when no key was stated the oracle MINTS a random one, which is machine-generated per instance and therefore unanswerable, never an empty value.",
+  "discriminating_flow": {
+    "given": [
+      "a sensor whose private key is the recorded string K"
+    ],
+    "when": [],
+    "then": [
+      "sensor_private_key of the sensor == K, verbatim"
+    ]
+  },
+  "provenance": {
+    "config_source": "modules/asset/sensor/src/Plugin/Asset/AssetType/Sensor.php:fields.private_key (string, default_value_callback DataStream::createUniqueKey, hidden 'view')",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "SHAPE DEVIATION from the propose-terms sketch: set at sensor-asset creation via the sensor given-step write surface, not via record_log — the field lives on the ASSET.",
+      "AUTHORITY REFINEMENT (BOUNDARY, defaulted case excluded): when the key is explicitly recorded the boundary returns it VERBATIM — VALIDATED LIVE (recorded 'w2sen-fixed-key-01', read back identical). When NOT recorded, default_value_callback DataStream::createUniqueKey mints a random 32-hex key per instance — VALIDATED LIVE (bare create delivered a fresh random key) — which can never reproduce across runs or ports; fixtures therefore always state the key explicitly, and a probe on a machine-minted key is UNANSWERABLE, never empty-valued (the unvalidated-derivation exclusion, stated up front this round — the e6p lesson).",
+      "NOTE 'hidden view' is display config only: JSON:API delivers private_key on GET regardless — VALIDATED LIVE. Selective-disclosure/permission handling is deferred with the role modules per the wave plan.",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(sensor) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

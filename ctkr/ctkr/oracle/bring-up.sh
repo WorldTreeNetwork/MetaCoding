@@ -51,6 +51,13 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
 #   farm_quantity_test, and farm_test_method as dependencies — the slice's
 #   `test` quantity type and lab/test_method vocabularies ride in with them.
 
+step "enable sensor module"
+docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_sensor'
+# farm_sensor: without it POST /api/asset/sensor 404s and the sensor identity
+#   port (MetaCoding-ej0) cannot record. Enabling it pulls data_stream as a
+#   dependency — /api/data_stream/basic (the sensor's data_stream references)
+#   rides in with it. Enabled on the live oracle 2026-07-23.
+
 step "oauth keys"
 docker exec -u root farmos-oracle-www sh -c \
   'mkdir -p /opt/drupal/keys && chown www-data:www-data /opt/drupal/keys'

@@ -112,6 +112,64 @@ def _one_flow(when: list[dict], glossary_terms: list[str]) -> dict:
     }]}
 
 
+@pytest.mark.parametrize("override", [
+    {"data_streams": ["Soil-A"]},
+    {"private_key": "w2sen-fixed-key"},
+    {"public": False},
+])
+def test_using_a_sensor_given_field_changes_the_id(override) -> None:
+    """Discrimination (MetaCoding-ej0): a sensor given-field in use re-ids the
+    fixture — a wrong port cannot be scored against inputs it did not
+    reproduce. `public: False` is deliberately included: recorded false is a
+    VALUE at the boundary (unset delivers null, validated live), so it must
+    discriminate even though it equals the source's entity-level default."""
+    fx = _golden_fixture()
+    fx.given[0] = fx.given[0].model_copy(update=override)
+    assert fx.content_id() != GOLDEN_PRE_XDT_ID
+
+
+def test_every_accepted_given_key_reaches_the_given_step() -> None:
+    """PROPERTY (MetaCoding-ej0): a key `_GIVEN_KEYS` accepts but
+    `given_from_dict` does not map is SILENTLY DROPPED — the flow validates,
+    the recording proceeds with defaults, and every stated value is lost
+    (caught live: the first w4a sensor recording minted random private keys
+    and empty stream lists while 'recording' a pack that validated clean).
+    Every accepted key must land on the parsed step, so the whole family of
+    silent-drop regressions fails here, not in a sealed pack."""
+    from ctkr.oracle.flowspec_io import _GIVEN_KEYS, given_from_dict
+
+    sample: dict[str, object] = {
+        "entity": "sensor", "alias": "A", "name": "N", "descriptor": "",
+        "sex": "", "maturity_days": 2, "harvest_days": 3,
+        "crop_family": "F", "companions": ["C"],
+        "data_streams": ["D"], "private_key": "K", "public": True,
+    }
+    assert set(sample) == set(_GIVEN_KEYS), (
+        "extend `sample` when _GIVEN_KEYS grows — that is the point"
+    )
+    g = given_from_dict(dict(sample), "given[0]")
+    defaults = GivenStep(entity="sensor", alias="A", name="N")
+    dropped = [
+        k for k, v in sample.items()
+        if k not in ("entity", "alias", "name", "descriptor", "sex")
+        and getattr(g, k) == getattr(defaults, k) and getattr(g, k) != v
+    ]
+    assert not dropped, f"accepted but silently dropped: {dropped}"
+    assert g.data_streams == ["D"] and g.private_key == "K" and g.public is True
+
+
+def test_sensor_fields_are_refused_off_a_sensor_given() -> None:
+    """On any other entity the boundary would silently drop them — worse than
+    a refusal (the plant_type discipline, MetaCoding-ej0)."""
+    fx = _golden_fixture()
+    fx.given[0] = fx.given[0].model_copy(update={"private_key": "k"})
+    fx.glossary_terms.append("sensor_private_key")
+    from ctkr.oracle.fixtures import validate_fixture as vf
+    errors = vf(fx)
+    assert any("only recordable on a sensor asset" in e.message
+               for e in errors), errors
+
+
 def test_lot_number_is_refused_off_record_log() -> None:
     with pytest.raises(FlowSpecError, match="lot_number"):
         flows_from_obj(_one_flow(

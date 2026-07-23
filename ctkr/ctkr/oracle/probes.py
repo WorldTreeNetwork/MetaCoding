@@ -453,6 +453,48 @@ _PROBES: tuple[ProbeSpec, ...] = (
                                 "add no semantics; the reference is single-valued "
                                 "(validated live: delivered as one object, not a "
                                 "list)"),
+    # --- sensor asset bundle fields (MetaCoding-ej0) -------------------- #
+    # Authority refined BEFORE the first recording (the e6p lesson: a BOUND
+    # term whose ProbeSpec cannot score is a skipped refinement).
+    ProbeSpec('sensor_data_stream', 'sensor_data_stream', (),
+              doc='The data streams provided by a sensor, recorded on the sensor asset as an ordered multi-valued reference to data_stream entities.',
+              authority=DERIVED,
+              derivation="the ordered NAMES of the data_stream entities the "
+                         "asset's multi-valued `data_stream` entity_reference "
+                         "points to, in the source's stated relationship order; "
+                         "[] when the asset records none",
+              validated_against="the data_stream reference is stated by the "
+                                "source (farm_sensor Sensor.php "
+                                "buildFieldDefinitions fields.data_stream, "
+                                "entity_reference -> data_stream, multiple TRUE; "
+                                "the asset's JSON:API data_stream relationship) "
+                                "and each name is the referenced stream's own "
+                                "stated attribute; the ORDER is the source's "
+                                "stated relationship order (validated live "
+                                "2026-07-23: two streams referenced b,a read "
+                                "back in exactly that order; no streams "
+                                "delivered data:[]). The reference-follow, name "
+                                "readback, and order preservation add no "
+                                "semantics; the value is ALL streams, so no "
+                                "selection punt (the companion_plants form)"),
+    ProbeSpec('sensor_private_key', 'sensor_private_key', (),
+              doc="The private key of a sensor, recorded on the sensor asset "
+                  "as a string; the source STATES it directly at its published "
+                  "interface — BOUNDARY transcription. Only explicitly-recorded "
+                  "keys are scoreable: an unstated key is oracle-minted per "
+                  "instance (DataStream::createUniqueKey — validated live "
+                  "2026-07-23) and can never reproduce, so fixtures asserting "
+                  "on it always state it.",
+              authority=BOUNDARY),
+    ProbeSpec('publicly_readable', 'publicly_readable', (),
+              doc="Whether data from a sensor may be read publicly without its "
+                  "private key; a boolean the source STATES directly on the "
+                  "asset at its published interface — BOUNDARY transcription. "
+                  "true reads true, false reads false (a recorded value, "
+                  "distinct from absent); an unstated flag delivers null at "
+                  "the boundary, NOT the entity-level default false (validated "
+                  "live 2026-07-23), read back as the empty value.",
+              authority=BOUNDARY),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

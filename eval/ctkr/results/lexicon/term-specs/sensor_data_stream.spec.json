@@ -1,0 +1,30 @@
+{
+  "term": "sensor_data_stream",
+  "kind": "assertion",
+  "description": "The data streams provided by a sensor, recorded on the sensor asset as an ordered multi-valued reference to data_stream entities.",
+  "probe_semantics": "Deliver the ordered NAMES of the data_stream entities the subject sensor ASSET references (its multi-valued data_stream reference), or the empty value when none was recorded.",
+  "discriminating_flow": {
+    "given": [
+      "a sensor whose data streams are the streams named Soil-A and Soil-B, in that order",
+      "a second sensor with no data streams"
+    ],
+    "when": [],
+    "then": [
+      "sensor_data_stream of the first sensor == [Soil-A, Soil-B] in recorded order",
+      "sensor_data_stream of the second sensor == the empty value"
+    ]
+  },
+  "provenance": {
+    "config_source": "modules/asset/sensor/src/Plugin/Asset/AssetType/Sensor.php:fields.data_stream (entity_reference -> data_stream, multiple TRUE)",
+    "first_pack_seal": null,
+    "punts": [
+      "kind='assertion' guessed deterministically from gap_kind='bundle_field'; field declared in a PHP attribute plugin's buildFieldDefinitions, not a YAML file",
+      "SHAPE DEVIATION from the propose-terms sketch: the proposal set the value via 'record_log with sensor_data_stream set' (the log-record shape the proposer defaults to). Corrected: the field lives on the sensor ASSET itself, set at asset creation via the sensor given-step write surface; no log is involved.",
+      "SHAPE DEVIATION (cardinality + value): the reference is MULTI-valued and ORDERED; the value is the ordered list of referenced data_stream NAMES (reproducible strings, the companion_plants house form) — raw per-run data_stream UUIDs could never reproduce across runs or ports and so could never score. VALIDATED LIVE (oracle asset/sensor + data_stream/basic, 2026-07-23): two streams referenced in order b,a read back in exactly that order; a sensor with no streams delivered data:[] — the empty value.",
+      "REFERENCE ENSURE: data_stream entities are ensured by NAME (find-or-create via POST /api/data_stream/basic, the _ensure_term form lifted to a content entity) at sensor-creation time and referenced by id — the fixture never carries a per-run UUID. VALIDATED LIVE: POST /api/data_stream/basic 201 with name-only attributes.",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(sensor) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}
