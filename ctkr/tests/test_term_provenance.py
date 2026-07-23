@@ -239,6 +239,56 @@ def test_binding_fills_the_seal_and_flips_the_status_once(tmp_path) -> None:
         gp.bind_term(TERM, tmp_path / "pack" / "fixtures.jsonl", reg)
 
 
+def test_an_unscorable_probe_refuses_the_bind(tmp_path, monkeypatch) -> None:
+    """MetaCoding-e6p: binding a term whose ProbeSpec cannot score is refused.
+
+    add-term emits every probe DERIVED with no validated_against by design;
+    recording and binding otherwise both succeed and a skipped authority
+    refinement surfaces only as 100% NO VERDICT at port-verify (the
+    plant_type miss, 2026-07-23). The bind is the right gate: it is the one
+    step whose whole meaning is "this term may now score".
+    """
+    from ctkr.oracle import probes as probes_mod
+
+    reg = tmp_path / "reg.jsonl"
+    gp.add_provisional(spec(), reg)
+    _sealed_pack(tmp_path / "pack", [_recorded(TERM, 1)])
+    unrefined = probes_mod.ProbeSpec(
+        assertion=TERM, method="widget_count", authority=probes_mod.DERIVED,
+        derivation="count of widgets delivered for the subject",
+    )
+    assert not unrefined.is_evidence
+    monkeypatch.setitem(probes_mod.PROBE_CONTRACT, TERM, unrefined)
+    with pytest.raises(gp.ProvenanceError, match="cannot score"):
+        gp.bind_term(TERM, tmp_path / "pack" / "fixtures.jsonl", reg)
+    assert gp.provisional_terms(reg) == frozenset({TERM})
+
+    # Refined (validated_against recorded), a pack recorded UNDER the refined
+    # derivation binds. The old pack stays unusable — refinement re-hashed the
+    # derivation_id, so its fixtures answer the old question (the plant_type
+    # re-record, in miniature).
+    monkeypatch.setitem(
+        probes_mod.PROBE_CONTRACT, TERM,
+        probes_mod.ProbeSpec(
+            assertion=TERM, method="widget_count",
+            authority=probes_mod.DERIVED,
+            derivation="count of widgets delivered for the subject",
+            validated_against="the widget module's own stated count field",
+        ),
+    )
+    with pytest.raises(gp.ProvenanceError, match="no VALID fixture"):
+        gp.bind_term(TERM, tmp_path / "pack" / "fixtures.jsonl", reg)
+    refixed = _recorded(TERM, 1)
+    refixed = refixed.model_copy(update={
+        "provenance": refixed.provenance.model_copy(update={
+            "derivations": {TERM: probes_mod.PROBE_CONTRACT[TERM].derivation_id},
+        }),
+    }).with_id()
+    _sealed_pack(tmp_path / "rerecorded", [refixed])
+    row = gp.bind_term(TERM, tmp_path / "rerecorded" / "fixtures.jsonl", reg)
+    assert row["status"] == "bound"
+
+
 def test_exercised_positions_follow_the_kind() -> None:
     fx = _recorded("asset_active", True)
     assert gp._exercises(fx, "equipment", "entity")

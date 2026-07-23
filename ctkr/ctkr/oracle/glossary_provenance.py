@@ -334,10 +334,14 @@ def bind_term(
     The only path to a scorable term. Verifies, in order:
 
     1. the term has a provenance row and it is provisional;
-    2. the pack LOADS — seal present, digests match, witnesses agree, ledger
+    2. an assertion term's ProbeSpec can actually SCORE (``is_evidence`` —
+       BOUNDARY, or DERIVED with ``validated_against``); binding a term
+       port-verify must exclude is refused as a skipped authority
+       refinement (MetaCoding-e6p);
+    3. the pack LOADS — seal present, digests match, witnesses agree, ledger
        vouches where one exists (:func:`ctkr.oracle.pack.load_pack`; a
        :class:`~ctkr.oracle.pack.PackError` propagates untouched);
-    3. at least one fixture that SURVIVED loading (never one in the invalid
+    4. at least one fixture that SURVIVED loading (never one in the invalid
        bucket) exercises the term in the position its kind allows.
 
     Then fills ``first_pack_seal`` with the pack's seal and rewrites the row.
@@ -361,8 +365,30 @@ def bind_term(
             f"{row['provenance']['first_pack_seal']}); a binding is issued once"
         )
 
-    pack = load_pack(fixtures_path)  # PackError propagates: no seal, no binding
     kind = row["kind"]
+    if kind == "assertion":
+        # MetaCoding-e6p: a bound term whose ProbeSpec cannot score is almost
+        # certainly a skipped authority refinement (add-term emits every probe
+        # DERIVED with no validated_against by design; recording and binding
+        # would otherwise both succeed and the miss surfaces only as 100%
+        # NO VERDICT at port-verify — the plant_type lesson, 2026-07-23).
+        from ctkr.oracle.probes import PROBE_CONTRACT
+
+        pspec = PROBE_CONTRACT.get(term)
+        if pspec is not None and not pspec.is_evidence:
+            raise ProvenanceError(
+                f"assertion term {term!r} cannot score: its ProbeSpec is still "
+                f"DERIVED with no validated_against — the raw add-term state. "
+                f"Binding it would issue a term port-verify must exclude as an "
+                f"unvalidated derivation. Refine the probe's authority first "
+                f"(BOUNDARY for a direct transcription of a source-stated "
+                f"field, or keep DERIVED and record validated_against), then "
+                f"bind. The refinement belongs BEFORE the recording: if it "
+                f"changes a derivation_id, the pack's fixtures answer the old "
+                f"question and must be re-recorded."
+            )
+
+    pack = load_pack(fixtures_path)  # PackError propagates: no seal, no binding
     if not any(_exercises(fx, term, kind) for fx in pack.fixtures):
         raise ProvenanceError(
             f"sealed pack {pack.seal.pack_id} contains no VALID fixture that "
