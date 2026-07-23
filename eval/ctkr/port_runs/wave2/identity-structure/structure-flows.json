@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "w5a-structure-kind-tracks-distinct-input",
+      "title": "Two structures recording different kinds each report their own recorded kind",
+      "feature": "asset.structure",
+      "glossary_terms": ["structure", "structure_kind"],
+      "given": [
+        {"entity": "structure", "alias": "S1", "name": "w5a-North Greenhouse", "descriptor": "greenhouse"},
+        {"entity": "structure", "alias": "S2", "name": "w5a-Equipment Shed", "descriptor": "building"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "structure_kind", "subject": "S1"},
+        {"assert": "structure_kind", "subject": "S2"}
+      ]
+    },
+    {
+      "key": "w5a-structure-kind-fallback-other",
+      "title": "A structure recorded with no descriptor reports the stated fallback kind",
+      "feature": "asset.structure",
+      "glossary_terms": ["structure", "structure_kind"],
+      "given": [
+        {"entity": "structure", "alias": "S1", "name": "w5a-Unclassified Lean-to"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "structure_kind", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w5a-structure-kind-other-explicit",
+      "title": "A structure recorded explicitly as other reports other",
+      "feature": "asset.structure",
+      "glossary_terms": ["structure", "structure_kind"],
+      "given": [
+        {"entity": "structure", "alias": "S1", "name": "w5a-Odd Silo", "descriptor": "other"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "structure_kind", "subject": "S1"}
+      ]
+    },
+    {
+      "key": "w5a-structure-kind-survives-archive",
+      "title": "An archived structure still reports its recorded kind while leaving the active set",
+      "feature": "asset.structure",
+      "glossary_terms": ["structure", "structure_kind", "archive_asset", "asset_active"],
+      "given": [
+        {"entity": "structure", "alias": "S1", "name": "w5a-Retired Barn", "descriptor": "building"}
+      ],
+      "when": [
+        {"action": "archive_asset", "ref": "S1"}
+      ],
+      "probes": [
+        {"assert": "structure_kind", "subject": "S1"},
+        {"assert": "asset_active", "subject": "S1"}
+      ]
+    }
+  ]
+}

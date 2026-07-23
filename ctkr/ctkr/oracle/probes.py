@@ -495,6 +495,21 @@ _PROBES: tuple[ProbeSpec, ...] = (
                   "the boundary, NOT the entity-level default false (validated "
                   "live 2026-07-23), read back as the empty value.",
               authority=BOUNDARY),
+    # --- structure_kind (MetaCoding-xq7) -------------------------------- #
+    # Authority refined BEFORE the first recording (the e6p lesson).
+    ProbeSpec('structure_kind', 'structure_kind', (),
+              doc="The designated kind of a structure (building, greenhouse, "
+                  "other), recorded on the structure asset as a required "
+                  "list_string from the closed structure_type vocabulary "
+                  "(glossary.STRUCTURE_TYPES) and STATED by the source "
+                  "directly at its published interface — BOUNDARY "
+                  "transcription, machine id verbatim (validated live "
+                  "2026-07-23: greenhouse/building/other each read back "
+                  "identically; unknown 422s; absent 422s, so through the "
+                  "given write surface — descriptor, falling back to 'other' "
+                  "— the delivered value is never absent and there is no "
+                  "empty-value contrast).",
+              authority=BOUNDARY),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

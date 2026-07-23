@@ -1,0 +1,33 @@
+{
+  "term": "structure_kind",
+  "kind": "assertion",
+  "description": "The designated kind of a structure (building, greenhouse, other), recorded on the structure asset as a required list_string from the closed structure_type vocabulary.",
+  "probe_semantics": "Deliver the structure ASSET's structure_type machine id verbatim as recorded (one of the closed set). Through the given write surface the value is never absent: the field is required at the boundary and an unstated descriptor falls back to 'other' in the adapter.",
+  "discriminating_flow": {
+    "given": [
+      "a structure whose descriptor is greenhouse",
+      "a second structure whose descriptor is building",
+      "a third structure with no descriptor stated"
+    ],
+    "when": [],
+    "then": [
+      "structure_kind of the first structure == greenhouse",
+      "structure_kind of the second structure == building",
+      "structure_kind of the third structure == other (the adapter's stated fallback, delivered by the boundary)"
+    ]
+  },
+  "provenance": {
+    "config_source": "modules/asset/structure/src/Plugin/Asset/AssetType/Structure.php:fields.structure_type (list_string, required, allowed_values_function FarmStructureHelper::structureTypeAllowedValues over structure_type config entities: farm_structure.structure_type.other.yml + farm_structure_types building/greenhouse)",
+    "first_pack_seal": null,
+    "punts": [
+      "SHAPE DEVIATION from the propose-terms merge: the proposer collapsed the allowed_values gap and the bundle_field gap into one kind='entity' candidate while describing an assertion. Corrected: this is the ASSERTION (readback of the recorded value off the structure ASSET); the closed SET itself is blessed as glossary.STRUCTURE_TYPES with config citation, the LAND_TYPES house form — an enum set is not a term and the provenance registry has no enum channel yet (MetaCoding-852, deliberately not solved here).",
+      "WRITE SURFACE IS PRE-EXISTING: the value flows in through GivenStep.descriptor and the adapter maps it onto structure_type (descriptor or 'other') — no new given fields; the read-side takes the semantic name structure_kind while the write side keeps the farmOS field name, the laboratory-vs-lab house form.",
+      "AUTHORITY (BOUNDARY): the value is the source-stated list_string machine id read back verbatim — VALIDATED LIVE 2026-07-23 (greenhouse/building/other each read back identically; unknown value 422 'not a valid choice'; absent value 422 'should not be null', so through this surface the delivered value is never absent and there is no empty-value contrast — the required-field finding).",
+      "ORACLE MODULE: farm_structure_types enabled on the oracle 2026-07-23 (ships building + greenhouse config entities; base farm_structure ships only 'other') — documented in bring-up.sh; the clean slice includes its types submodule.",
+      "AUTHOR-TIME GATE: structure descriptors gated against STRUCTURE_TYPES in validate_fixture (the land discipline) — an unrecognised descriptor would 422 at the boundary, so it fails loudly at author time; no existing structure fixture carries a descriptor outside the set (verified before gating).",
+      "STANDING-POLICY DECISION (BIND-WITH-FEATURE): treated as BIND-WITH-FEATURE(structure) under Duke's standing policy 'identity terms bind DURING their feature's port' (term-dispositions-2026-07-22.md) without a fresh per-term elicitation. Reversal condition: Duke may re-disposition at the next wave boundary; an unbound or retired term costs only its spec.",
+      "proposed by openai:gpt-5.6-terra (propose-terms); PROVISIONAL until first_pack_seal is filled by a real sealed recording"
+    ],
+    "role_class_id": null
+  }
+}

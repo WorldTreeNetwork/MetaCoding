@@ -117,6 +117,23 @@ LAND_TYPES: frozenset[str] = frozenset(
     {"bed", "field", "landmark", "other", "paddock", "property"}
 )
 
+# --- Structure descriptors: the closed vocabulary for a structure's kind. ----
+# farmOS's ``structure_type`` option set (Structure.php:fields.structure_type,
+# list_string, REQUIRED, allowed_values_function over structure_type config
+# entities: farm_structure ships ``other``; farm_structure_types ships
+# ``building`` + ``greenhouse``). The LAND_TYPES form: the value flows in
+# through GivenStep.descriptor, the adapter maps it onto ``structure_type``
+# (``descriptor or "other"`` — required at the boundary, so the fallback is
+# load-bearing), and only the ``structure`` entity is gated against this set
+# (fixtures.validate_fixture). No committed structure fixture carries any
+# descriptor (verified 2026-07-23), so the gate rejects nothing legal before.
+# NOTE like LAND_TYPES this set has commit-message provenance only — the
+# enum-vocabulary registry channel is MetaCoding-852, deliberately not
+# invented here.
+STRUCTURE_TYPES: frozenset[str] = frozenset(
+    {"building", "greenhouse", "other"}
+)
+
 # --- Assertion terms: the value predicates a `then` step may assert. --------
 # Every one asserts a VALUE the system delivers — a total, a status, a count, a
 # visibility, a membership — never a representation. This is the oracle's target
@@ -167,6 +184,7 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "sensor_data_stream",  # The data streams provided by a sensor, recorded on the sensor asset… [PROVISIONAL]
         "sensor_private_key",  # The private key of a sensor, used to authenticate data posted to or… [PROVISIONAL]
         "publicly_readable",  # Whether data from a sensor may be read publicly without its private… [PROVISIONAL]
+        "structure_kind",  # The designated kind of a structure (building, greenhouse, other), r… [PROVISIONAL]
     }
 )
 
@@ -220,4 +238,5 @@ def all_terms() -> frozenset[str]:
         | ASSERTION_TERMS
         | ADJUSTMENT_KINDS
         | LAND_TYPES
+        | STRUCTURE_TYPES
     )

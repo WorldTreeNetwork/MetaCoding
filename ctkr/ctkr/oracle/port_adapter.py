@@ -693,3 +693,14 @@ class PortAdapter(ImplementationAdapter):
         """
         self._need_probe("publicly_readable")
         return self._bridge.call("publicly_readable", subject=subject_handle)
+
+    # --- generated: structure_kind (assertion, PROVISIONAL) --- #
+    def structure_kind(self, subject_handle: Handle) -> Any:
+        """Deliver the structure ASSET's structure_type machine id verbatim as recorded (one of the closed set). Through the given write surface the value is never absent: the field is required at the boundary and an unstated descriptor falls back to 'other' in the adapter.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("structure_kind")
+        return self._bridge.call("structure_kind", subject=subject_handle)

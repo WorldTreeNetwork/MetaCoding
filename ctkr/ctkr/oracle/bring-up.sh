@@ -58,6 +58,14 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_sensor'
 #   dependency — /api/data_stream/basic (the sensor's data_stream references)
 #   rides in with it. Enabled on the live oracle 2026-07-23.
 
+step "enable structure types"
+docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_structure_types'
+# farm_structure_types: base farm_structure ships only the 'other'
+#   structure_type config entity; 'building' and 'greenhouse' live in this
+#   submodule and 422 as invalid choices without it — the structure identity
+#   port (MetaCoding-xq7) records all three. Enabled on the live oracle
+#   2026-07-23.
+
 step "oauth keys"
 docker exec -u root farmos-oracle-www sh -c \
   'mkdir -p /opt/drupal/keys && chown www-data:www-data /opt/drupal/keys'

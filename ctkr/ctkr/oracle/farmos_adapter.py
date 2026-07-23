@@ -1219,6 +1219,19 @@ class FarmOSAdapter(ImplementationAdapter):
         v = doc["data"]["attributes"].get("public")
         return v if v is not None else ""
 
+    # --- structure_kind readback (MetaCoding-xq7) --------------------------- #
+    def structure_kind(self, subject_handle: Handle) -> Any:
+        """The structure's structure_type machine id verbatim (one of the
+        closed STRUCTURE_TYPES set). Required at the boundary and defaulted to
+        'other' by create_asset, so through this write surface the value is
+        never absent; the '' guard is defensive only (validated live:
+        greenhouse/building/other each read back identically)."""
+        _, bundle, uid = self._split(subject_handle)
+        doc = self.client.request("GET", f"/api/asset/{bundle}/{uid}")
+        v = doc["data"]["attributes"].get("structure_type")
+        return v if v is not None else ""
+
+
 
 
 

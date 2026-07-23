@@ -451,3 +451,12 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("publicly_readable")
+
+    # --- generated: structure_kind (assertion, PROVISIONAL) --- #
+    def structure_kind(self, subject_handle: Handle) -> Any:
+        """Deliver the structure ASSET's structure_type machine id verbatim as recorded (one of the closed set). Through the given write surface the value is never absent: the field is required at the boundary and an unstated descriptor falls back to 'other' in the adapter.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("structure_kind")
