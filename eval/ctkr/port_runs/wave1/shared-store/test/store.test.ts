@@ -121,3 +121,29 @@ test("the third workflow state (abandoned) is inert to officials, visible to par
   expect(s.logCount(a, "activity")).toBe(0);
   expect(s.pendingLogCount(a, "activity")).toBe(1); // not-confirmed partner mass
 });
+
+// --- MetaCoding-5xa: asset_active must not be trivially satisfiable --------
+// Previously assetActive answered true for ANY unarchived handle, including
+// never-created ghosts — "active asset" was indistinguishable from "no asset
+// at all". A handle with no birth event is now unanswerable (undefined).
+
+test("assetActive is unanswerable for a handle no birth event minted", () => {
+  const s = mk();
+  expect(s.assetActive("asset:ghost-never-created")).toBeUndefined();
+});
+
+test("assetActive answers for every asset-family birth, generic and feature-local", () => {
+  const s = mk();
+  const generic = s.createAsset({ entity: "land", name: "Born Field" });
+  const sensor = s.createSensorAsset({ name: "Born Sensor" });
+  expect(s.assetActive(generic)).toBe(true);
+  expect(s.assetActive(sensor)).toBe(true);
+  s.archiveAsset(generic);
+  expect(s.assetActive(generic)).toBe(false); // archived is a VALUE, not absence
+});
+
+test("assetActive is unanswerable for a non-asset birth (a taxonomy term is not an asset)", () => {
+  const s = mk();
+  const term = s.createPlantTypeTerm({ name: "Tomato" });
+  expect(s.assetActive(term)).toBeUndefined();
+});

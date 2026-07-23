@@ -784,7 +784,31 @@ export class Wave1LogStore {
     return total;
   }
 
-  assetActive(assetId: Handle): boolean {
+  /**
+   * Whether SOME birth event minted this asset handle: any event whose
+   * registered kind is in the "asset" family and whose payload carries this
+   * assetId — asset_created and every feature-local *_asset_created (the
+   * sensor form), derived from the registry so a future asset birth kind is
+   * covered by construction, not by remembering to edit a list.
+   */
+  private assetBorn(assetId: Handle): boolean {
+    return this.events().some(
+      (e) =>
+        this.registry.spec(e.kind).family === "asset" &&
+        (e.payload as { assetId?: Handle }).assetId === assetId,
+    );
+  }
+
+  /**
+   * MetaCoding-5xa: previously this answered `true` for ANY unarchived
+   * handle — including never-created and ghost handles — so the probe could
+   * not distinguish "active asset" from "no asset at all" (the trivially
+   * satisfiable check the iteration methodology targets). A handle with no
+   * birth event is now UNANSWERABLE (undefined), never a value; the bridge
+   * maps it to the unanswerable channel like every unknown-subject probe.
+   */
+  assetActive(assetId: Handle): boolean | undefined {
+    if (!this.assetBorn(assetId)) return undefined;
     return !this.eventsOf<AssetArchivedPayload>("asset_archived").some(
       (e) => e.payload.assetId === assetId,
     );

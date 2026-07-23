@@ -171,8 +171,15 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         return store.yieldTotal(req.asset as Handle, String(req.measure), String(req.unit));
       case "quantity_recorded":
         return store.quantityRecorded(req.log as Handle, String(req.measure), String(req.unit));
-      case "asset_active":
-        return store.assetActive(req.asset as Handle);
+      case "asset_active": {
+        // MetaCoding-5xa: a handle no birth event minted is UNANSWERABLE,
+        // never a value — asset_active must not read true for a ghost.
+        const active = store.assetActive(req.asset as Handle);
+        if (active === undefined) {
+          return { unanswerable: `no asset recorded under handle ${String(req.asset)}` };
+        }
+        return active;
+      }
       case "equipment_used": {
         const used = store.equipmentUsed(req.log as Handle, req.other as Handle);
         if (used === undefined) {
