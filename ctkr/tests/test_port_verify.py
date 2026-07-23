@@ -775,3 +775,32 @@ def test_a_bridge_may_declare_a_per_call_gap() -> None:
     assert report.score.no_verdict == 1
     assert report.score.scored_passed == 0
     assert not report.clean
+
+
+def test_every_live_write_surface_has_a_port_dispatch() -> None:
+    """PROPERTY (MetaCoding-ej0): every `given`-step write surface the LIVE
+    adapter implements, PortAdapter must dispatch too — an override on
+    FarmOSAdapter with only the raising base on PortAdapter means the flow
+    RECORDS live but every fixture dies at setup when verified against a
+    port. Caught by the sensor round's fresh reading: create_sensor_asset
+    existed on farmos_adapter/steps but not on port_adapter, and the port
+    scored 0/14 with the builder's bridge never consulted. `create_` is the
+    interpreter's whole given-surface prefix (steps.apply_given), so this
+    covers the family, not the instance."""
+    from ctkr.oracle.adapter import ImplementationAdapter
+    from ctkr.oracle.farmos_adapter import FarmOSAdapter
+
+    live_creates = {
+        n for n in dir(FarmOSAdapter) if n.startswith("create_")
+        and getattr(FarmOSAdapter, n) is not getattr(
+            ImplementationAdapter, n, None)
+        and not n.startswith("_")
+    }
+    missing = {
+        n for n in live_creates
+        if getattr(PortAdapter, n) is getattr(ImplementationAdapter, n, None)
+    }
+    assert not missing, (
+        f"live write surfaces with no port dispatch (fixtures will record "
+        f"live but die at port-verify setup): {sorted(missing)}"
+    )

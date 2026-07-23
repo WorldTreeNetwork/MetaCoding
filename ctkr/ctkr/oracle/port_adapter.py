@@ -355,6 +355,27 @@ class PortAdapter(ImplementationAdapter):
             **({"companions": list(companions)} if companions else {}),
         ))
 
+    def create_sensor_asset(
+        self, name: str, data_streams: list[str] | None = None,
+        private_key: str = "", public: bool | None = None,
+    ) -> Handle:
+        # Backs a sensor `given` (MetaCoding-ej0). Like create_plant_type_term,
+        # not gated on a declared term: a port that cannot make sensor assets
+        # cannot be verified on this feature at all, so it fails the call
+        # loudly at the point of use rather than being silently skipped. The
+        # bundle fields ride only when STATED — public is tri-state, so False
+        # rides (a recorded value, distinct from absent) and only None stays
+        # off the wire; dropping that distinction here would collapse the
+        # pack's false-vs-"" contrast. The fresh reading of the first build
+        # caught this method missing entirely (fixtures 0/14, every given
+        # dying at the base _unsupported before the bridge was consulted).
+        return str(self._bridge.call(
+            "create_sensor_asset", name=name,
+            **({"data_streams": list(data_streams)} if data_streams else {}),
+            **({"private_key": private_key} if private_key else {}),
+            **({"public": public} if public is not None else {}),
+        ))
+
     def record_log(
         self, kind: str, name: str, status: str,
         asset_handles: list[Handle], quantities: list[QuantitySpec],
