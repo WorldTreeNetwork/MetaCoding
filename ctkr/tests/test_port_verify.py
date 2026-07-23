@@ -804,3 +804,28 @@ def test_every_live_write_surface_has_a_port_dispatch() -> None:
         f"live write surfaces with no port dispatch (fixtures will record "
         f"live but die at port-verify setup): {sorted(missing)}"
     )
+
+
+def test_every_probe_in_the_contract_has_a_port_dispatch() -> None:
+    """PROPERTY (MetaCoding-87t fresh reading): every PROBE_CONTRACT method
+    must have a PortAdapter override — a probe with only the base's raising
+    stub scores a FAIL against a port whose own bridge would have answered
+    (found live: lot_number, material_quantity, and birth_mother were bound
+    BEFORE add-term emitted port dispatch, so the material port's new probes
+    were unreachable through the instrument while its bun tests were green —
+    self-verification of the TS half only). Sibling of the create_* parity
+    property; together they cover both halves of the port surface."""
+    from ctkr.oracle.adapter import ImplementationAdapter
+    from ctkr.oracle.probes import PROBE_CONTRACT
+
+    missing = {
+        spec.method
+        for spec in PROBE_CONTRACT.values()
+        if spec.method  # 'refused' rides its own channel, not a method
+        and getattr(PortAdapter, spec.method, None)
+        is getattr(ImplementationAdapter, spec.method, None)
+    }
+    assert not missing, (
+        f"contract probes with no port dispatch (score FAIL against a port "
+        f"whose bridge would answer): {sorted(missing)}"
+    )

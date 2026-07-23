@@ -704,3 +704,22 @@ class PortAdapter(ImplementationAdapter):
         """
         self._need_probe("structure_kind")
         return self._bridge.call("structure_kind", subject=subject_handle)
+
+    # --- back-filled dispatches (MetaCoding-87t fresh reading) -------------- #
+    # These three terms were BOUND before add-term emitted port dispatch
+    # (MetaCoding-wob), so no dispatch was ever generated: every probe fell
+    # through to the base's raising stub and port-verify scored FAILs the
+    # port's own bridge would have answered. The parity property test now
+    # covers the whole probe surface, so the class cannot recur silently.
+    def lot_number(self, subject_handle: Handle) -> Any:
+        self._need_probe("lot_number")
+        return self._bridge.call("lot_number", log=subject_handle)
+
+    def material_quantity(self, subject_handle: Handle) -> Any:
+        self._need_probe("material_quantity")
+        return self._bridge.call("material_quantity", log=subject_handle)
+
+    def birth_mother(self, subject_handle: Handle, other_handle: Handle) -> bool:
+        self._need_probe("birth_mother")
+        return bool(self._bridge.call(
+            "birth_mother", log=subject_handle, other=other_handle))
