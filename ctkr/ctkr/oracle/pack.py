@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -290,7 +291,44 @@ def registered_seals(registry: Path | None) -> set[str]:
     nowhere in the ledger. It is consulted by :func:`registry_problem` now, which
     ``load_pack`` calls. A named control that does not run is worse than silence.
     """
-    return {e["seal"] for e in registry_entries(registry) if e.get("seal")}
+    entries = registry_entries(registry)
+    retired = {
+        e["seal"] for e in entries if e.get("record") == "retirement"
+    }
+    return {
+        e["seal"] for e in entries
+        if e.get("seal") and not e.get("record") and e["seal"] not in retired
+    }
+
+
+def retire_seal(seal: str, reason: str, registry: Path) -> dict[str, Any]:
+    """Retire a registered seal: append-only, total, reasoned (MetaCoding-2oo).
+
+    The seal's own row STAYS (the ledger remembers the pack was recorded);
+    the retirement row joins it, and :func:`registry_problem` refuses every
+    subsequent load — the pack becomes history: kept, cited, never re-judged.
+    Retiring an unregistered seal is an error (there is nothing to retire),
+    and a reasonless retirement is refused (history without a why is noise).
+    """
+    if not reason.strip():
+        raise PackError(f"retiring seal {seal} requires a reason")
+    entries = registry_entries(registry)
+    if seal not in {e.get("seal") for e in entries if not e.get("record")}:
+        raise PackError(
+            f"seal {seal} is not registered in {registry} — nothing to retire"
+        )
+    if any(e.get("record") == "retirement" and e.get("seal") == seal
+           for e in entries):
+        raise PackError(f"seal {seal} is already retired")
+    row = {
+        "record": "retirement",
+        "seal": seal,
+        "reason": reason,
+        "retired_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    with registry.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, sort_keys=True) + "\n")
+    return row
 
 
 def registry_problem(seal: PackSeal, registry: Path | None) -> str:
@@ -304,7 +342,22 @@ def registry_problem(seal: PackSeal, registry: Path | None) -> str:
     if registry is None:
         return ""
     entries = registry_entries(registry)
-    if seal.seal not in {e.get("seal") for e in entries}:
+    # Retirement first (MetaCoding-2oo): a retired seal is HISTORY, not a
+    # degenerate current pack. The wave0 pilot's fixtures predate the
+    # hash-compat discipline — every one lands in the invalid bucket, which
+    # is per-fixture honest but pack-level misleading (a pack that "loads"
+    # with 0 valid fixtures reads as current). Retirement is append-only
+    # (the row joins the ledger; the seal row it retires stays) and total:
+    # nothing judging may load the pack at all.
+    for e in entries:
+        if e.get("record") == "retirement" and e.get("seal") == seal.seal:
+            return (
+                f"seal {seal.seal} is RETIRED in {registry} "
+                f"({e.get('reason', 'no reason recorded')}; retired_at "
+                f"{e.get('retired_at', '?')}). A retired pack is history — "
+                f"kept, cited, never re-judged. NO VERDICT."
+            )
+    if seal.seal not in {e.get("seal") for e in entries if not e.get("record")}:
         return (
             f"seal {seal.seal} is not in {registry}. This tree keeps a ledger of "
             f"every seal its recorder issued, and this pack's seal is not one of "
@@ -313,6 +366,8 @@ def registry_problem(seal: PackSeal, registry: Path | None) -> str:
         )
     mine = set(seal.fixture_ids)
     for e in entries:
+        if e.get("record"):  # retirement rows carry no fixture inventory
+            continue
         theirs = set(e.get("fixture_ids") or [])
         if theirs > mine:
             return (
