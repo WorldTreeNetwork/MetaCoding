@@ -56,8 +56,31 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-KINDS: frozenset[str] = frozenset({"entity", "action", "assertion"})
+#: The kinds a TERM-SPEC may declare (terms are named surfaces of the DSL).
+TERM_KINDS: frozenset[str] = frozenset({"entity", "action", "assertion"})
+#: A closed-set VALUE (MetaCoding-852): not a term — it names no probe, action,
+#: or entity — but a member of a glossary enum (LOG_STATUSES, LAND_TYPES,
+#: STRUCTURE_TYPES, …). Enum growth previously bound with commit-message
+#: provenance only; these rows give it the same cited-witnessed-reversible bar.
+ENUM_VALUE_KIND: str = "enum_value"
+#: Every kind a REGISTRY ROW may carry.
+KINDS: frozenset[str] = TERM_KINDS | {ENUM_VALUE_KIND}
 STATUSES: frozenset[str] = frozenset({"provisional", "bound"})
+
+#: The glossary enums under provenance governance, each with the members
+#: GRANDFATHERED at governance time (the same rule the module keeps for the 25
+#: pre-registry terms: absence means "predates the registry", never "invalid").
+#: A governed set's NON-grandfathered member with no registry row is a
+#: governance failure the test suite refuses — growing the set requires a row.
+GOVERNED_SETS: dict[str, frozenset[str]] = {
+    # 'pending'/'done' predate the registry; 'abandoned' was the io6 growth.
+    "LOG_STATUSES": frozenset({"pending", "done"}),
+    # blessed whole at io6 with commit-message provenance only — nothing
+    # grandfathered, every member gets a row.
+    "LAND_TYPES": frozenset(),
+    # blessed at the structure port (MetaCoding-xq7), same gap.
+    "STRUCTURE_TYPES": frozenset(),
+}
 
 #: The version-controlled registry, beside the glossary it governs.
 DEFAULT_REGISTRY: Path = Path(__file__).with_name("glossary_provenance.jsonl")
@@ -101,9 +124,10 @@ def validate_term_spec(spec: Any) -> list[str]:
             )
     elif "term" in spec:
         problems.append("term must be a string")
-    if "kind" in spec and spec.get("kind") not in KINDS:
+    if "kind" in spec and spec.get("kind") not in TERM_KINDS:
         problems.append(
-            f"kind {spec.get('kind')!r} is not one of {sorted(KINDS)}"
+            f"kind {spec.get('kind')!r} is not one of {sorted(TERM_KINDS)} "
+            f"(an enum VALUE is not a term — it enters via add_enum_value)"
         )
     for k in ("description", "probe_semantics"):
         if k in spec and not (isinstance(spec[k], str) and spec[k].strip()):
@@ -176,12 +200,49 @@ def _row_problems(row: Any, line_no: int, seen: set[str]) -> list[str]:
         return [f"{where}: not an object"]
     problems: list[str] = []
     term = row.get("term")
+    kind = row.get("kind")
     if not (isinstance(term, str) and _TERM_RE.match(term)):
         problems.append(f"{where}: term {term!r} is not a valid identifier")
-    elif term in seen:
-        problems.append(f"{where}: duplicate row for term {term!r}")
-    if row.get("kind") not in KINDS:
-        problems.append(f"{where}: kind {row.get('kind')!r} is not one of {sorted(KINDS)}")
+    else:
+        # Enum values live in a per-set namespace (the value "other" is a
+        # member of LAND_TYPES and STRUCTURE_TYPES both); terms share one.
+        key = f"{row.get('set')}:{term}" if kind == ENUM_VALUE_KIND else term
+        if key in seen:
+            problems.append(f"{where}: duplicate row for {key!r}")
+        seen.add(key)
+    if kind not in KINDS:
+        problems.append(f"{where}: kind {kind!r} is not one of {sorted(KINDS)}")
+    if kind == ENUM_VALUE_KIND:
+        # MetaCoding-852: an enum row must name a real glossary set that
+        # actually contains the value — a row for a value the glossary does
+        # not carry is drift, refused at load.
+        from ctkr.oracle import glossary as _glossary
+
+        set_name = row.get("set")
+        members = getattr(_glossary, str(set_name), None)
+        if not isinstance(members, frozenset):
+            problems.append(
+                f"{where}: enum_value row names set {set_name!r}, which is "
+                f"not a glossary frozenset"
+            )
+        elif term not in members:
+            problems.append(
+                f"{where}: enum_value {term!r} is not a member of "
+                f"glossary.{set_name} — the glossary and its provenance "
+                f"registry disagree"
+            )
+        if isinstance(prov := row.get("provenance"), dict) and not str(
+            prov.get("config_source") or ""
+        ).strip():
+            problems.append(
+                f"{where}: enum_value {term!r} has no config_source — the "
+                f"channel exists precisely because commit-message-only "
+                f"provenance was the gap (MetaCoding-852)"
+            )
+    elif "set" in row:
+        problems.append(
+            f"{where}: only an enum_value row may carry 'set' (kind={kind!r})"
+        )
     status = row.get("status")
     if status not in STATUSES:
         problems.append(f"{where}: status {status!r} is not one of {sorted(STATUSES)}")
@@ -224,9 +285,7 @@ def load_registry(path: str | Path | None = None) -> list[dict[str, Any]]:
         except json.JSONDecodeError as exc:
             problems.append(f"row {i}: unreadable JSON ({exc})")
             continue
-        problems.extend(_row_problems(row, i, seen))
-        if isinstance(row, dict) and isinstance(row.get("term"), str):
-            seen.add(row["term"])
+        problems.extend(_row_problems(row, i, seen))  # adds the row's dedup key
         rows.append(row)
     if problems:
         raise ProvenanceError(
@@ -247,9 +306,11 @@ def _write_registry(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def provisional_terms(path: str | Path | None = None) -> frozenset[str]:
-    """The terms no sealed pack has exercised yet."""
+    """The terms no sealed pack has exercised yet (enum values excluded —
+    they live in a per-set namespace and gate nothing port-verify scores)."""
     return frozenset(
-        r["term"] for r in load_registry(path) if r["status"] == "provisional"
+        r["term"] for r in load_registry(path)
+        if r["status"] == "provisional" and r["kind"] != ENUM_VALUE_KIND
     )
 
 
@@ -265,6 +326,8 @@ def provisional_reason(term: str, path: str | Path | None = None) -> str:
     this returns ``""`` for every grandfathered term.
     """
     for row in load_registry(path):
+        if row["kind"] == ENUM_VALUE_KIND:
+            continue  # per-set namespace; never shadows a term name
         if row["term"] == term and row["status"] == "provisional":
             return (
                 f"{term!r} is PROVISIONAL: no sealed pack has exercised its "
@@ -287,8 +350,9 @@ def add_provisional(
     p = Path(path) if path is not None else DEFAULT_REGISTRY
     rows = load_registry(p)
     term = spec["term"]
-    if any(r["term"] == term for r in rows):
-        existing = next(r for r in rows if r["term"] == term)
+    term_rows = [r for r in rows if r["kind"] != ENUM_VALUE_KIND]
+    if any(r["term"] == term for r in term_rows):
+        existing = next(r for r in term_rows if r["term"] == term)
         raise ProvenanceError(
             f"term {term!r} already has a provenance row "
             f"(status={existing['status']}); a term is registered once"
@@ -352,7 +416,8 @@ def bind_term(
 
     p = Path(path) if path is not None else DEFAULT_REGISTRY
     rows = load_registry(p)
-    row = next((r for r in rows if r["term"] == term), None)
+    row = next((r for r in rows
+                if r["term"] == term and r["kind"] != ENUM_VALUE_KIND), None)
     if row is None:
         raise ProvenanceError(
             f"term {term!r} has no provenance row in {p} — a term is proposed "
@@ -397,6 +462,144 @@ def bind_term(
             f"issued by observation, and this pack observed something else."
         )
 
+    row["provenance"]["first_pack_seal"] = pack.seal.seal
+    row["status"] = "bound"
+    row["bound_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    row["bound_pack_id"] = pack.seal.pack_id
+    _write_registry(rows, p)
+    return row
+
+
+# --------------------------------------------------------------------------- #
+# Enum-vocabulary provenance (MetaCoding-852)                                  #
+# --------------------------------------------------------------------------- #
+def governance_problems(path: str | Path | None = None) -> list[str]:
+    """Every member of a GOVERNED set that is neither grandfathered nor rowed.
+
+    The teeth of the channel, enforced by the test suite (not the loader —
+    the loader must stay usable mid-edit): once a set is governed, growing it
+    in ``glossary.py`` without a provenance row fails the suite, exactly the
+    bar terms already meet. The reverse direction (a row for a value the
+    glossary dropped) is refused at load by ``_row_problems``.
+    """
+    from ctkr.oracle import glossary as _glossary
+
+    rowed = {
+        (r["set"], r["term"])
+        for r in load_registry(path) if r["kind"] == ENUM_VALUE_KIND
+    }
+    problems: list[str] = []
+    for set_name, grandfathered in GOVERNED_SETS.items():
+        members = getattr(_glossary, set_name)
+        for value in sorted(members - grandfathered):
+            if (set_name, value) not in rowed:
+                problems.append(
+                    f"glossary.{set_name} member {value!r} has no enum_value "
+                    f"provenance row — enum growth meets the same "
+                    f"cited-witnessed-reversible bar as terms (MetaCoding-852)"
+                )
+    return problems
+
+
+def add_enum_value(
+    value: str,
+    set_name: str,
+    config_source: str,
+    description: str = "",
+    punts: list[str] | None = None,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Append a PROVISIONAL enum_value row. The glossary itself is not touched:
+    the value must ALREADY be a member of ``glossary.{set_name}`` (the row
+    validator refuses drift in both directions)."""
+    if not config_source.strip():
+        raise ProvenanceError(
+            f"enum_value {value!r} needs a config_source: the channel exists "
+            f"precisely because commit-message-only provenance was the gap"
+        )
+    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    rows = load_registry(p)
+    if any(r["kind"] == ENUM_VALUE_KIND and r.get("set") == set_name
+           and r["term"] == value for r in rows):
+        raise ProvenanceError(
+            f"enum_value {set_name}:{value} already has a provenance row; "
+            f"a value is registered once"
+        )
+    row = {
+        "term": value,
+        "kind": ENUM_VALUE_KIND,
+        "set": set_name,
+        "description": description,
+        "provenance": {
+            "config_source": config_source,
+            "first_pack_seal": None,
+            "punts": list(punts or []),
+            "role_class_id": None,
+        },
+        "status": "provisional",
+        "registered_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    _write_registry(rows + [row], p)  # load_registry on write validates membership
+    load_registry(p)
+    return row
+
+
+def _enum_witness_positions(set_name: str, value: str, fx: Any) -> bool:
+    """Whether one VALID fixture exercises the enum value in the position its
+    set occupies in the DSL. A CLOSED map on purpose: a new governed set must
+    state its witness position here, or its values cannot bind — 'appears
+    somewhere in the fixture' would let any string constant witness anything.
+    """
+    if set_name in ("LAND_TYPES", "STRUCTURE_TYPES"):
+        entity = "land" if set_name == "LAND_TYPES" else "structure"
+        return any(
+            g.entity == entity and g.descriptor == value for g in fx.given
+        )
+    if set_name == "LOG_STATUSES":
+        return any(w.status == value for w in fx.when) or any(
+            t.assert_ == "log_status" and t.value == value for t in fx.then
+        )
+    raise ProvenanceError(
+        f"governed set {set_name!r} has no declared witness position — add it "
+        f"to _enum_witness_positions before binding its values"
+    )
+
+
+def bind_enum_value(
+    value: str,
+    set_name: str,
+    fixtures_path: str | Path,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Flip an enum value provisional→bound because a sealed pack exercised it
+    in its set's witness position. The bind_term gate, one namespace over."""
+    from ctkr.oracle.pack import load_pack
+
+    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    rows = load_registry(p)
+    row = next((r for r in rows if r["kind"] == ENUM_VALUE_KIND
+                and r.get("set") == set_name and r["term"] == value), None)
+    if row is None:
+        raise ProvenanceError(
+            f"enum_value {set_name}:{value} has no provenance row — register "
+            f"it (add_enum_value) before binding"
+        )
+    if row["status"] == "bound":
+        raise ProvenanceError(
+            f"enum_value {set_name}:{value} is already bound "
+            f"(first_pack_seal={row['provenance']['first_pack_seal']}); a "
+            f"binding is issued once"
+        )
+    pack = load_pack(fixtures_path)  # PackError propagates: no seal, no binding
+    if not any(_enum_witness_positions(set_name, value, fx)
+               for fx in pack.fixtures):
+        raise ProvenanceError(
+            f"sealed pack {pack.seal.pack_id} contains no VALID fixture that "
+            f"exercises {set_name}:{value} in its witness position "
+            f"({len(pack.fixtures)} valid, {len(pack.invalid)} invalid "
+            f"fixtures examined). A binding is issued by observation, and "
+            f"this pack observed something else."
+        )
     row["provenance"]["first_pack_seal"] = pack.seal.seal
     row["status"] = "bound"
     row["bound_at"] = datetime.now(UTC).isoformat(timespec="seconds")
