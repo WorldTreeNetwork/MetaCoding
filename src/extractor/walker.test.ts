@@ -160,3 +160,24 @@ class Widget {
   expect(writes.every((p) => p === "tree_sitter_heuristic")).toBe(true);
   expect(reads.every((p) => p === "tree_sitter_heuristic")).toBe(true);
 });
+
+test("hidden directories are never swept — a .claude/worktrees copy cannot pollute the graph (MetaCoding-wg7)", async () => {
+  const repo = "wg7-repo";
+  const branch = "main";
+  // The live defect: agent worktrees held LITERAL COPIES of src files, so the
+  // same symbol indexed twice and role-equivalence twins were dominated by
+  // cos-1.0 worktree duplicates. The property is broader than one denylist
+  // entry: NO dot-directory is descended.
+  const body = `export function wgSevenProbe(): number { return 7; }\n`;
+  write("src/real.ts", body);
+  write(".claude/worktrees/agent-abc/src/real.ts", body);
+  write(".some-future-tool/cache/real.ts", body);
+  await indexDirectory(store, repoDir, { repo, branch });
+  const rows = await store.query<{ file: string }>(
+    `MATCH (s:Symbol)
+     WHERE s.repo = $repo AND s.short_name = "wgSevenProbe"
+     RETURN s.file AS file`,
+    { repo },
+  );
+  expect(rows.map((r) => r.file)).toEqual(["src/real.ts"]);
+});

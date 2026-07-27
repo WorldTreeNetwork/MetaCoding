@@ -447,6 +447,14 @@ function walkFs(
     let st;
     try { st = statSync(abs); } catch { continue; }
     if (st.isDirectory()) {
+      // Hidden directories are tool state, never source (MetaCoding-wg7:
+      // .claude/worktrees/agent-* held literal copies of src files, so
+      // role-equivalence twins were dominated by cos-1.0 worktree
+      // duplicates). The property is broader than a denylist entry: NO
+      // dot-directory is descended, so the next tool's hidden dir cannot
+      // re-open the hole. Hidden FILES are unaffected (none of the
+      // indexed grammars hide in dot-files).
+      if (name.startsWith(".")) continue;
       walkFs(root, abs, exclude, out);
     } else if (st.isFile()) {
       const grammar = detectGrammar(name);

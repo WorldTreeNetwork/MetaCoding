@@ -41,9 +41,11 @@ export interface WatchHandle {
 }
 
 const DEFAULT_IGNORED = [
-  /(^|[\\/])\.git([\\/]|$)/,
-  /(^|[\\/])\.omc([\\/]|$)/,
-  /(^|[\\/])\.metacoding([\\/]|$)/,
+  // ANY hidden path segment (MetaCoding-wg7): hidden directories are tool
+  // state, never source — the walker enforces the same property, and an
+  // enumerated list (.git/.omc/.metacoding) had already missed
+  // .claude/worktrees once. Subsumes the old dot-dir entries.
+  /(^|[\\/])\.[^\\/]+([\\/]|$)/,
   /(^|[\\/])node_modules([\\/]|$)/,
   /(^|[\\/])dist([\\/]|$)/,
   /(^|[\\/])out([\\/]|$)/,
