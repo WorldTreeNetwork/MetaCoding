@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "b0s-loc-done-movement-places-the-asset",
+      "title": "A done movement puts the asset at the location; before it, the asset is nowhere",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Alpha", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Placed", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Move to Alpha", "at": "2026-03-01T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-unmoved-asset-is-nowhere",
+      "title": "An asset that was never moved is at no location at all — the contrast to every movement below",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Unvisited", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Unmoved", "descriptor": "Cattle"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-latest-done-movement-wins",
+      "title": "The latest done movement decides where the asset is, and the earlier location is left behind",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Left", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Loc Field Entered", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Relocated", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Move to Left", "at": "2026-03-01T12:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "done", "name": "b0s-Move to Entered", "at": "2026-03-02T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "B"},
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-a-pending-movement-is-inert",
+      "title": "A pending movement is proposed, not yet true: the asset stays where the last done movement put it",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "pending", "done", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Held", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Loc Field Proposed", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Proposed Move", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Move confirmed", "at": "2026-03-01T12:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "pending", "name": "b0s-Move proposed", "at": "2026-03-02T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW", "other": "B"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-a-future-dated-movement-is-not-yet-effective",
+      "title": "A done movement dated in the future has not happened yet: the asset is still where it was",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Present", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Loc Field Future", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Scheduled", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Move now", "at": "2026-03-01T12:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "done", "name": "b0s-Move later", "at": "+31536000"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW", "other": "B"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-a-movement-to-two-locations-places-the-asset-at-both",
+      "title": "A movement naming two locations puts the asset at every one of them",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Both One", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Loc Field Both Two", "is_location": true},
+        {"entity": "land", "alias": "C", "name": "b0s-Loc Field Neither", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Spanning", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A", "B"], "status": "done", "name": "b0s-Move to both", "at": "2026-03-01T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW", "other": "B"},
+        {"assert": "is_at_location", "subject": "COW", "other": "C"},
+        {"assert": "current_location_count", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-loc-one-movement-carries-two-assets",
+      "title": "One movement naming two assets moves both of them",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Herd", "is_location": true},
+        {"entity": "animal", "alias": "COW1", "name": "b0s-Loc Cow Herd One", "descriptor": "Cattle"},
+        {"entity": "animal", "alias": "COW2", "name": "b0s-Loc Cow Herd Two", "descriptor": "Cattle"},
+        {"entity": "animal", "alias": "COW3", "name": "b0s-Loc Cow Left Behind", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW1", "COW2"], "locations": ["A"], "status": "done", "name": "b0s-Move the pair", "at": "2026-03-01T12:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_at_location", "subject": "COW1", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW2", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW3", "other": "A"},
+        {"assert": "current_location_count", "subject": "COW3"}
+      ]
+    },
+    {
+      "key": "b0s-loc-geometry-comes-from-the-movement",
+      "title": "A movable asset's shape on the ground comes from its own movement, not from the place it was moved to",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "current_geometry", "is_fixed", "is_at_location"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Shapeless", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow With A Shape", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Move with a shape", "at": "2026-03-01T12:00:00+00:00", "geometry": "POINT (30 40)"}
+      ],
+      "probes": [
+        {"assert": "current_geometry", "subject": "COW"},
+        {"assert": "current_geometry", "subject": "A"},
+        {"assert": "is_fixed", "subject": "COW"},
+        {"assert": "is_at_location", "subject": "COW", "other": "A"}
+      ]
+    },
+    {
+      "key": "b0s-loc-a-fixed-asset-ignores-movements",
+      "title": "A fixed asset keeps its own shape and is placed nowhere, however it is moved",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "structure", "move", "current_geometry", "is_fixed", "is_at_location", "current_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Around The Barn", "is_location": true},
+        {"entity": "structure", "alias": "BARN", "name": "b0s-Loc Barn That Stays", "descriptor": "building", "is_fixed": true, "intrinsic_geometry": "POINT (1 2)"}
+      ],
+      "when": [
+        {"action": "move", "against": ["BARN"], "locations": ["A"], "status": "done", "name": "b0s-Move the immovable", "at": "2026-03-01T12:00:00+00:00", "geometry": "POINT (30 40)"}
+      ],
+      "probes": [
+        {"assert": "is_fixed", "subject": "BARN"},
+        {"assert": "current_geometry", "subject": "BARN"},
+        {"assert": "is_at_location", "subject": "BARN", "other": "A"},
+        {"assert": "current_location_count", "subject": "BARN"}
+      ]
+    },
+    {
+      "key": "b0s-loc-a-place-and-a-thing",
+      "title": "A field is a place things can be at and an animal is not, with neither said: the source decides",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "structure", "is_location", "is_fixed"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Loc Field Default"},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Loc Cow Default", "descriptor": "Cattle"},
+        {"entity": "structure", "alias": "SHED", "name": "b0s-Loc Shed Default", "descriptor": "building"}
+      ],
+      "probes": [
+        {"assert": "is_location", "subject": "A"},
+        {"assert": "is_location", "subject": "COW"},
+        {"assert": "is_location", "subject": "SHED"},
+        {"assert": "is_fixed", "subject": "A"},
+        {"assert": "is_fixed", "subject": "COW"}
+      ]
+    }
+  ]
+}

@@ -543,6 +543,81 @@ _PROBES: tuple[ProbeSpec, ...] = (
                   "— the delivered value is never absent and there is no "
                   "empty-value contrast).",
               authority=BOUNDARY),
+    # --- location surface: AUTHORITY REFINED post-generation ------------- #
+    # add-term generates every probe DERIVED-with-no-validated_against (it
+    # cannot know a term's authority). Refined here after each derivation was
+    # validated against the live source — the 5ln/1cv/wgy/ej0 step, and the
+    # one the e6p lesson says must happen BEFORE the first recording, since a
+    # BOUND term whose ProbeSpec cannot score is a skipped refinement.
+    #
+    # Three of the five read a field the source STATES on the asset at its
+    # published interface (two booleans and a shape) — BOUNDARY transcription,
+    # nothing of ours to validate. Two read the source's OWN COMPUTED answer to
+    # the location question — DERIVED, because selecting out of a delivered
+    # collection is a step, but validated: the rule is entirely farmOS's.
+    #
+    # What is NOT here, and why: `assets_at_location_count` — the same question
+    # asked from the location's side. farmOS answers it only through
+    # AssetLocation::getAssetsByLocation, a raw SQL query with no boundary
+    # equivalent (validated live 2026-07-28: filter[location.id] 500s). A probe
+    # for it would have to re-implement the rule instead of transcribing it,
+    # which is the `group_member` defect exactly. The semantic is observable
+    # from the asset's side, which is what the pack does. Still open on
+    # MetaCoding-b0s as the multi-asset fan-out gap.
+    ProbeSpec('is_at_location', 'is_at_location', (Param('other', 'location'),),
+              doc='Whether an asset is currently at a given location.',
+              authority=DERIVED,
+              derivation="membership of the expected location in the "
+                         "`location` relationship the boundary delivers on "
+                         "the asset",
+              validated_against=("farmOS itself computes the whole current-location rule and PUBLISHES the answer: AssetLocation.php getMovementLog() takes the newest log with is_movement TRUE, status 'done' and timestamp <= now (tie-broken by the larger internal id) and getLocation() returns that log's location set, while a FIXED asset short-circuits to no location at all; AssetLocationItemList exposes it as the asset's own `location` relationship, which JSON:API delivers. The probe reads that relationship and adds no rule of its own (validated live 2026-07-28: a done movement placed the asset; a pending one did not; a future-dated one did not; a two-location movement delivered both; a fixed asset delivered none)" +
+                                 "; membership adds no semantics — the "
+                                 "has_parent form")),
+    ProbeSpec('current_location_count', 'current_location_count', (),
+              doc='How many locations an asset is currently reported to be at.',
+              authority=DERIVED,
+              derivation="cardinality of the `location` relationship the "
+                         "boundary delivers on the asset",
+              validated_against=("farmOS itself computes the whole current-location rule and PUBLISHES the answer: AssetLocation.php getMovementLog() takes the newest log with is_movement TRUE, status 'done' and timestamp <= now (tie-broken by the larger internal id) and getLocation() returns that log's location set, while a FIXED asset short-circuits to no location at all; AssetLocationItemList exposes it as the asset's own `location` relationship, which JSON:API delivers. The probe reads that relationship and adds no rule of its own (validated live 2026-07-28: a done movement placed the asset; a pending one did not; a future-dated one did not; a two-location movement delivered both; a fixed asset delivered none)" +
+                                 "; |relationship| adds no semantics — the "
+                                 "parent_count form")),
+    ProbeSpec('current_geometry', 'current_geometry', (),
+              doc="The shape on the ground an asset currently occupies, as "
+                  "the source reports it — the `value` member, in well-known "
+                  "text, of the geometry the source itself computes and "
+                  "STATES on the asset. BOUNDARY transcription of that "
+                  "member. The boundary delivers the shape inside an object "
+                  "carrying farmOS's own readings OF it (geo_type, lat, lon, "
+                  "a bounding box, a geohash); those are computed FROM the "
+                  "shape and a port is not obliged to reproduce them, so the "
+                  "probe takes the shape and drops the readings — a "
+                  "representation fold, not semantics, the lot_number null "
+                  "-> '' precedent. Validated live 2026-07-28: an asset moved "
+                  "with geometry 'POINT (30 40)' read back exactly that, "
+                  "while the PLACE it moved to delivered none — a movable "
+                  "asset's shape comes from its movement, not from where it "
+                  "went; a fixed asset delivered its own intrinsic shape.",
+              authority=BOUNDARY),
+    ProbeSpec('is_location', 'is_location', (),
+              doc="Whether an asset may hold other assets — whether it is a "
+                  "place things can be at. A boolean the source STATES "
+                  "directly on the asset at its published interface "
+                  "(farm_location, AssetLocation::ASSET_FIELD_LOCATION) — "
+                  "BOUNDARY transcription. Validated live 2026-07-28: a land "
+                  "asset delivers true and an animal false with neither "
+                  "stated, so the per-entity DEFAULT is itself an observable.",
+              authority=BOUNDARY),
+    ProbeSpec('is_fixed', 'is_fixed', (),
+              doc="Whether an asset stays put — whether it has a shape of its "
+                  "own rather than one it acquires by being moved. A boolean "
+                  "the source STATES directly on the asset "
+                  "(AssetLocation::ASSET_FIELD_FIXED) — BOUNDARY "
+                  "transcription. It is the switch the whole location surface "
+                  "turns on: hasLocation/getLocation/getGeometry each "
+                  "short-circuit on it (validated live 2026-07-28: a fixed "
+                  "asset moved to a field reads back at NO location, keeping "
+                  "its own shape).",
+              authority=BOUNDARY),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}
@@ -569,6 +644,9 @@ _OPERATIONS: tuple[OperationSpec, ...] = (
     # generated by `ctkr add-term` (PROVISIONAL until bind-term)
     OperationSpec('delete_quantity', ('delete_quantity',),
                   doc='Delete a recorded quantity, removing a single measurement from the source.'),
+    # generated by `ctkr add-term` (PROVISIONAL until bind-term)
+    OperationSpec('move', ('move',),
+                  doc='Move one or more assets to one or more locations: record a movement, the event that changes where an asset is.'),
 )
 
 OPERATION_CONTRACT: dict[str, OperationSpec] = {o.action: o for o in _OPERATIONS}

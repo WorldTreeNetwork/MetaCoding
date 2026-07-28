@@ -18,6 +18,7 @@
  *   - a pending adjustment IS counted by adjustment_count (w0a-observe)
  *   - a pending BIRTH log is FULLY effective — lineage and birth date both
  *     delivered (w0b-observe)
+ *   - a pending MOVEMENT does not move the asset  (location-observe, 2026-07-28)
  * Same status field, same system, opposite answers. So each projection names its
  * own gate, and each row below cites what decided it: OBSERVED, or chosen.
  *
@@ -68,18 +69,38 @@ export const STATUS_CONTRACT = {
   /** logs: status is REPORTED as-is (the latest-wins value), never gated away. */
   logStatus: "count-regardless",
 
-  // ---- location: NOT OBSERVED — hand-checked live (4/4, 2026-07-20), never recorded.
-  // The label here used to read "observation agrees with the original pick"; no
-  // recorded observation exists (all ten legacy location fixtures carry
-  // provenance:null, and the flow DSL has no location verbs to record new ones —
-  // MetaCoding-b0s). These three rows are source-read + live spot-check
-  // (MetaCoding-4vh); do not cite them as observation-backed until a location
-  // OBSERVE pass lands. ----
-  /** location: a pending movement is proposed, not yet physically true → inert. */
+  // ---- location: gates set BY OBSERVATION (location-observe, 2026-07-28) ----
+  // These three rows carried a "NOT OBSERVED" banner from 2026-07-20 to
+  // 2026-07-28: the label had claimed observation agreed with the pick, no
+  // recorded observation existed (all ten legacy location fixtures carry
+  // provenance:null), and the OBSERVE pass was blocked because the flow DSL had
+  // no location verbs. MetaCoding-b0s added them; the pass ran. The pack is
+  // eval/ctkr/port_runs/lexicon-bind/location/observe (seal f3460165d338, 10
+  // flows, self-verified 10/10 cold against the live farmOS 4.x oracle), and
+  // every value below is one it recorded. The legacy synthetic fixtures are
+  // superseded, not endorsed.
+  /** location: a pending movement is proposed, not yet physically true → inert —
+   * OBSERVED (`b0s-loc-a-pending-movement-is-inert`: after a done move to A and a
+   * pending move to B, is_at_location(A) true and is_at_location(B) false).
+   * A future-dated DONE movement is inert too, by the same rule
+   * (`b0s-loc-a-future-dated-movement-is-not-yet-effective`). */
   currentLocation: "require-confirmed",
-  /** location: assets-at-location reflects only confirmed movements. */
+  /** location: assets-at-location reflects only confirmed movements — OBSERVED
+   * from the ASSET's side, which is the only side farmOS answers at its
+   * boundary: `filter[location.id]` 500s, and the reverse read exists solely as
+   * AssetLocation::getAssetsByLocation, a raw SQL query. A probe for it would
+   * re-implement the rule rather than transcribe it — the `group_member` defect —
+   * so the same semantic is pinned per asset instead
+   * (`b0s-loc-one-movement-carries-two-assets`: both named assets read at the
+   * location, the third at none). The fan-out assertion stays open on
+   * MetaCoding-b0s. */
   assetsAtLocation: "require-confirmed",
-  /** location: a non-fixed asset's geometry comes from its confirmed movement. */
+  /** location: a non-fixed asset's geometry comes from its confirmed movement —
+   * OBSERVED (`b0s-loc-geometry-comes-from-the-movement`: an asset moved with
+   * geometry "POINT (30 40)" reads back exactly that, while the PLACE it moved to
+   * reads ""). A FIXED asset ignores movements entirely and keeps its own shape
+   * (`b0s-loc-a-fixed-asset-ignores-movements`: moved with "POINT (30 40)", it
+   * reads its own "POINT (1 2)" and is at no location). */
   currentGeometry: "require-confirmed",
 
   // ---- inventory: gates set BY OBSERVATION (w0a-observe, 2026-07-20) ----

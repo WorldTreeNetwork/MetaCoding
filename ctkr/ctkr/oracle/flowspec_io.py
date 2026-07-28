@@ -77,13 +77,20 @@ _GIVEN_KEYS = frozenset(
      "data_streams", "private_key", "public",
      # ghost (MetaCoding-b0s) — this alias names a subject NEVER CREATED, so a
      # probe can ask about a thing that does not exist. Nothing is written.
-     "ghost"}
+     "ghost",
+     # location traits (MetaCoding-b0s, for MetaCoding-4vh) — INPUTS on any
+     # asset `given`. Both booleans are tri-state: unstated leaves the
+     # source's own default, which is itself an observable.
+     "is_location", "is_fixed", "intrinsic_geometry"}
 )
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
      "quantities", "at", "parents", "names", "lot_number", "equipment",
      # clear_parents (MetaCoding-b0s) — states the EMPTY parent set out loud.
      "clear_parents",
+     # movement (MetaCoding-b0s) — WHERE TO (aliases) and the movement's own
+     # well-known-text shape. `against` carries WHAT moved.
+     "locations", "geometry",
      # lab_test bundle fields (MetaCoding-wgy)
      "lab_received_date", "lab_processed_date", "lab_test_type",
      "soil_texture", "lab"}
@@ -277,6 +284,9 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
         crop_family=_str(d, "crop_family", where),
         companions=_str_list(d, "companions", where),
         ghost=bool(_opt_bool(d, "ghost", where)),
+        is_location=_opt_bool(d, "is_location", where),
+        is_fixed=_opt_bool(d, "is_fixed", where),
+        intrinsic_geometry=_str(d, "intrinsic_geometry", where),
         # sensor asset bundle fields (MetaCoding-ej0). A key accepted by
         # _GIVEN_KEYS but not mapped here is SILENTLY DROPPED — the recording
         # proceeds with defaults and every stated value is lost (caught live:
@@ -329,6 +339,13 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         raise FlowSpecError(
             f"{where}.equipment: only record_log states equipment used"
         )
+    # Movement fields (MetaCoding-b0s) — on any other action the interpreter
+    # never reads them, so they would be silently inert.
+    geometry = _str(d, "geometry", where)
+    if _str_list(d, "locations", where) and action != "move":
+        raise FlowSpecError(f"{where}.locations: only move states locations")
+    if geometry and action != "move":
+        raise FlowSpecError(f"{where}.geometry: only move states a geometry")
     # lab_test bundle fields (MetaCoding-wgy) — only record_log states them.
     lab_fields = {
         f: _str(d, f, where)
@@ -350,6 +367,8 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         names=_str_list(d, "names", where),
         lot_number=lot_number, equipment=equipment,
         clear_parents=bool(_opt_bool(d, "clear_parents", where)),
+        locations=_str_list(d, "locations", where),
+        geometry=geometry,
         **lab_fields,
     )
     for req in _ACTION_REQUIRED.get(action, ()):
@@ -478,7 +497,7 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             if alias not in writable:
                 raise FlowSpecError(f"{at}: unknown {label} alias {alias!r}")
 
-        for field in ("against", "parents", "equipment"):
+        for field in ("against", "parents", "equipment", "locations"):
             for a in getattr(step, field):
                 _writable_or_die(a, f"{where}.when[{i}].{field}")
         if step.group:

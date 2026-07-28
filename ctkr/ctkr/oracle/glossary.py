@@ -64,6 +64,7 @@ ACTION_TERMS: frozenset[str] = frozenset(
         "set_nicknames",  # state an animal's ordered list of informal names
         "delete_log",  # Delete a recorded log, removing it from the source together with th… [PROVISIONAL]
         "delete_quantity",  # Delete a recorded quantity, removing a single measurement from the … [PROVISIONAL]
+        "move",  # Move one or more assets to one or more locations: record a movement… [PROVISIONAL]
     }
 )
 
@@ -185,6 +186,11 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "sensor_private_key",  # The private key of a sensor, used to authenticate data posted to or… [PROVISIONAL]
         "publicly_readable",  # Whether data from a sensor may be read publicly without its private… [PROVISIONAL]
         "structure_kind",  # The designated kind of a structure (building, greenhouse, other), r… [PROVISIONAL]
+        "is_at_location",  # Whether an asset is currently at a given location. [PROVISIONAL]
+        "current_location_count",  # How many locations an asset is currently reported to be at. [PROVISIONAL]
+        "current_geometry",  # The shape on the ground an asset currently occupies, as the source … [PROVISIONAL]
+        "is_location",  # Whether an asset may hold other assets — whether it is a place thin… [PROVISIONAL]
+        "is_fixed",  # Whether an asset stays put — whether it has a shape of its own rath… [PROVISIONAL]
     }
 )
 

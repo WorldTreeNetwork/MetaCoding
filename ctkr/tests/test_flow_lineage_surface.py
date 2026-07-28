@@ -309,6 +309,10 @@ def test_every_accepted_when_key_reaches_the_when_step() -> None:
         "quantities": [], "at": "2026-03-01T12:00:00+00:00", "parents": [],
         "names": ["Nick"], "lot_number": "LOT-1", "equipment": ["E"],
         "clear_parents": False,
+        # movement (MetaCoding-b0s). `locations`/`geometry` cannot be set HERE:
+        # only `move` states them and this sample is a record_log. Their
+        # mapping is asserted on its own below.
+        "locations": [], "geometry": "",
         "lab_received_date": "2026-03-01T12:00:00+00:00",
         "lab_processed_date": "2026-03-02T12:00:00+00:00",
         "lab_test_type": "soil", "soil_texture": "loam", "lab": "Ag Lab",
@@ -330,3 +334,9 @@ def test_every_accepted_when_key_reaches_the_when_step() -> None:
     w2 = when_from_dict(
         {"action": "set_parents", "ref": "A", "clear_parents": True}, "when[0]")
     assert w2.clear_parents is True
+
+    # ...and the movement fields, on the one action that states them.
+    w3 = when_from_dict(
+        {"action": "move", "against": ["A"], "locations": ["L"],
+         "geometry": "POINT (30 40)", "status": "done"}, "when[0]")
+    assert w3.locations == ["L"] and w3.geometry == "POINT (30 40)"

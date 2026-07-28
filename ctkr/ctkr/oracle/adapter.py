@@ -75,12 +75,20 @@ class ImplementationAdapter(ABC):
     # ---- given / when: mutate domain state --------------------------------- #
     @abstractmethod
     def create_asset(
-        self, entity: str, name: str, descriptor: str = "", sex: str = ""
+        self, entity: str, name: str, descriptor: str = "", sex: str = "",
+        is_location: bool | None = None, is_fixed: bool | None = None,
+        intrinsic_geometry: str = "",
     ) -> Handle:
         """Create an asset of a glossary ``entity`` kind; return its handle.
 
         ``sex`` is an optional domain trait (glossary ``ANIMAL_SEXES``); adapters
         for implementations without the notion ignore it.
+
+        The location traits (MetaCoding-b0s) are each passed only when the flow
+        STATED them; ``None`` means unstated, so the implementation's own default
+        stands — which is itself an observable, not a gap to fill in. The
+        interpreter keeps the shorter call for adapters written before they
+        existed.
         """
 
     @abstractmethod
@@ -482,3 +490,73 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("structure_kind")
+
+    # --- generated: move (action, PROVISIONAL) --- #
+    def move(
+        self,
+        asset_handles: list[Handle],
+        location_handles: list[Handle],
+        name: str = "movement",
+        status: str = "done",
+        effective_time: Any = None,
+        geometry: str = "",
+    ) -> Handle:
+        """Record a movement of assets to locations; return its handle.
+
+        Signature widened from the generated single-ref stub: a movement names
+        MANY assets and MANY locations, and it carries the same ``status`` and
+        effective time every other recorded event does — a PENDING movement is
+        proposed, not yet true, which is one of the three location semantics
+        MetaCoding-4vh needs observed. ``geometry`` is the movement's OWN shape,
+        in well-known text: a movable asset's shape comes from the movement
+        rather than from the place it moved to.
+
+        Still raises here. A stub that returned a constant could be mistaken for
+        an observed value.
+        """
+        raise self._unsupported("move")
+
+    # --- generated: is_at_location (assertion, PROVISIONAL) --- #
+    def is_at_location(self, subject_handle: Handle, other_handle: Handle) -> Any:
+        """Deliver whether a given location asset is among the locations the source currently reports for the subject asset, so an assertion can confirm where a thing is against an expected place.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("is_at_location")
+
+    # --- generated: current_location_count (assertion, PROVISIONAL) --- #
+    def current_location_count(self, subject_handle: Handle) -> Any:
+        """Deliver the number of locations the source currently reports for the subject asset, so an assertion can tell being in one place from being in several and from being nowhere.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("current_location_count")
+
+    # --- generated: current_geometry (assertion, PROVISIONAL) --- #
+    def current_geometry(self, subject_handle: Handle) -> Any:
+        """Deliver the geometry the source currently reports for the subject asset as a single well-known-text string, so an assertion can confirm where on the ground a thing is; the empty string when the source reports none.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("current_geometry")
+
+    # --- generated: is_location (assertion, PROVISIONAL) --- #
+    def is_location(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source marks the subject asset as one that other assets can be located at, so an assertion can tell a place from a thing.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("is_location")
+
+    # --- generated: is_fixed (assertion, PROVISIONAL) --- #
+    def is_fixed(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source marks the subject asset as one that does not move, so an assertion can tell an asset whose shape comes from itself from one whose shape comes from its movements.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("is_fixed")

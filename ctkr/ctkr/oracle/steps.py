@@ -51,8 +51,19 @@ def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
             g.name, data_streams=list(g.data_streams),
             private_key=g.private_key, public=g.public,
         )
-    if g.sex:
-        return adapter.create_asset(g.entity, g.name, g.descriptor, g.sex)
+    # Location traits (MetaCoding-b0s) are passed only when the flow states
+    # one, so an adapter written before they existed keeps the shorter call —
+    # the same widening discipline `sex` got.
+    traits: dict = {}
+    if g.is_location is not None:
+        traits["is_location"] = g.is_location
+    if g.is_fixed is not None:
+        traits["is_fixed"] = g.is_fixed
+    if g.intrinsic_geometry:
+        traits["intrinsic_geometry"] = g.intrinsic_geometry
+    if g.sex or traits:
+        return adapter.create_asset(g.entity, g.name, g.descriptor, g.sex,
+                                    **traits)
     # Keep the 3-argument call for adapters written before the trait existed.
     return adapter.create_asset(g.entity, g.name, g.descriptor)
 
@@ -170,5 +181,17 @@ def apply_when(
         # implementing the adapter; the default adapter method RAISES, so
         # this arm cannot fake a recorded flow before that happens.
         adapter.delete_quantity(handles[w.ref])
+    elif w.action == "move":
+        # Argument mapping reviewed and replaced (the generator emits a
+        # single-ref default). A movement names MANY assets and MANY locations,
+        # both as aliases the interpreter resolves here so no adapter ever sees
+        # one — the duality `against` has (MetaCoding-b0s / MetaCoding-4vh).
+        h = adapter.move(
+            [handles[a] for a in w.against],
+            [handles[loc] for loc in w.locations],
+            w.name or "movement", w.status or "done", at, w.geometry,
+        )
+        if w.alias:
+            handles[w.alias] = h
     else:
         raise AdapterError(f"no interpreter for action {w.action!r}")

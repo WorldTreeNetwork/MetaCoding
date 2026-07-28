@@ -23,6 +23,21 @@
   observation exists**; a location OBSERVE pass is blocked on the flow DSL
   having no location verbs (MetaCoding-b0s). Read the headline as
   17 observed-backed + 10 synthetic-but-spot-checked, not 27 observed.
+
+  **Resolved 2026-07-28 (MetaCoding-b0s).** The DSL has location verbs now, and
+  the OBSERVE pass ran: `eval/ctkr/port_runs/lexicon-bind/location/observe`,
+  seal `f3460165d338`, 10 flows recorded against the live farmOS 4.x oracle and
+  self-verified 10/10 cold. All three gate picks are observation-backed —
+  `src/kernel/status.ts` cites the fixture behind each. This does NOT
+  retroactively make the 27 read as observed: the ten SYNTHETIC fixtures the
+  headline counted are still synthetic and are superseded, not endorsed. What
+  changed is that the SEMANTICS they asserted are now recorded, in a different
+  pack, from the source. One reduction, stated rather than hidden:
+  assets-at-location is observed per ASSET, because farmOS answers the reverse
+  direction only through a raw SQL query with no boundary equivalent
+  (`filter[location.id]` 500s, validated live) — a probe for it would
+  re-implement the rule instead of transcribing it, which is the `group_member`
+  defect. The fan-out assertion stays open on MetaCoding-b0s.
 - **The four observed failure modes are now prevented by construction, not just
   documented.** Five prevention tests demonstrate: an ad-hoc event kind is rejected
   by the log; the store mints only replica-scoped ids (two replicas' first assets

@@ -723,3 +723,69 @@ class PortAdapter(ImplementationAdapter):
         self._need_probe("birth_mother")
         return bool(self._bridge.call(
             "birth_mother", log=subject_handle, other=other_handle))
+
+    # --- generated: move (action, PROVISIONAL) --- #
+    def move(self, subject_handle: Handle) -> Any:
+        """Record a movement event referencing the assets moved and the locations they are moved to, at a stated lifecycle status and effective time, so that a later read of an asset's current location reflects it.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_operation("move")
+        return self._bridge.call("move", subject=subject_handle)
+
+    # --- generated: is_at_location (assertion, PROVISIONAL) --- #
+    def is_at_location(self, subject_handle: Handle, other_handle: Handle) -> Any:
+        """Deliver whether a given location asset is among the locations the source currently reports for the subject asset, so an assertion can confirm where a thing is against an expected place.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("is_at_location")
+        return self._bridge.call("is_at_location", subject=subject_handle, other=other_handle)
+
+    # --- generated: current_location_count (assertion, PROVISIONAL) --- #
+    def current_location_count(self, subject_handle: Handle) -> Any:
+        """Deliver the number of locations the source currently reports for the subject asset, so an assertion can tell being in one place from being in several and from being nowhere.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("current_location_count")
+        return self._bridge.call("current_location_count", subject=subject_handle)
+
+    # --- generated: current_geometry (assertion, PROVISIONAL) --- #
+    def current_geometry(self, subject_handle: Handle) -> Any:
+        """Deliver the geometry the source currently reports for the subject asset as a single well-known-text string, so an assertion can confirm where on the ground a thing is; the empty string when the source reports none.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("current_geometry")
+        return self._bridge.call("current_geometry", subject=subject_handle)
+
+    # --- generated: is_location (assertion, PROVISIONAL) --- #
+    def is_location(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source marks the subject asset as one that other assets can be located at, so an assertion can tell a place from a thing.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("is_location")
+        return self._bridge.call("is_location", subject=subject_handle)
+
+    # --- generated: is_fixed (assertion, PROVISIONAL) --- #
+    def is_fixed(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source marks the subject asset as one that does not move, so an assertion can tell an asset whose shape comes from itself from one whose shape comes from its movements.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("is_fixed")
+        return self._bridge.call("is_fixed", subject=subject_handle)
