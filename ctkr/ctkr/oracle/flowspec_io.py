@@ -42,6 +42,7 @@ from ctkr.oracle.fixtures import (
     WhenStep,
     _is_effective_time,
     _iter_string_values,
+    _parentage_problems,
 )
 from ctkr.oracle.probes import PROBE_CONTRACT
 from ctkr.oracle.recorder import FlowSpec, Probe
@@ -75,6 +76,8 @@ _GIVEN_KEYS = frozenset(
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
      "quantities", "at", "parents", "names", "lot_number", "equipment",
+     # clear_parents (MetaCoding-b0s) — states the EMPTY parent set out loud.
+     "clear_parents",
      # lab_test bundle fields (MetaCoding-wgy)
      "lab_received_date", "lab_processed_date", "lab_test_type",
      "soil_texture", "lab"}
@@ -121,7 +124,12 @@ def flow_to_dict(f: FlowSpec) -> dict[str, Any]:
         "glossary_terms": list(f.glossary_terms),
         "given": [_drop_empty(g.model_dump()) for g in f.given],
         "when": [
-            {**_drop_empty(w.model_dump()),
+            {**{k: v for k, v in _drop_empty(w.model_dump()).items()
+                # An unstated clear is not a fact about the step; drop it so a
+                # round-tripped pack reads the way it was written. (`_drop_empty`
+                # cannot do this itself: `public=False` on a sensor `given` IS a
+                # stated value, and it would drop that too.)
+                if not (k == "clear_parents" and v is False)},
              **({"quantities": [_drop_empty(q.model_dump())
                                 for q in w.quantities]}
                 if w.quantities else {})}
@@ -328,11 +336,16 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
         at=at, parents=_str_list(d, "parents", where),
         names=_str_list(d, "names", where),
         lot_number=lot_number, equipment=equipment,
+        clear_parents=bool(_opt_bool(d, "clear_parents", where)),
         **lab_fields,
     )
     for req in _ACTION_REQUIRED.get(action, ()):
         if not getattr(step, req):
             raise FlowSpecError(f"{where}: action {action!r} requires {req!r}")
+    # Parentage is checked by the SAME function the fixture validator calls, so
+    # a flow and the fixture it distils into cannot be held to different rules.
+    for _, message in _parentage_problems(step, where):
+        raise FlowSpecError(f"{where}: {message}")
     return step
 
 

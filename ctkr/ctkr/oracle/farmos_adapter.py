@@ -748,6 +748,37 @@ class FarmOSAdapter(ImplementationAdapter):
         return total
 
     # ---- lineage (w0b) ------------------------------------------------------ #
+    def _mother_ref(self, parent_handles: list[Handle]) -> Any:
+        """The birth record's ``mother`` reference — every parent the step stated.
+
+        This adapter used to send ``parent_handles[0]`` and DROP the rest in
+        silence, which is how "a flow cannot state a second parent" was recorded
+        as a DSL expressibility gap rather than as an adapter defect
+        (MetaCoding-b0s / wave1-readiness-2026-07-20 §2). The flow could always
+        say two; nobody was ever told the second went nowhere.
+
+        It now transmits exactly what the flow stated and lets the SOURCE answer.
+        farmOS's birth log carries a single-valued ``mother`` (``Birth.php``
+        ``buildFieldDefinitions``: an ``entity_reference`` with no ``multiple``),
+        so two parents come back as a refusal in the source's own words —
+        VALIDATED LIVE 2026-07-28: ``422 "mother: Mother: this field cannot hold
+        more than 1 values."`` That refusal is BOUNDARY evidence a flow can
+        observe with ``expect_refusal``; an adapter-side guard would have
+        substituted our sentence for the source's.
+
+        A second parent IS expressible, on the ANIMAL rather than on the record:
+        the asset's ``parent`` field is multi-valued (``set_parents`` — validated
+        live 2026-07-28, two references delivered back as two).
+        """
+        refs = [
+            {"type": f"asset--{b}", "id": u}
+            for b, u in ((h.split(":")[1], h.split(":")[2]) for h in parent_handles)
+        ]
+        # JSON:API shape follows cardinality: an object for one reference, an
+        # array for many. Sending the array is what lets the source state its
+        # own limit instead of us guessing at it.
+        return refs[0] if len(refs) == 1 else refs
+
     def record_birth(
         self,
         child_handle: Handle,
@@ -764,9 +795,7 @@ class FarmOSAdapter(ImplementationAdapter):
             "asset": {"data": [{"type": f"asset--{cbundle}", "id": cid}]},
         }
         if parent_handles:
-            # farmOS carries a single birthing parent on the birth record.
-            _, pbundle, pid = self._split(parent_handles[0])
-            rels["mother"] = {"data": {"type": f"asset--{pbundle}", "id": pid}}
+            rels["mother"] = {"data": self._mother_ref(parent_handles)}
         doc = {"data": {"type": "log--birth", "attributes": attrs,
                         "relationships": rels}}
         try:
@@ -786,11 +815,9 @@ class FarmOSAdapter(ImplementationAdapter):
         if effective_time is not None:
             data["attributes"] = {"timestamp": _iso(effective_time)}
         if parent_handles is not None:
-            if parent_handles:
-                _, pbundle, pid = self._split(parent_handles[0])
-                ref: Any = {"type": f"asset--{pbundle}", "id": pid}
-            else:
-                ref = None
+            # `[]` is the CLEAR (data: null), distinct from `None` = unstated —
+            # the distinction `clear_parents` exists to let a flow express.
+            ref: Any = self._mother_ref(parent_handles) if parent_handles else None
             data["relationships"] = {"mother": {"data": ref}}
         self.client.request("PATCH", f"/api/log/{kind}/{uid}", {"data": data})
 

@@ -50,6 +50,21 @@ def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
     return adapter.create_asset(g.entity, g.name, g.descriptor)
 
 
+def _parent_handles(
+    w: WhenStep, handles: dict[str, Handle]
+) -> list[Handle] | None:
+    """The parentage a step states: a list, ``[]`` for a clear, ``None`` for unstated.
+
+    The three readings are genuinely distinct at the adapter and used to be two:
+    ``w.parents if w.parents else None`` collapsed an empty list into "leave
+    unchanged", so retracting a recorded birth's mother was unauthorable
+    (MetaCoding-b0s). ``clear_parents`` is how a flow says the empty set out loud.
+    """
+    if w.clear_parents:
+        return []
+    return [handles[p] for p in w.parents] if w.parents else None
+
+
 def apply_when(
     adapter: ImplementationAdapter,
     w: WhenStep,
@@ -131,13 +146,11 @@ def apply_when(
         if w.alias:
             handles[w.alias] = h
     elif w.action == "correct_birth":
-        adapter.correct_birth(
-            handles[w.ref],
-            [handles[p] for p in w.parents] if w.parents else None,
-            at,
-        )
+        adapter.correct_birth(handles[w.ref], _parent_handles(w, handles), at)
     elif w.action == "set_parents":
-        adapter.set_parents(handles[w.ref], [handles[p] for p in w.parents])
+        # `set_parents` always STATES a set (the validator refuses a step that
+        # states neither parents nor clear_parents), so None never reaches here.
+        adapter.set_parents(handles[w.ref], _parent_handles(w, handles) or [])
     elif w.action == "set_nicknames":
         adapter.set_nicknames(handles[w.ref], list(w.names))
     elif w.action == "delete_log":

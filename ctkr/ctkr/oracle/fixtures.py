@@ -160,6 +160,15 @@ class WhenStep(BaseModel):
     # --- lineage ------------------------------------------------------------
     parents: list[str] = Field(default_factory=list)  # aliases of parent animals
     names: list[str] = Field(default_factory=list)  # ordered informal names
+    # --- clear-a-mother (MetaCoding-b0s) ------------------------------------
+    # State, explicitly, that the action removes the parentage it targets.
+    # Without it there is no way to SAY it: `parents: []` is indistinguishable
+    # from an unstated `parents` in JSON, and steps.py read the empty list as
+    # "leave unchanged" (`w.parents if w.parents else None`), so the semantic
+    # "a recorded birth's mother is retracted" was unauthorable — one of the 13
+    # named DSL gaps (wave1-readiness-2026-07-20 §2). An INPUT, never an
+    # expected value; mutually exclusive with `parents`; hash-inert at False.
+    clear_parents: bool = False
     # --- write-surface extensions (MetaCoding-xdt) --------------------------
     # The lot/batch identifier a record_log states on the log (the harvest /
     # input / seeding bundles' lot_number string field). An INPUT, never an
@@ -358,6 +367,9 @@ class SemanticFixture(BaseModel):
                      "soil_texture", "lab"):
             if d.get(late, "") == "":
                 d.pop(late, None)
+        # clear-a-mother (MetaCoding-b0s) — dropped at its False default.
+        if d.get("clear_parents", False) is False:
+            d.pop("clear_parents", None)
         for q in d.get("quantities", []):
             for late in ("alias", "bundle", "inventory_asset", "test_method"):
                 if q.get(late, "") == "":
@@ -572,6 +584,56 @@ _ACTION_REQUIRED: dict[str, tuple[str, ...]] = {
     "delete_log": ("ref",),
     "delete_quantity": ("ref",),
 }
+#: The actions that STATE an animal's parentage. Only these may carry `parents`
+#: or `clear_parents`; on any other action both would be silently inert (the
+#: interpreter never reads them there), which is worse than a refusal.
+_PARENTAGE_ACTIONS: frozenset[str] = frozenset(
+    {"record_birth", "correct_birth", "set_parents"}
+)
+#: Of those, the actions for which "state nothing" is not a legal reading. A
+#: `correct_birth` that says nothing about parentage means "restate the time
+#: only" — a real, distinct instruction. A `set_parents` that says nothing means
+#: neither: its whole job is to state the parent set, so an empty one is either
+#: an authoring slip or a deliberate clear, and the DSL must make the author say
+#: which. `record_birth` with no parent records a birth with no mother.
+_PARENTAGE_REQUIRED: frozenset[str] = frozenset({"set_parents"})
+
+
+def _parentage_problems(w: WhenStep, where: str) -> list[tuple[str, str]]:
+    """Parentage-clause problems in one ``when`` step — ``(where, message)``.
+
+    Shared by :func:`validate_fixture` and the flow loader
+    (:mod:`ctkr.oracle.flowspec_io`) so the rule a FIXTURE is held to and the
+    rule a FLOW is held to cannot drift apart — the whole reason a flow and the
+    fixture it distils into share one interpreter.
+    """
+    out: list[tuple[str, str]] = []
+    if w.action not in _PARENTAGE_ACTIONS:
+        if w.parents:
+            out.append((f"{where}.parents",
+                        f"only {sorted(_PARENTAGE_ACTIONS)} state parentage; "
+                        f"{w.action} would ignore it"))
+        if w.clear_parents:
+            out.append((f"{where}.clear_parents",
+                        f"only {sorted(_PARENTAGE_ACTIONS)} state parentage; "
+                        f"{w.action} would ignore it"))
+        return out
+    if w.parents and w.clear_parents:
+        out.append((
+            f"{where}.clear_parents",
+            "a step cannot both name parents and clear them — state one",
+        ))
+    elif (not w.parents and not w.clear_parents
+            and w.action in _PARENTAGE_REQUIRED):
+        out.append((
+            f"{where}.parents",
+            f"{w.action} states a parent set: name the parents, or say "
+            f"clear_parents to state that there are none. An empty `parents` "
+            f"is not a clear — it reads as 'unstated'",
+        ))
+    return out
+
+
 _ASSERT_REQUIRED: dict[str, tuple[str, ...]] = {
     "yield_total": ("measure", "value"),
     "log_status": ("value",),
@@ -748,6 +810,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             if getattr(w, f) and w.action != "record_log":
                 err(f"when[{i}].{f}",
                     f"{f} is only recordable on record_log")
+        for where, message in _parentage_problems(w, f"when[{i}]"):
+            err(where, message)
         if w.action == "record_log":
             for j, e in enumerate(w.equipment):
                 if e not in aliases:
