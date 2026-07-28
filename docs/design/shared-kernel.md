@@ -1,10 +1,22 @@
 # Shared kernel v1 — the five frozen elements (MetaCoding-9h5.24)
 
-> Status: **v1, all five picks PROVISIONAL** — implemented with the kernel
-> author's recommended options and validated (27 fixtures + 5 cross-probes +
-> prevention tests all green), awaiting Duke's resolution. Each decision below is
-> an elicitation entry: the question, the options with tradeoffs, the
-> recommendation, and its rationale.
+> Status (2026-07-28): **every decision in this document is BOUND.** The five
+> picks were resolved 2026-07-20 (decided-for-me, then reviewed: three confirmed,
+> one reversed); sub-decision 2b (the HLC) and `GuardedFirstWrite` were bound
+> 2026-07-28 — both had been left behind by that review, 2b because it was never
+> on the open-items list and `GuardedFirstWrite` because its table row recorded a
+> morning reversal and not the same day's re-bind on evidence. Nothing here is
+> awaiting a call.
+>
+> Each decision below is still written as an elicitation entry — the question,
+> the options with tradeoffs, the recommendation, the rationale — because that is
+> what makes a re-decision cheap. Every entry carries a reversal condition; a
+> change from here is a recorded re-decision, not a veto.
+>
+> Original header, for the record: *"v1, all five picks PROVISIONAL —
+> implemented with the kernel author's recommended options and validated (27
+> fixtures + 5 cross-probes + prevention tests all green), awaiting Duke's
+> resolution."*
 >
 > Package: `src/kernel/` (Bun, zero runtime deps). Consumed as **fixed input** by
 > every wave-1 fan-out port builder. Validation re-expression:
@@ -119,7 +131,32 @@ freeze — never an ad-hoc string at an append site.
   `effectiveTime`; latest-wins ties among same-`effectiveTime` movements break on
   the HLC. This cleanly separates the two axes the composed build conflated into
   one `timestamp`.
-- **Status: PROVISIONAL.**
+- **Status: BOUND 2026-07-28** (Duke: "seems fine, wrap it up as best you
+  think"). This sub-decision was left `PROVISIONAL` when the five parent picks
+  were resolved on 2026-07-20 — it fell between them, and unlike all five it
+  never got a row in `cm-decisions.jsonl`. So the ordering key that **every**
+  latest-wins fold in the kernel depends on was, on paper, unbound for eight
+  days while `pickLatest`, `LwwRegister`, `FoldReduce`, `GSet` and
+  `GuardedFirstWrite` were all keyed on it.
+
+  Bound rather than re-elicited because there is no live alternative to weigh:
+  the thing it replaces — `(timestamp, insertion-seq)` — was independently
+  flagged **unsafe by all seven builds**, which is the strongest agreement
+  anything in this document has, and no second candidate was ever proposed. The
+  decision is not "is the HLC good" but "does the kernel have a total order at
+  all", and it must.
+
+  What is bound: `(physical, logical, replicaId)` with a total order via
+  `compareHlc`, and **no exported next-ordinal** — a serial number usable for
+  identity or cross-replica ordering stays structurally unavailable, which is
+  what stops the `asset_7` collision family from reappearing. The
+  valid-time/record-time separation (`effectiveTime` vs the HLC) rides with it;
+  the 2026-07-28 location pack is the first observation to exercise both axes at
+  once — a future-dated movement is inert on `effectiveTime` while the HLC still
+  orders the writes.
+
+  **Reversal condition:** an observed fixture whose correct outcome the total
+  order gets wrong. No production data exists; cheaply reversible.
 
 ---
 
@@ -259,12 +296,22 @@ throwing.
 
 ## Open items for Duke
 
-1. Resolve each of the five picks (flip `status: "provisional" → "bound"` in
-   `cm-decisions.jsonl` once approved).
-2. Decide sub-decision 1a (movement-as-log) — the only pick that would change a
-   committed judge (CP2) if flipped.
-3. Confirm 2a (replica-counter vs uuid-v7) — both satisfy collision-freedom; the
-   choice is opacity-vs-determinism.
+**All closed as of 2026-07-28.** Kept as a record of what was asked and when it
+was answered, not as a live list.
+
+1. ~~Resolve each of the five picks~~ — resolved 2026-07-20 (decided-for-me, then
+   reviewed: three confirmed, one reversed). All five carry `status:"bound"` in
+   `cm-decisions.jsonl`.
+2. ~~Decide sub-decision 1a (movement-as-log)~~ — CONFIRMED 2026-07-20; CP2 stands.
+3. ~~Confirm 2a (replica-counter vs uuid-v7)~~ — CONFIRMED 2026-07-20: determinism
+   and no-RNG over uuid-v7's opacity, and uuid-v7's time-sortability would have
+   invited ordering by id.
+4. ~~Sub-decision 2b (the HLC)~~ — BOUND 2026-07-28. It was never on this list and
+   that is how it stayed `PROVISIONAL` for eight days while the whole kernel was
+   keyed on it; see element 2b.
+5. ~~`GuardedFirstWrite`~~ — BOUND on observation 2026-07-28. It was listed
+   UNBOUND in the v1.1 table, which had gone stale against `fww.ts` the same day
+   it was written; see the note under the v1.1 additions table.
 
 ---
 
@@ -352,7 +399,46 @@ never on entity id (`ids.ts` forbids it).
 | 6 | `FoldReduce` | ordered reduce: `reset` ASSIGNS, deltas accumulate, over gate-passing events since the latest reset, keyed (effectiveTime, HLC) | w0a-1 / w0a-2 | `fold.ts` |
 | 7 | `GSet` | grow-only ordered collection (append-only, order-preserving, no replace/remove/dedup), HLC-ordered | w0b-2 | `gset.ts` |
 | 8 | `demoteToObservation` (+ `pickEarliest`) | bound-uniqueness loser demotion: earliest-HLC kept, losers re-emitted as observations | sub-decision 5a | `fww.ts` |
-| — | `GuardedFirstWrite` | first-writer-wins register — **UNBOUND** since Duke reversed w0b-1 (2026-07-20); do not select without a bound decision | (none) | `fww.ts` |
+| — | `GuardedFirstWrite` | first-writer-wins register, verb-scoped to BIRTH — **BOUND on observation** (see below) | w0b-1 (re-bound) | `fww.ts` |
+
+**`GuardedFirstWrite` — BOUND 2026-07-28 (Duke: "see if it actually makes sense
+in the context of our app, and make the call").** This row said **UNBOUND** from
+2026-07-20 to 2026-07-28, and it was stale for all eight days: it recorded Duke's
+morning reversal of w0b-1 and not the same day's **re-bind on evidence**, which
+`fww.ts` has documented in its module header the whole time. The doc and the code
+disagreed, and the code was right.
+
+The decision does not rest on anyone's preference, which is why it is bindable
+without a fresh elicitation. It rests on a semantic farmOS has now stated twice,
+in two independently recorded packs:
+
+- `w0b-observe/w0b-birth-mother-vetoed-by-existing-parent` (2026-07-20, sealed,
+  evidence_class `scoring`): a child that already has a parent keeps it — a later
+  birth record naming a different mother leaves `parent_count` at 1,
+  `has_parent(MOTHER)` false, `has_parent(OTHERPARENT)` true.
+- `lexicon-bind/lineage_clear/b0s-a-birth-mother-does-not-displace-a-stated-parent`
+  (2026-07-28, seal `3c5685d3d9bf`, self-verified cold): the same result, recorded
+  without reference to the first, and traced to the source's own authority —
+  `farm_birth EntityHooks::syncBirthChildren` appends the mother to the child
+  **only when the child has no parents at all**, and never retracts.
+
+An existing parent is a complete veto on a birth's parentage write. That is a
+guarded first write, and it is farmOS's behaviour, not our preference — the
+primitive exists because the semantic does.
+
+**Scope is the VERB, never the field.** The same observation runs found
+latest-wins alive next door: `set_parents` replaces wholesale
+(`w0b-parents-stated-directly-are-restated-wholesale`, and 2026-07-28's
+`b0s-clear-the-childs-own-parentage`), and a birth CORRECTION does propagate the
+corrected time. So:
+
+    birth → GuardedFirstWrite · set_parents → LwwRegister · birth time → LwwRegister
+
+Any future binding names the verb. A field-scoped binding ("lineage is FWW")
+would be wrong in both directions.
+
+**Reversal condition:** an observed fixture showing a birth writing parentage over
+an existing parent. Two packs would have to be wrong together.
 
 ## Element 6 — `FoldReduce` (ordered reset/accumulate reduce)
 

@@ -93,6 +93,17 @@ export const BOUND_CM_DECISIONS: readonly CmDecision[] = [
     rationale:
       "RE-BOUND ON EVIDENCE 2026-07-20 (Duke, MetaCoding-ci2) as kernel v1.3. The v1.2 blanket confirmed-only rule was falsified on first oracle contact: farmOS is not uniform about pending. Observed — a pending inventory adjustment does NOT move stock but IS counted by adjustment_count (w0a-observe/w0a-pending-adjustment-does-not-move-stock); a pending BIRTH log is FULLY effective, delivering both lineage and birth date (w0b-observe/w0b-pending-birth-record). Same status field, same system, opposite answers, so each projection names its own gate and each cites what decided it. The ONE deliberate divergence survives the re-bind unchanged: yieldTotal/logCount stay confirmed-only against the source (73ed7c69, d8607818), because a pending row in the official total makes the pending state meaningless — Duke chose that with the evidence in hand, and the port surfaces the excluded mass in pending-only partner projections rather than dropping it. What did not survive was extending that choice to projections nobody had observed.",
     recommendedBy: "shared-kernel-v1",
+    // The typed citation, added to the registry row by MetaCoding-n9o and
+    // missed HERE, so the artifact and the constant it is asserted to mirror
+    // disagreed (prevention.test.ts caught it and the failure was carried).
+    // The jsonl is the correct side: names never sanction, and a decision
+    // without a `sanctions` list covers NOTHING ("legacy prose-only entries
+    // cover nothing"). Without it the port's ONE deliberate divergence —
+    // yieldTotal/logCount confirmed-only against a source that counts pending
+    // — is unsanctioned, so goal_fit scores the port's own chosen target as a
+    // failure. Dropping the field from the jsonl instead would have "fixed"
+    // the test by silently un-declaring the divergence.
+    sanctions: ["yield_total", "log_count"],
   },
 ];
 
