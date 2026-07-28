@@ -811,3 +811,47 @@ class PortAdapter(ImplementationAdapter):
         """
         self._need_probe("assets_at_location_count")
         return self._bridge.call("assets_at_location_count", subject=subject_handle, as_of=as_of)
+
+    # --- generated: is_sterile (assertion, PROVISIONAL) --- #
+    def is_sterile(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source records the subject animal as sterile, so an assertion can tell a recorded sterility from a recorded fertility and both from an unrecorded one.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("is_sterile")
+        return self._bridge.call("is_sterile", subject=subject_handle)
+
+    # --- generated: animal_type (assertion, PROVISIONAL) --- #
+    def animal_type(self, subject_handle: Handle) -> Any:
+        """Deliver the name of the animal kind the source records for the subject animal, so an assertion can confirm what sort of creature it is; the empty string when the source records none.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("animal_type")
+        return self._bridge.call("animal_type", subject=subject_handle)
+
+    # --- generated: quantity_measured_value (assertion, PROVISIONAL) --- #
+    def quantity_measured_value(self, subject_handle: Handle) -> Any:
+        """Deliver the numeric magnitude the source records for the subject quantity, so an assertion can name ONE measurement where a read through its log would sum every measurement sharing a measure and unit.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("quantity_measured_value")
+        return self._bridge.call("quantity_measured_value", subject=subject_handle)
+
+    # --- generated: quantity_label (assertion, PROVISIONAL) --- #
+    def quantity_label(self, subject_handle: Handle) -> Any:
+        """Deliver the label the source records for the subject quantity, so an assertion can tell two measurements of the same measure and unit apart by what each one is for; the empty string when the source records none.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("quantity_label")
+        return self._bridge.call("quantity_label", subject=subject_handle)

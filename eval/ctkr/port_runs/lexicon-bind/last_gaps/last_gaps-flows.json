@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "b0s-sterility-is-three-answers-not-two",
+      "title": "Recorded sterile, recorded fertile, and never said are three different answers about an animal",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "is_sterile", "animal_sex"],
+      "given": [
+        {"entity": "animal", "alias": "STERILE", "name": "b0s-Sterile Steer Juniper", "descriptor": "Cattle", "sex": "M", "is_sterile": true},
+        {"entity": "animal", "alias": "FERTILE", "name": "b0s-Fertile Bull Oakum", "descriptor": "Cattle", "sex": "M", "is_sterile": false},
+        {"entity": "animal", "alias": "UNSAID", "name": "b0s-Unsaid Calf Larch", "descriptor": "Cattle", "sex": "M"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "is_sterile", "subject": "STERILE"},
+        {"assert": "is_sterile", "subject": "FERTILE"},
+        {"assert": "is_sterile", "subject": "UNSAID"},
+        {"assert": "animal_sex", "subject": "STERILE"}
+      ]
+    },
+    {
+      "key": "b0s-animal-type-reads-back",
+      "title": "The kind an animal was created as is the kind the source reports, and two kinds stay two",
+      "feature": "lineage",
+      "glossary_terms": ["animal", "animal_type", "animal_sex"],
+      "given": [
+        {"entity": "animal", "alias": "COW", "name": "b0s-Type Heifer Bracken", "descriptor": "b0s Highland Cattle", "sex": "F"},
+        {"entity": "animal", "alias": "EWE", "name": "b0s-Type Ewe Tussock", "descriptor": "b0s Shetland Sheep", "sex": "F"}
+      ],
+      "when": [],
+      "probes": [
+        {"assert": "animal_type", "subject": "COW"},
+        {"assert": "animal_type", "subject": "EWE"},
+        {"assert": "animal_sex", "subject": "COW"}
+      ]
+    },
+    {
+      "key": "b0s-two-measurements-of-one-measure-are-two",
+      "title": "Two weights on one harvest are two measurements, where a read through the record reports only their sum",
+      "feature": "harvest-logging",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "quantity_measured_value", "quantity_label", "quantity_recorded", "yield_total"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Qty Bed Picked Twice"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "b0s-Two pickings in one record", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 3, "unit": "kilogram", "label": "morning picking", "alias": "Q1"},
+          {"measure": "weight", "value": 7, "unit": "kilogram", "label": "evening picking", "alias": "Q2"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "quantity_measured_value", "subject": "Q1"},
+        {"assert": "quantity_measured_value", "subject": "Q2"},
+        {"assert": "quantity_label", "subject": "Q1"},
+        {"assert": "quantity_label", "subject": "Q2"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"}
+      ]
+    },
+    {
+      "key": "b0s-one-measurement-contrast",
+      "title": "A single picking of the same total: the record reads alike, the measurements do not — the discriminating contrast",
+      "feature": "harvest-logging",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "quantity_measured_value", "quantity_label", "quantity_recorded", "yield_total"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Qty Bed Picked Once"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "b0s-One picking in one record", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 10, "unit": "kilogram", "label": "whole day", "alias": "Q1"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "quantity_measured_value", "subject": "Q1"},
+        {"assert": "quantity_label", "subject": "Q1"},
+        {"assert": "quantity_recorded", "subject": "L", "measure": "weight", "unit": "kilogram"},
+        {"assert": "yield_total", "subject": "A", "measure": "weight", "unit": "kilogram"}
+      ]
+    },
+    {
+      "key": "b0s-a-measurement-with-no-stated-role",
+      "title": "A measurement recorded with no stated role reads as the empty value, not as a missing measurement",
+      "feature": "harvest-logging",
+      "glossary_terms": ["land", "harvest", "weight", "record_log", "quantity_measured_value", "quantity_label"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Qty Bed Unlabelled"}
+      ],
+      "when": [
+        {"action": "record_log", "alias": "L", "kind": "harvest", "status": "done", "name": "b0s-Unlabelled picking", "against": ["A"], "quantities": [
+          {"measure": "weight", "value": 4, "unit": "kilogram", "alias": "Q1"}
+        ]}
+      ],
+      "probes": [
+        {"assert": "quantity_measured_value", "subject": "Q1"},
+        {"assert": "quantity_label", "subject": "Q1"}
+      ]
+    }
+  ]
+}

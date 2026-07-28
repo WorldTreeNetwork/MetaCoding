@@ -193,6 +193,10 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "is_fixed",  # Whether an asset stays put — whether it has a shape of its own rath… [PROVISIONAL]
         "was_at_location",  # Whether an asset was at a given location at a stated moment — the a… [PROVISIONAL]
         "assets_at_location_count",  # How many assets are at a location — the question asked from the pla… [PROVISIONAL]
+        "is_sterile",  # Whether an animal is recorded as unable to breed. [PROVISIONAL]
+        "animal_type",  # The kind of animal an animal is recorded as — its breed or species … [PROVISIONAL]
+        "quantity_measured_value",  # The magnitude of one specific recorded measurement, addressed as it… [PROVISIONAL]
+        "quantity_label",  # The role a recorded measurement plays — what the number is a measur… [PROVISIONAL]
     }
 )
 

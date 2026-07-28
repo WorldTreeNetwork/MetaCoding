@@ -232,7 +232,7 @@ class FarmOSAdapter(ImplementationAdapter):
     def create_asset(
         self, entity: str, name: str, descriptor: str = "", sex: str = "",
         is_location: bool | None = None, is_fixed: bool | None = None,
-        intrinsic_geometry: str = "",
+        intrinsic_geometry: str = "", is_sterile: bool | None = None,
     ) -> Handle:
         bundle = _ASSET_BUNDLE.get(entity)
         if bundle is None:
@@ -250,6 +250,11 @@ class FarmOSAdapter(ImplementationAdapter):
             attrs["is_fixed"] = is_fixed
         if intrinsic_geometry:
             attrs["intrinsic_geometry"] = intrinsic_geometry
+        # Sterility (MetaCoding-b0s), stated only when the flow states it: the
+        # boundary's third state (unstated -> null) is itself an observable, and
+        # sending False for an unstated flag would erase it.
+        if is_sterile is not None:
+            attrs["is_sterile"] = is_sterile
         rels: dict[str, Any] = {}
         if bundle == "land":
             # land_type is a required option; only "other" is guaranteed present
@@ -1514,6 +1519,69 @@ class FarmOSAdapter(ImplementationAdapter):
             if locs and location_id in locs:
                 total += 1
         return total
+
+    # --- the last four DSL gaps (MetaCoding-b0s) ------------------------- #
+    def is_sterile(self, subject_handle: Handle) -> Any:
+        """Whether the animal is recorded as unable to breed.
+
+        A real TRI-STATE at the boundary, validated live 2026-07-28: unstated
+        delivers null, true delivers true, false delivers false. The null is
+        returned as ``None`` rather than folded to False on purpose — "nobody
+        said" and "recorded as fertile" are different facts about an animal, and
+        a port that stores absent-as-false is wrong in a way only a fixture that
+        can SEE the third state will catch. (The sensor `publicly_readable`
+        precedent, where the same fold would have hidden the same defect.)
+
+        The unstated state is delivered as ``""`` rather than ``None`` because
+        ``None`` is how the fixture schema spells "no expected value at all" —
+        an assertion carrying it fails validation as unwitnessed. ``""`` is a
+        VALUE, and ``same_value`` never equates it with the boolean ``False``
+        (a bool and a non-bool are different answers by rule), so all three
+        states stay distinguishable. Exactly ``publicly_readable``'s fold, for
+        exactly the same reason.
+        """
+        v = self._animal(subject_handle)["attributes"].get("is_sterile")
+        return v if v is not None else ""
+
+    def animal_type(self, subject_handle: Handle) -> str:
+        """The NAME of the animal kind the source records for the animal.
+
+        The `crop_family` form: follow the source-stated reference and read the
+        referenced term's own stated name. Empty string when none is recorded.
+        """
+        rel = ((self._animal(subject_handle).get("relationships") or {})
+               .get("animal_type") or {}).get("data")
+        if not rel:
+            return ""
+        term = self.client.request(
+            "GET", f"/api/taxonomy_term/animal_type/{rel['id']}")["data"]
+        return str(term["attributes"].get("name") or "")
+
+    def _quantity(self, quantity_handle: Handle) -> dict[str, Any]:
+        _, bundle, uid = self._split(quantity_handle)
+        return self.client.request(
+            "GET", f"/api/quantity/{bundle}/{uid}")["data"]
+
+    def quantity_measured_value(self, subject_handle: Handle) -> float:
+        """The magnitude of ONE recorded measurement, addressed as itself.
+
+        The reason this exists: `quantity_recorded` reads through the LOG and
+        sums every quantity sharing a measure and unit, so two measurements are
+        one number there (validated live 2026-07-28: 3 and 7 read back as 10.0)
+        and no fixture could tell a port that lost one from a port that kept
+        both. The subject here is the quantity's own alias.
+        """
+        return _quantity_value(self._quantity(subject_handle)["attributes"]
+                               .get("value"))
+
+    def quantity_label(self, subject_handle: Handle) -> str:
+        """What the measurement is OF — the partner of the magnitude.
+
+        Value says how much, label says of what. Without it a port could hold
+        both magnitudes and have lost which is which.
+        """
+        return str(self._quantity(subject_handle)["attributes"]
+                   .get("label") or "")
 
 
 def _iso(effective_time: Any) -> str:

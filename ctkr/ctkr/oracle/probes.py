@@ -695,6 +695,62 @@ _PROBES: tuple[ProbeSpec, ...] = (
                   "other flow touches, which is a discipline of the pack rather "
                   "than a property of the probe"
               )),
+    # --- the last four gaps: AUTHORITY REFINED post-generation ----------- #
+    # Three transcribe a field the source STATES; one follows a source-stated
+    # reference to a term's own stated name (the crop_family form).
+    ProbeSpec('is_sterile', 'is_sterile', (),
+              doc="Whether an animal is recorded as unable to breed. A real "
+                  "TRI-STATE the source STATES directly on the asset — "
+                  "BOUNDARY transcription, validated live 2026-07-28: unstated "
+                  "delivers null, true delivers true, false delivers false. "
+                  "The null is delivered as the empty value rather than folded "
+                  "to false ON PURPOSE — 'nobody said' and 'recorded as "
+                  "fertile' are different facts about an animal, and a port "
+                  "storing absent-as-false is wrong in a way only a fixture "
+                  "that can see the third state catches (the "
+                  "publicly_readable precedent).",
+              authority=BOUNDARY),
+    ProbeSpec('animal_type', 'animal_type', (),
+              doc="The kind of animal an animal is recorded as — its breed or "
+                  "species grouping.",
+              authority=DERIVED,
+              derivation="the NAME of the term the animal's single-valued "
+                         "`animal_type` entity_reference points to; '' when the "
+                         "asset records none",
+              validated_against="the animal_type reference is stated by the "
+                                "source (farm_animal Animal.php "
+                                "buildFieldDefinitions, target "
+                                "taxonomy_term--animal_type, required) and the "
+                                "name is the referenced term's own stated "
+                                "attribute — the reference-follow and name "
+                                "readback add no semantics, the crop_family / "
+                                "laboratory form. Validated live 2026-07-28: an "
+                                "animal created as 'Highland Cattle' read back "
+                                "exactly that name."),
+    ProbeSpec('quantity_measured_value', 'quantity_measured_value', (),
+              subject_kind="quantity",
+              doc="The magnitude of ONE recorded measurement, addressed as "
+                  "itself rather than through the record that carries it. The "
+                  "source states the number on the quantity; reading it is "
+                  "BOUNDARY transcription of farmOS's fraction field into the "
+                  "decimal it also delivers (a representation fold, the "
+                  "existing _quantity_value form, not semantics). It exists "
+                  "because quantity_recorded reads through the LOG and SUMS "
+                  "every quantity sharing a measure and unit — validated live "
+                  "2026-07-28: 3 and 7 read back as 10.0 — so two measurements "
+                  "were one number and no fixture could tell a port that lost "
+                  "one from a port that kept both.",
+              authority=BOUNDARY),
+    ProbeSpec('quantity_label', 'quantity_label', (),
+              subject_kind="quantity",
+              doc="The role a recorded measurement plays — what the number is a "
+                  "measurement OF. A string the source states directly on the "
+                  "quantity (BOUNDARY transcription; absent reads as the empty "
+                  "value, the lot_number form). The partner of "
+                  "quantity_measured_value: the value says how much, the label "
+                  "says of what, and without it a port could hold both "
+                  "magnitudes and have lost which is which.",
+              authority=BOUNDARY),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

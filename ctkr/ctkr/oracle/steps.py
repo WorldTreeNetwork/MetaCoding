@@ -61,6 +61,8 @@ def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
         traits["is_fixed"] = g.is_fixed
     if g.intrinsic_geometry:
         traits["intrinsic_geometry"] = g.intrinsic_geometry
+    if g.is_sterile is not None:
+        traits["is_sterile"] = g.is_sterile
     if g.sex or traits:
         return adapter.create_asset(g.entity, g.name, g.descriptor, g.sex,
                                     **traits)

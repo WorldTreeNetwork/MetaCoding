@@ -150,6 +150,9 @@ def test_every_accepted_given_key_reaches_the_given_step() -> None:
         # location traits (MetaCoding-b0s) — INPUTS on any asset given.
         "is_location": True, "is_fixed": True,
         "intrinsic_geometry": "POINT (1 2)",
+        # sterility (MetaCoding-b0s) — tri-state, so True is the non-default
+        # that proves the mapping (False is a stated VALUE, not an absence).
+        "is_sterile": True,
     }
     assert set(sample) == set(_GIVEN_KEYS), (
         "extend `sample` when _GIVEN_KEYS grows — that is the point"

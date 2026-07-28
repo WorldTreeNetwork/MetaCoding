@@ -82,7 +82,9 @@ _GIVEN_KEYS = frozenset(
      # location traits (MetaCoding-b0s, for MetaCoding-4vh) — INPUTS on any
      # asset `given`. Both booleans are tri-state: unstated leaves the
      # source's own default, which is itself an observable.
-     "is_location", "is_fixed", "intrinsic_geometry"}
+     "is_location", "is_fixed", "intrinsic_geometry",
+     # sterility (MetaCoding-b0s) — tri-state, the `public` form.
+     "is_sterile"}
 )
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
@@ -293,6 +295,7 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
         is_location=_opt_bool(d, "is_location", where),
         is_fixed=_opt_bool(d, "is_fixed", where),
         intrinsic_geometry=_str(d, "intrinsic_geometry", where),
+        is_sterile=_opt_bool(d, "is_sterile", where),
         # sensor asset bundle fields (MetaCoding-ej0). A key accepted by
         # _GIVEN_KEYS but not mapped here is SILENTLY DROPPED — the recording
         # proceeds with defaults and every stated value is lost (caught live:
@@ -571,7 +574,14 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             quantity_aliases.add(q.alias)
         when.append(step)
 
-    known = aliases | log_aliases
+    # Quantity aliases are probeable SUBJECTS (MetaCoding-b0s). They were
+    # missing here while `fixtures.validate_fixture` already admitted them, so
+    # a flow could not ask anything ABOUT a quantity even though a distilled
+    # fixture could — which is what "no quantity-level reads" was, concretely.
+    # It matters because a log cannot distinguish two quantities of the same
+    # measure and unit: quantity_recorded sums them (validated live 2026-07-28,
+    # 3 + 7 -> 10.0), so without a quantity subject the two are one number.
+    known = aliases | log_aliases | quantity_aliases
     probes: list[Probe] = []
     for i, p in enumerate(d.get("probes") or []):
         probe = probe_from_dict(p, f"{where}.probes[{i}]")

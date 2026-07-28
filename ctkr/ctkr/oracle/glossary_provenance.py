@@ -36,7 +36,7 @@ shape instead of defaulting to a param-less entity probe — the default forced
 every entity-reference assertion (the ``has_parent`` shape) to be hand-edited
 across five files after generation::
 
-    "subject_kind": "entity"|"event"|"attempt",   # default "entity"
+    "subject_kind": "entity"|"event"|"attempt"|"quantity",  # default "entity"
     "params": [{"field_name": "other",            # a ThenAssertion field
                 "alias_noun": "animal"}]          # non-empty = alias, resolved
                                                   # to a handle before the call
@@ -101,7 +101,14 @@ PROBE_PARAM_FIELDS: frozenset[str] = frozenset(
      # the answer is a fold of ours). Never an alias.
      "as_of"}
 )
-SUBJECT_KINDS: frozenset[str] = frozenset({"entity", "event", "attempt"})
+SUBJECT_KINDS: frozenset[str] = frozenset(
+    {"entity", "event", "attempt",
+     # a QUANTITY: one recorded measurement, addressable by the alias a
+     # record_log step minted for it (MetaCoding-xdt gave it a write surface,
+     # MetaCoding-b0s a read one). Not an `event` — a log is the event, and a
+     # quantity is a thing the event records.
+     "quantity"}
+)
 #: The port-adapter dispatch shape (MetaCoding-wob): a ``scalar`` value is
 #: forwarded raw so a type mismatch surfaces as a real comparison; a ``list`` is
 #: guarded (a non-list answer is a BridgeError, NO VERDICT) and coerced to names.

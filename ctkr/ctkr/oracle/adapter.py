@@ -77,7 +77,7 @@ class ImplementationAdapter(ABC):
     def create_asset(
         self, entity: str, name: str, descriptor: str = "", sex: str = "",
         is_location: bool | None = None, is_fixed: bool | None = None,
-        intrinsic_geometry: str = "",
+        intrinsic_geometry: str = "", is_sterile: bool | None = None,
     ) -> Handle:
         """Create an asset of a glossary ``entity`` kind; return its handle.
 
@@ -578,3 +578,39 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("assets_at_location_count")
+
+    # --- generated: is_sterile (assertion, PROVISIONAL) --- #
+    def is_sterile(self, subject_handle: Handle) -> Any:
+        """Deliver whether the source records the subject animal as sterile, so an assertion can tell a recorded sterility from a recorded fertility and both from an unrecorded one.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("is_sterile")
+
+    # --- generated: animal_type (assertion, PROVISIONAL) --- #
+    def animal_type(self, subject_handle: Handle) -> Any:
+        """Deliver the name of the animal kind the source records for the subject animal, so an assertion can confirm what sort of creature it is; the empty string when the source records none.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("animal_type")
+
+    # --- generated: quantity_measured_value (assertion, PROVISIONAL) --- #
+    def quantity_measured_value(self, subject_handle: Handle) -> Any:
+        """Deliver the numeric magnitude the source records for the subject quantity, so an assertion can name ONE measurement where a read through its log would sum every measurement sharing a measure and unit.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("quantity_measured_value")
+
+    # --- generated: quantity_label (assertion, PROVISIONAL) --- #
+    def quantity_label(self, subject_handle: Handle) -> Any:
+        """Deliver the label the source records for the subject quantity, so an assertion can tell two measurements of the same measure and unit apart by what each one is for; the empty string when the source records none.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("quantity_label")
