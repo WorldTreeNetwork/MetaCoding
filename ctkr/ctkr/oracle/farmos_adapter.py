@@ -1388,6 +1388,133 @@ class FarmOSAdapter(ImplementationAdapter):
         """Whether the asset stays put — keeping its own shape, ignoring moves."""
         return bool(self._asset(subject_handle)["attributes"].get("is_fixed"))
 
+    # --- the as-of read and the fan-out (MetaCoding-b0s) ----------------- #
+    # These two differ in KIND from the five location probes above, and the
+    # difference is the whole reason they are separate terms. Those five read
+    # an answer farmOS COMPUTED and published on the asset. farmOS publishes no
+    # as-of answer at all (validated live 2026-07-28: `?timestamp=` is not a
+    # boundary parameter, and the working copy still delivers the current
+    # location), and it answers the place's side only through
+    # AssetLocation::getAssetsByLocation — a raw SQL query with no boundary
+    # equivalent (`filter[location.id]` 500s). So both folds below are OURS, and
+    # both are validated against farmOS's own rule rather than guessed. This is
+    # the `group_member` shape: a derivation of ours, cited to the source's
+    # authority, because the alternative is the `group_member` DEFECT — a
+    # hand-written rule silently standing in for the source's.
+    def _movement_logs(self, asset_handle: Handle) -> list[dict[str, Any]]:
+        """Every movement log the boundary delivers for an asset, ordered.
+
+        The boundary states all four things AssetLocation's own query gates on —
+        `is_movement`, `status`, `timestamp`, and the internal id it tie-breaks
+        with — so the fold reads the source's inputs rather than reconstructing
+        them (validated live 2026-07-28).
+        """
+        _, _, aid = self._split(asset_handle)
+        rows: list[dict[str, Any]] = []
+        for kind in self.log_bundles():
+            rows.extend(self._paged(
+                f"/api/log/{kind}?filter[asset.id]={aid}"
+                "&sort=timestamp,drupal_internal__id&page[limit]=50"
+            ))
+        return [r for r in rows if r["attributes"].get("is_movement")]
+
+    def _locations_as_of(
+        self, asset_handle: Handle, as_of: str
+    ) -> list[str] | None:
+        """The location ids in force for an asset at an instant — AssetLocation's rule.
+
+        ``None`` when the asset is FIXED: getLocation short-circuits to no
+        location at all for a fixed asset, before any movement is considered.
+        """
+        if self.is_fixed(asset_handle):
+            return None
+        when = _epoch(as_of)
+        winner: dict[str, Any] | None = None
+        best: tuple[int, int] | None = None
+        for log in self._movement_logs(asset_handle):
+            attrs = log["attributes"]
+            if attrs.get("status") != "done":
+                continue
+            ts = _epoch(attrs.get("timestamp"))
+            if ts is None or when is None or ts > when:
+                continue
+            key = (ts, int(attrs.get("drupal_internal__id") or 0))
+            if best is None or key > best:
+                best, winner = key, log
+        if winner is None:
+            return []
+        data = (winner.get("relationships") or {}).get("location") or {}
+        return [row["id"] for row in (data.get("data") or [])]
+
+    def was_at_location(
+        self, subject_handle: Handle, other_handle: Handle, as_of: str
+    ) -> bool:
+        """Whether the asset was at the given location as of a stated instant."""
+        _, _, other_id = self._split(other_handle)
+        locs = self._locations_as_of(subject_handle, as_of)
+        return bool(locs) and other_id in locs
+
+    def assets_at_location_count(
+        self, subject_handle: Handle, as_of: str = ""
+    ) -> int:
+        """How many assets the source reports at this location.
+
+        ENUMERATION is ours; MEMBERSHIP is not. Every asset counted here is one
+        farmOS itself places at the location — either by the `location`
+        relationship it computes and publishes on that asset, or, when an
+        instant is asked for, by the same movement fold `was_at_location` uses.
+
+        **Candidates come from the movement logs, not from every asset.** An
+        asset can only be at a location if some movement ever put it there, so
+        the fold asks the boundary for the movements REFERENCING this location
+        and considers exactly the assets they name. That is not an optimisation
+        detail — the alternative (walk every asset in every bundle and fold each
+        one's whole movement history) is O(assets x log-bundles) and does not
+        finish against a shared oracle; it was written that way first and had to
+        be killed mid-recording. The log-side filter is available where the
+        asset-side one is not: `filter[location.id]` on a LOG answers (the
+        relationship is stored there), while on an ASSET it returns 500 because
+        the asset's location is computed, not stored — validated live 2026-07-28.
+
+        Candidate selection cannot cause an over- or under-count. Over: every
+        candidate is re-checked against the source's own answer, so an asset
+        that moved away is dropped. Under: an asset the log set omits has no
+        movement naming this location and therefore cannot be here.
+
+        The log-bundle set is read from the source's OWN /api index, never typed
+        here — the `_INDEXED` discipline, and the reason is on the record: the
+        hard-coded five-kind list silently omitted `birth`.
+        """
+        _, _, location_id = self._split(subject_handle)
+        candidates: dict[str, str] = {}   # asset uuid -> handle
+        for kind in self.log_bundles():
+            for log in self._paged(
+                f"/api/log/{kind}?filter[location.id]={location_id}"
+                "&sort=timestamp,drupal_internal__id&page[limit]=50"
+            ):
+                if not log["attributes"].get("is_movement"):
+                    continue
+                assets = ((log.get("relationships") or {}).get("asset")
+                          or {}).get("data") or []
+                for ref in assets:
+                    bundle = str(ref.get("type", "")).split("--", 1)[-1]
+                    candidates[ref["id"]] = f"asset:{bundle}:{ref['id']}"
+        total = 0
+        for handle in candidates.values():
+            if as_of:
+                locs = self._locations_as_of(handle, as_of)
+            else:
+                locs = self._current_location_ids(handle)
+                if self.is_fixed(handle):
+                    # getLocation short-circuits on is_fixed before considering
+                    # any movement; the computed relationship already reflects
+                    # that, but a candidate reached THROUGH a movement log is
+                    # exactly the case where it matters.
+                    locs = []
+            if locs and location_id in locs:
+                total += 1
+        return total
+
 
 def _iso(effective_time: Any) -> str:
     """Render an effective time as the ISO-8601 instant farmOS accepts on write.
@@ -1405,6 +1532,34 @@ def _iso(effective_time: Any) -> str:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
     return dt.replace(microsecond=0).isoformat(timespec="seconds")
+
+
+def _epoch(instant: Any) -> int | None:
+    """An instant as whole epoch seconds — the unit farmOS orders movements in.
+
+    NOTE ON PLACEMENT: this must stay BELOW ``_iso``. ``term_codegen`` anchors
+    its class-body insertions on ``"\\ndef _iso("`` as "the first module-level
+    def after the adapter class", so a helper defined above ``_iso`` silently
+    moves the anchor and every generated adapter stub lands at module scope
+    instead of inside the class. Caught by ``test_add_term`` when this function
+    was first written above it.
+
+    farmOS stores a log timestamp as a 32-bit epoch integer and compares on it
+    (`lfd.timestamp <= :timestamp`), so a fold that reproduces its ordering
+    compares the same way. ``None`` for anything unreadable, which the callers
+    treat as "cannot be in force" rather than guessing.
+    """
+    if instant is None or instant == "":
+        return None
+    if isinstance(instant, (int, float)) and not isinstance(instant, bool):
+        return int(instant)
+    try:
+        dt = datetime.fromisoformat(str(instant))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return int(dt.timestamp())
 
 
 def _as_fraction(value: float) -> tuple[int, int]:

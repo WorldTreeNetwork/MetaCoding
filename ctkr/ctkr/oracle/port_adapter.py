@@ -789,3 +789,25 @@ class PortAdapter(ImplementationAdapter):
         """
         self._need_probe("is_fixed")
         return self._bridge.call("is_fixed", subject=subject_handle)
+
+    # --- generated: was_at_location (assertion, PROVISIONAL) --- #
+    def was_at_location(self, subject_handle: Handle, other_handle: Handle, as_of: str) -> Any:
+        """Deliver whether a given location was among the asset's locations as of a stated instant, so an assertion can ask where a thing WAS rather than only where it is.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("was_at_location")
+        return self._bridge.call("was_at_location", subject=subject_handle, other=other_handle, as_of=as_of)
+
+    # --- generated: assets_at_location_count (assertion, PROVISIONAL) --- #
+    def assets_at_location_count(self, subject_handle: Handle, as_of: str) -> Any:
+        """Deliver how many assets the source reports at the subject location as of a stated instant (or now when none is stated), so an assertion can ask what is in a place rather than asking each thing where it is.
+
+        Generated dispatch: forwards to the port's declared bridge op,
+        gated on the port having declared it. Nothing to implement — the
+        bridge the build produced answers, or the gate raises.
+        """
+        self._need_probe("assets_at_location_count")
+        return self._bridge.call("assets_at_location_count", subject=subject_handle, as_of=as_of)

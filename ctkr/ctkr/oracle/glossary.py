@@ -191,6 +191,8 @@ ASSERTION_TERMS: frozenset[str] = frozenset(
         "current_geometry",  # The shape on the ground an asset currently occupies, as the source … [PROVISIONAL]
         "is_location",  # Whether an asset may hold other assets — whether it is a place thin… [PROVISIONAL]
         "is_fixed",  # Whether an asset stays put — whether it has a shape of its own rath… [PROVISIONAL]
+        "was_at_location",  # Whether an asset was at a given location at a stated moment — the a… [PROVISIONAL]
+        "assets_at_location_count",  # How many assets are at a location — the question asked from the pla… [PROVISIONAL]
     }
 )
 

@@ -173,6 +173,22 @@ _INDEXED = (
     "boundary-published filter, with no adapter-chosen predicate"
 )
 
+#: The source's own current-location rule, shared by the two probes that must
+#: FOLD it rather than read farmOS's published answer (the as-of read and the
+#: fan-out). Stated once so the two cannot drift into disagreeing about what
+#: they claim to reproduce.
+_MOVEMENT_RULE = (
+    "farmOS's own rule, read from AssetLocation.php: getMovementLog() takes the "
+    "newest log with is_movement TRUE and status 'done' whose timestamp is <= "
+    "the asked-for instant, tie-broken by the larger internal id, and "
+    "getLocation() returns that log's location set — with a FIXED asset "
+    "short-circuited to no location at all BEFORE any movement is considered. "
+    "The fold reads the source's own inputs rather than reconstructing them: "
+    "the boundary states is_movement, status, timestamp and the internal id on "
+    "every log (validated live 2026-07-28), and the log-bundle set is read from "
+    "the source's own /api resource index, never chosen here"
+)
+
 _PROBES: tuple[ProbeSpec, ...] = (
     ProbeSpec("yield_total", "asset_yield_total",
               (Param("measure"), Param("unit")),
@@ -618,6 +634,67 @@ _PROBES: tuple[ProbeSpec, ...] = (
                   "asset moved to a field reads back at NO location, keeping "
                   "its own shape).",
               authority=BOUNDARY),
+    # --- the as-of read and the fan-out: AUTHORITY REFINED --------------- #
+    # Both are DERIVED and both are OURS in a way the five location probes above
+    # are not, which is why they are separate terms rather than parameters on
+    # those. Above, farmOS computes the answer and publishes it; here it
+    # publishes no answer at all, so we fold — and a fold of ours is not
+    # evidence until it is validated against the source's own authority. That is
+    # the `group_member` shape done deliberately, to avoid the `group_member`
+    # DEFECT: a hand-written "latest done assignment wins" that silently stood
+    # in for GroupMembership.php and got a CORRECT port ranked below a wrong one.
+    ProbeSpec('was_at_location', 'was_at_location',
+              (Param('other', 'location'), Param('as_of')),
+              doc="Whether an asset was at a given location at a stated moment "
+                  "— the as-of read. Separate from is_at_location because it is "
+                  "a different question with a different AUTHORITY: farmOS "
+                  "offers NO as-of read at its boundary (validated live "
+                  "2026-07-28 — `?timestamp=` is not a boundary parameter and "
+                  "the working copy still delivers the current location), so "
+                  "where is_at_location transcribes the source's own computed "
+                  "answer, this one computes it. One ProbeSpec carries one "
+                  "authority; conflating them would have let a transcription "
+                  "launder a derivation.",
+              authority=DERIVED,
+              derivation="the location set of the newest done movement log the "
+                         "boundary delivers for the asset whose effective time "
+                         "is not after the asked-for instant, tie-broken by the "
+                         "larger internal id; empty for a fixed asset, and "
+                         "empty when no such movement exists",
+              validated_against=_MOVEMENT_RULE),
+    ProbeSpec('assets_at_location_count', 'assets_at_location_count',
+              (Param('as_of'),),
+              doc="How many assets are at a location — the question asked from "
+                  "the PLACE's side rather than the thing's, which is the "
+                  "question a farm actually asks of a paddock. farmOS answers "
+                  "it internally only through AssetLocation::getAssetsByLocation, "
+                  "a raw SQL query with no boundary equivalent (validated live "
+                  "2026-07-28: filter[location.id] returns 500), so the "
+                  "enumeration is ours.",
+              authority=DERIVED,
+              derivation="cardinality of the set of assets, over every asset "
+                         "bundle the source's own index publishes, whose "
+                         "location includes the subject — each asset's location "
+                         "taken from the source's own computed `location` "
+                         "relationship, or from the movement fold when an "
+                         "instant is asked for",
+              validated_against=(
+                  "the MEMBERSHIP is farmOS's, not ours, in both modes: with no "
+                  "instant each asset's location is the relationship the source "
+                  "COMPUTES and delivers on it, and with one it is the same fold "
+                  "`was_at_location` uses — " + _MOVEMENT_RULE + ". Only the "
+                  "ENUMERATION is ours, and its bundle set is read from the "
+                  "source's own /api asset index rather than typed here (the "
+                  "_INDEXED discipline; the hard-coded log list is what silently "
+                  "omitted `birth`). Validated live 2026-07-28: two of three "
+                  "animals moved to a field were exactly the two the fold "
+                  "returned, and an untouched field returned none. KNOWN SCOPE: "
+                  "it counts every asset the source publishes at the location, "
+                  "including any a flow did not create — on a SHARED oracle that "
+                  "is a real hazard, so a flow asking it uses a location no "
+                  "other flow touches, which is a discipline of the pack rather "
+                  "than a property of the probe"
+              )),
 )
 
 PROBE_CONTRACT: dict[str, ProbeSpec] = {p.assertion: p for p in _PROBES}

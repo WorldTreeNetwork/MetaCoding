@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "key": "b0s-asof-reads-the-past-not-the-present",
+      "title": "An animal that moved on in June was still in the earlier field in March, and is in neither answer's place by accident",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "was_at_location", "is_at_location"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-AsOf Field Winter", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-AsOf Field Summer", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-AsOf Cow Wandering", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Winter move", "at": "2026-01-01T00:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "done", "name": "b0s-Summer move", "at": "2026-06-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "was_at_location", "subject": "COW", "other": "A", "as_of": "2026-03-01T00:00:00+00:00"},
+        {"assert": "was_at_location", "subject": "COW", "other": "B", "as_of": "2026-03-01T00:00:00+00:00"},
+        {"assert": "was_at_location", "subject": "COW", "other": "A", "as_of": "2026-09-01T00:00:00+00:00"},
+        {"assert": "was_at_location", "subject": "COW", "other": "B", "as_of": "2026-09-01T00:00:00+00:00"},
+        {"assert": "is_at_location", "subject": "COW", "other": "B"}
+      ]
+    },
+    {
+      "key": "b0s-asof-before-the-first-movement-is-nowhere",
+      "title": "Asked about a moment before it ever moved, the animal was nowhere — not at the place it would later occupy",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "was_at_location", "is_at_location"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-AsOf Field Eventual", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-AsOf Cow Latecomer", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Later arrival", "at": "2026-06-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "was_at_location", "subject": "COW", "other": "A", "as_of": "2026-01-01T00:00:00+00:00"},
+        {"assert": "was_at_location", "subject": "COW", "other": "A", "as_of": "2026-09-01T00:00:00+00:00"},
+        {"assert": "is_at_location", "subject": "COW", "other": "A"}
+      ]
+    },
+    {
+      "key": "b0s-asof-a-pending-movement-never-took-effect",
+      "title": "A pending movement is inert at every moment, not merely at the present one",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "pending", "done", "was_at_location"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-AsOf Field Occupied", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-AsOf Field Merely Proposed", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-AsOf Cow Unmoved", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Confirmed move", "at": "2026-01-01T00:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "pending", "name": "b0s-Proposed move", "at": "2026-03-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "was_at_location", "subject": "COW", "other": "A", "as_of": "2026-06-01T00:00:00+00:00"},
+        {"assert": "was_at_location", "subject": "COW", "other": "B", "as_of": "2026-06-01T00:00:00+00:00"}
+      ]
+    },
+    {
+      "key": "b0s-asof-a-fixed-asset-was-never-anywhere",
+      "title": "A fixed asset was at no location at any moment, however it was moved",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "structure", "move", "was_at_location", "is_fixed"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-AsOf Field By The Silo", "is_location": true},
+        {"entity": "structure", "alias": "SILO", "name": "b0s-AsOf Silo Immovable", "descriptor": "building", "is_fixed": true, "intrinsic_geometry": "POINT (5 6)"}
+      ],
+      "when": [
+        {"action": "move", "against": ["SILO"], "locations": ["A"], "status": "done", "name": "b0s-Move the silo", "at": "2026-01-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "is_fixed", "subject": "SILO"},
+        {"assert": "was_at_location", "subject": "SILO", "other": "A", "as_of": "2026-06-01T00:00:00+00:00"}
+      ]
+    },
+    {
+      "key": "b0s-fanout-what-is-in-the-paddock",
+      "title": "Two of three animals moved to the paddock: the paddock holds two, and a field nobody entered holds none",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "assets_at_location_count", "is_at_location"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Fanout Paddock Holding Two", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Fanout Field Holding None", "is_location": true},
+        {"entity": "animal", "alias": "COW1", "name": "b0s-Fanout Cow Entering One", "descriptor": "Cattle"},
+        {"entity": "animal", "alias": "COW2", "name": "b0s-Fanout Cow Entering Two", "descriptor": "Cattle"},
+        {"entity": "animal", "alias": "COW3", "name": "b0s-Fanout Cow Staying Out", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW1", "COW2"], "locations": ["A"], "status": "done", "name": "b0s-Into the paddock", "at": "2026-01-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "assets_at_location_count", "subject": "A"},
+        {"assert": "assets_at_location_count", "subject": "B"},
+        {"assert": "is_at_location", "subject": "COW1", "other": "A"},
+        {"assert": "is_at_location", "subject": "COW3", "other": "A"}
+      ]
+    },
+    {
+      "key": "b0s-fanout-moving-away-empties-the-place",
+      "title": "Moving the last animal out empties the place: the count follows the latest movement, it does not accumulate",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "assets_at_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Fanout Pen Emptied", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Fanout Pen Filled", "is_location": true},
+        {"entity": "animal", "alias": "COW", "name": "b0s-Fanout Cow Departing", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW"], "locations": ["A"], "status": "done", "name": "b0s-Arrive", "at": "2026-01-01T00:00:00+00:00"},
+        {"action": "move", "against": ["COW"], "locations": ["B"], "status": "done", "name": "b0s-Depart", "at": "2026-06-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "assets_at_location_count", "subject": "A"},
+        {"assert": "assets_at_location_count", "subject": "B"}
+      ]
+    },
+    {
+      "key": "b0s-fanout-as-of-the-place-was-fuller-before",
+      "title": "The place asked about an earlier moment holds who was there then, not who is there now",
+      "feature": "asset-location-movement",
+      "glossary_terms": ["land", "animal", "move", "assets_at_location_count"],
+      "given": [
+        {"entity": "land", "alias": "A", "name": "b0s-Fanout Yard Once Full", "is_location": true},
+        {"entity": "land", "alias": "B", "name": "b0s-Fanout Yard Filling Later", "is_location": true},
+        {"entity": "animal", "alias": "COW1", "name": "b0s-Fanout Cow Moving On One", "descriptor": "Cattle"},
+        {"entity": "animal", "alias": "COW2", "name": "b0s-Fanout Cow Moving On Two", "descriptor": "Cattle"}
+      ],
+      "when": [
+        {"action": "move", "against": ["COW1", "COW2"], "locations": ["A"], "status": "done", "name": "b0s-Both arrive", "at": "2026-01-01T00:00:00+00:00"},
+        {"action": "move", "against": ["COW1", "COW2"], "locations": ["B"], "status": "done", "name": "b0s-Both leave", "at": "2026-06-01T00:00:00+00:00"}
+      ],
+      "probes": [
+        {"assert": "assets_at_location_count", "subject": "A", "as_of": "2026-03-01T00:00:00+00:00"},
+        {"assert": "assets_at_location_count", "subject": "B", "as_of": "2026-03-01T00:00:00+00:00"},
+        {"assert": "assets_at_location_count", "subject": "A"},
+        {"assert": "assets_at_location_count", "subject": "B"}
+      ]
+    }
+  ]
+}

@@ -560,3 +560,21 @@ class ImplementationAdapter(ABC):
         that returned a constant could be mistaken for an observed value.
         """
         raise self._unsupported("is_fixed")
+
+    # --- generated: was_at_location (assertion, PROVISIONAL) --- #
+    def was_at_location(self, subject_handle: Handle, other_handle: Handle, as_of: str) -> Any:
+        """Deliver whether a given location was among the asset's locations as of a stated instant, so an assertion can ask where a thing WAS rather than only where it is.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("was_at_location")
+
+    # --- generated: assets_at_location_count (assertion, PROVISIONAL) --- #
+    def assets_at_location_count(self, subject_handle: Handle, as_of: str) -> Any:
+        """Deliver how many assets the source reports at the subject location as of a stated instant (or now when none is stated), so an assertion can ask what is in a place rather than asking each thing where it is.
+
+        Generated stub — raises until an implementation exists. A stub
+        that returned a constant could be mistaken for an observed value.
+        """
+        raise self._unsupported("assets_at_location_count")

@@ -41,6 +41,7 @@ from ctkr.oracle.fixtures import (
     QuantitySpec,
     ThenAssertion,
     WhenStep,
+    _as_of_problems,
     _ghost_given_problems,
     _ghost_probe_problems,
     _is_effective_time,
@@ -105,7 +106,11 @@ _PROBE_KEYS = frozenset(
      # read-side sibling of expect_refusal. It is NOT an expected value (the
      # assertion's `value` stays None): the outcome is still OBSERVED, and a
      # source that ANSWERS is reported as a contradiction, never recorded.
-     "unanswerable"}
+     "unanswerable",
+     # as_of (MetaCoding-b0s) — the INSTANT the question asks about, on the
+     # probes whose contract declares an `as_of` param. Part of the question,
+     # never an expected value.
+     "as_of"}
 )
 
 #: Keys that would let a hand-written expected value into a flow. Named
@@ -131,6 +136,7 @@ def probe_to_dict(p: Probe) -> dict[str, Any]:
         "assert": p.assert_, "subject": p.subject, "measure": p.measure,
         "unit": p.unit, "kind": p.kind, "group": p.group, "other": p.other,
         "op": p.op if p.op != "==" else "",
+        "as_of": p.as_of,
         **({"unanswerable": True} if p.unanswerable else {}),
     })
 
@@ -408,6 +414,7 @@ def probe_from_dict(d: dict[str, Any], where: str) -> Probe:
         unit=_str(d, "unit", where), kind=kind, group=_str(d, "group", where),
         other=_str(d, "other", where), op=op,
         unanswerable=bool(_opt_bool(d, "unanswerable", where)),
+        as_of=_str(d, "as_of", where),
     )
 
 
@@ -424,7 +431,7 @@ def _as_assertion(p: Probe) -> ThenAssertion:
     return ThenAssertion(
         **{"assert": p.assert_}, subject=p.subject, measure=p.measure,
         unit=p.unit, kind=p.kind, group=p.group, other=p.other, op=p.op,
-        unanswerable=p.unanswerable,
+        unanswerable=p.unanswerable, as_of=p.as_of,
     )
 
 
@@ -582,6 +589,10 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
         # the SAME function the fixture validator calls (MetaCoding-b0s).
         for _, message in _ghost_probe_problems(
             _as_assertion(probe), ghosts, f"{where}.probes[{i}]"
+        ):
+            raise FlowSpecError(f"{where}.probes[{i}]: {message}")
+        for _, message in _as_of_problems(
+            _as_assertion(probe), f"{where}.probes[{i}]"
         ):
             raise FlowSpecError(f"{where}.probes[{i}]: {message}")
         probes.append(probe)

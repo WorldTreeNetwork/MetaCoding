@@ -94,7 +94,12 @@ _SPEC_KEYS = ("term", "kind", "description", "probe_semantics",
 #: ``extra="forbid"``, so a spec cannot invent a new wire field — it reuses one
 #: of the closed set the flow DSL already carries).
 PROBE_PARAM_FIELDS: frozenset[str] = frozenset(
-    {"measure", "unit", "kind", "group", "other"}
+    {"measure", "unit", "kind", "group", "other",
+     # the as-of instant (MetaCoding-b0s). A probe that declares this param
+     # asks about a MOMENT, not about now — a different question, and for
+     # farmOS a differently-authorised one (no boundary as-of read exists, so
+     # the answer is a fold of ours). Never an alias.
+     "as_of"}
 )
 SUBJECT_KINDS: frozenset[str] = frozenset({"entity", "event", "attempt"})
 #: The port-adapter dispatch shape (MetaCoding-wob): a ``scalar`` value is
