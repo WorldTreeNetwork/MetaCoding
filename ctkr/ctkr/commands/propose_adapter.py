@@ -32,18 +32,18 @@ from ctkr.commands._common import (
 def discover_cm_registry(start: Path | None = None) -> Path | None:
     """The repo's bound CM-decision registry, discovered from ``start`` upward.
 
-    Mirrors :data:`ctkr.oracle.port_contract.DEFAULT_DECISION_SOURCES` — the
-    same fixed, repo-rooted registry ``port-verify`` resolves sanctions from —
-    so the surface generator and the reader consult ONE set of bound decisions.
-    Walks parents until a match or a ``.git`` root; returns ``None`` if the
-    tree has no registry (the caller must then warn, never proceed silently).
+    Mirrors :func:`ctkr.oracle.port_contract.decision_sources` — the same fixed
+    registry inside the same port workspace ``port-verify`` resolves sanctions
+    from (see ``METACODING_PORT_WORKSPACE``) — so the surface generator and the
+    reader consult ONE set of bound decisions. Walks parents until a match or a
+    ``.git`` root; returns ``None`` if the tree has no registry (the caller must
+    then warn, never proceed silently).
     """
-    from ctkr.oracle.port_contract import DEFAULT_DECISION_SOURCES
+    from ctkr.oracle.port_contract import decision_sources
 
     cur = (start or Path.cwd()).resolve()
     for parent in (cur, *cur.parents):
-        for rel in DEFAULT_DECISION_SOURCES:
-            cand = parent / rel
+        for cand in decision_sources(parent):
             if cand.exists():
                 return cand
         if (parent / ".git").exists():

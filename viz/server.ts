@@ -18,16 +18,16 @@ import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import index from "./index.html";
 import { join } from "node:path";
+import { cmDecisionsPath, portGraphDir } from "./paths";
 
 const ROOT = join(import.meta.dir, "..");
 const DATA = join(ROOT, ".metacoding");
 const CTKR = join(DATA, "ctkr");
 const EXPORT = join(CTKR, "export");
-const PORT_GRAPH = join(ROOT, "eval/ctkr/results/feature-kind-graph-data");
-const CM_DECISIONS = join(
-  ROOT,
-  "eval/ctkr/port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
-);
+// The port workspace (packs, results, CM decisions) — in-repo at eval/ctkr by
+// default, or wherever METACODING_PORT_WORKSPACE points. See viz/paths.ts.
+const PORT_GRAPH = portGraphDir(ROOT);
+const CM_DECISIONS = cmDecisionsPath(ROOT);
 const LAYOUT_CACHE = join(DATA, "viz-layout.json");
 
 async function readJsonl(path: string): Promise<any[]> {

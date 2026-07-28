@@ -34,6 +34,7 @@ means the pen does not exist rather than being unavailable.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -190,13 +191,47 @@ class PortManifest(BaseModel):
         return c if c.is_absolute() else (self.root / c)
 
 
-#: Where decision ids resolve from, relative to the REPO ROOT — never from a
-#: caller-supplied path. `--decisions <anything>` let a port author point the
-#: resolver at a registry they had just written, which makes "it's a sanctioned
-#: divergence" self-certifying again one level up.
-DEFAULT_DECISION_SOURCES: tuple[str, ...] = (
-    "eval/ctkr/port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
+#: Environment override for the PORT WORKSPACE root — the directory that holds
+#: the workspace's ``port_runs/`` and ``results/`` trees. The workspace is the
+#: target's ledger (packs, seals, PACKS.jsonl, decisions, partition, builds) and
+#: is being extracted into its own repo (MetaCoding-1gt); this variable is how an
+#: extracted workspace is pointed at without editing the instrument. Unset means
+#: :data:`DEFAULT_PORT_WORKSPACE` under the repo root — today's in-repo layout.
+PORT_WORKSPACE_ENV = "METACODING_PORT_WORKSPACE"
+
+#: The in-repo workspace location, relative to the repo root. The default, so
+#: that behaviour is unchanged for anyone who sets nothing.
+DEFAULT_PORT_WORKSPACE = "eval/ctkr"
+
+#: Where decision ids resolve from, relative to the PORT WORKSPACE root — never
+#: from a caller-supplied path. `--decisions <anything>` let a port author point
+#: the resolver at a registry they had just written, which makes "it's a
+#: sanctioned divergence" self-certifying again one level up. The workspace root
+#: is operator configuration (one env var, read once, same for every port in the
+#: run); the registry path *within* it stays fixed, so no port can move it.
+DECISION_REGISTRY_RELPATHS: tuple[str, ...] = (
+    "port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
 )
+
+
+def port_workspace(root: Path) -> Path:
+    """The port workspace directory, honouring :data:`PORT_WORKSPACE_ENV`.
+
+    ``root`` is the repo root. An unset (or blank) env var yields
+    ``root / DEFAULT_PORT_WORKSPACE``; a relative override resolves against
+    ``root``; an absolute override is taken as-is (an extracted workspace repo).
+    """
+    raw = (os.environ.get(PORT_WORKSPACE_ENV) or "").strip()
+    if not raw:
+        return root / DEFAULT_PORT_WORKSPACE
+    override = Path(raw).expanduser()
+    return override if override.is_absolute() else root / override
+
+
+def decision_sources(root: Path) -> tuple[Path, ...]:
+    """Absolute paths of the bound CM-decision registries under the workspace."""
+    workspace = port_workspace(root)
+    return tuple(workspace / rel for rel in DECISION_REGISTRY_RELPATHS)
 
 
 def load_decisions(paths: Iterable[str | Path]) -> dict[str, dict[str, Any]]:

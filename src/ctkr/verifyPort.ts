@@ -1182,6 +1182,8 @@ if (import.meta.main) {
   process.stderr.write(
     "verifyPort: import { verifyPort } from this module, or run the recipe\n" +
       "  bun run eval/ctkr/port_verify_experiment.ts --data-dir <dir> --spec-subsystem <id> --port-subsystem <id>\n" +
+      "The recipe is INSTRUMENT code and stays in this repo; the port artifacts it\n" +
+      "reads live in the port workspace (METACODING_PORT_WORKSPACE, default eval/ctkr).\n" +
       "See docs/design/ct-subsystem-extraction.md §7 (T6).\n",
   );
   if (!isAbsolute(process.cwd())) throw new Error("unreachable");

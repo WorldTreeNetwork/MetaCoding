@@ -383,12 +383,12 @@ def test_cm_registry_is_discovered_from_the_repo(tmp_path) -> None:
     from pathlib import Path
 
     from ctkr.commands.propose_adapter import discover_cm_registry
-    from ctkr.oracle.port_contract import DEFAULT_DECISION_SOURCES
+    from ctkr.oracle.port_contract import decision_sources
 
     repo_root = Path(__file__).resolve().parents[2]
     found = discover_cm_registry(start=repo_root / "ctkr")
     assert found is not None
-    assert str(found.relative_to(repo_root)) in DEFAULT_DECISION_SOURCES
+    assert found in decision_sources(repo_root)
 
     (tmp_path / ".git").mkdir()  # a bare unrelated repo: discovery must stop
     assert discover_cm_registry(start=tmp_path) is None

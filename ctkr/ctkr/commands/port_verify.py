@@ -28,9 +28,9 @@ from pathlib import Path
 from ctkr.oracle.pack import PackError, load_pack
 from ctkr.oracle.port_adapter import BridgeError, PortAdapter
 from ctkr.oracle.port_contract import (
-    DEFAULT_DECISION_SOURCES,
     ContractError,
     PortManifest,
+    decision_sources,
     load_decisions,
 )
 
@@ -165,11 +165,12 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write(f"\n  NO VERDICT — the evidence is not sound:\n  {exc}\n")
         return 2
 
-    decisions = load_decisions(_repo_root() / s for s in DEFAULT_DECISION_SOURCES)
+    decisions = load_decisions(decision_sources(_repo_root()))
     if not decisions:
         sys.stderr.write(
-            "\n  no decision registry found at the repo path — every cited "
-            "decision_id will be reported as unresolvable.\n"
+            "\n  no decision registry found in the port workspace — every cited "
+            "decision_id will be reported as unresolvable. (Set "
+            "METACODING_PORT_WORKSPACE if the workspace lives outside this repo.)\n"
         )
 
     adapter = PortAdapter(manifest)

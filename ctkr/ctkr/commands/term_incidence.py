@@ -24,13 +24,19 @@ import json
 import sys
 from pathlib import Path
 
-# Default port-run roots, resolved relative to the repo checkout that contains
-# this package (<repo>/ctkr/ctkr/commands/term_incidence.py -> <repo>).
+# Default port-run roots, resolved inside the PORT WORKSPACE — by default the
+# in-repo one, relative to the checkout that contains this package
+# (<repo>/ctkr/ctkr/commands/term_incidence.py -> <repo>), or wherever
+# METACODING_PORT_WORKSPACE points once the workspace has its own repo.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_ROOTS = (
-    _REPO_ROOT / "eval" / "ctkr" / "port_runs" / "wave1",
-    _REPO_ROOT / "eval" / "ctkr" / "port_runs" / "wave0-pilot",
-)
+
+
+def default_roots() -> tuple[Path, ...]:
+    """The wave-1 + wave-0 port-run roots inside the active port workspace."""
+    from ctkr.oracle.port_contract import port_workspace
+
+    runs = port_workspace(_REPO_ROOT) / "port_runs"
+    return (runs / "wave1", runs / "wave0-pilot")
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -50,7 +56,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         nargs="*",
         default=None,
         help="Port-run roots to scan for fixtures.jsonl (default: "
-        "eval/ctkr/port_runs/wave1 + wave0-pilot of this checkout).",
+        "<port-workspace>/port_runs/wave1 + wave0-pilot, where the workspace is "
+        "METACODING_PORT_WORKSPACE or eval/ctkr of this checkout).",
     )
     p.add_argument(
         "--role-classes",
@@ -94,7 +101,7 @@ def run(args: argparse.Namespace) -> int:
         summary_payload,
     )
 
-    roots = [Path(r).expanduser() for r in args.roots] if args.roots else list(DEFAULT_ROOTS)
+    roots = [Path(r).expanduser() for r in args.roots] if args.roots else list(default_roots())
     missing = [r for r in roots if not r.exists()]
     if missing:
         for r in missing:
