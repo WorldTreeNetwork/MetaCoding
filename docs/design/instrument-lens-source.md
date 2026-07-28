@@ -41,6 +41,67 @@ flags** — `--data-dir` (11 commands), `--repo` (3), `--base-url` (2), plus
 `--src`, `--root`, `--rel-root`, `--out-dir`, `--flows`, `--adapter` — and as of
 yesterday one env var.
 
+## Amendment, 2026-07-29 — the measurement above is right and misleading
+
+"The entire coupling is one import" is true **of the adapter** and undersells the
+system badly. Checking what generic code imports, rather than what it mentions,
+found the real thing: the target's vocabulary is **ambient module-level state
+that the core reads directly.**
+
+- `ctkr.oracle.glossary` — the closed sets — is imported by
+  `fixtures.py`, `flowspec_io.py`, `port_contract.py`, `probes.py`, `lexicon.py`,
+  `propose_terms.py`, `role_gaps.py`. `fixtures.py` validates against
+  `glossary.ENTITY_TERMS`, `glossary.ANIMAL_SEXES`, `glossary.FORBIDDEN_WORDS`
+  at model-validation time.
+- `probes.PROBE_CONTRACT` — the probe dispatch table — is imported by
+  `runner.py`, `pack.py`, `port_verify.py`, `flowspec_io.py`,
+  `glossary_provenance.py`.
+- **`term_codegen.py` hardcodes eight instrument file paths** — `GLOSSARY`,
+  `PROBES`, `STEPS`, `ADAPTER`, `FARMOS`, `RECORDER`, `FIXTURES`,
+  `PORT_ADAPTER` — and generates code *into* them.
+
+So the sharpest statement of the problem is not about flags at all:
+
+> **Adding one farmOS word edits MetaCoding's source.** `add-term` writes into
+> eight files of the instrument. A second port does not just pass different
+> paths — it writes its vocabulary into the same eight files as the first.
+
+That is precisely the thing Duke ruled out: *"it needs to handle many more ports
+without having to change the source each time."* The adapter inversion is an
+afternoon; **this** is the inversion.
+
+### Decisions taken (Duke, 2026-07-29)
+
+- **Invert.** A lens depends on ctkr; ctkr never imports a lens. N ports, zero
+  instrument edits.
+- **Tests keep pointing at farmOS for now.** The synthetic target is deferred,
+  not cancelled — extract it once the porting code that lives in MetaCoding is
+  stable. Recorded as a known temporary state: until then the instrument's suite
+  depends on farmOS packs, so "target-agnostic" is a claim, not a measurement.
+- **The build is not forever married to the instrumentation that delivered it.**
+  The ported app gets its own repo when it ships; `build/` stays splittable and
+  nothing is designed assuming ledger and build share a tree forever.
+- **Open question 2, decided as delegated:** keep **one `farmos_lens`**. Do not
+  pre-split a `drupal_lens`. The Drupal harvest and Drupal-shaped adapter would
+  serve any Drupal target, but a second Drupal target does not exist and
+  factoring for it now is speculative generality. **Reversal condition:** the
+  moment a second Drupal-shaped target is scoped, split `drupal_lens` out —
+  before its first term is bound, not after.
+- **Open question 3 is moot while the toy target is deferred.** `d1l` (OIDC,
+  identikey) is the second real target and is unstarted; farmOS is what ships,
+  into the lightning mesh services. Landing the farmOS port outranks proving
+  agnosticism.
+
+### What the inversion has to move
+
+| ambient today | becomes |
+|---|---|
+| `from ctkr.oracle import glossary` (7 modules) | vocabulary carried by the active lens |
+| `from ctkr.oracle.probes import PROBE_CONTRACT` (5 modules) | probe contract carried by the active lens |
+| `term_codegen`'s 8 hardcoded instrument paths | codegen targets declared by the lens |
+| `recorder.py:32` `FarmOSAdapter` import | adapter factory from the lens |
+| `oracle_verify.py:34` `choices=["farmos"]` | discovered lens names |
+
 ## The actual diagnosis
 
 The flags do not proliferate because paths are hard. They proliferate because
