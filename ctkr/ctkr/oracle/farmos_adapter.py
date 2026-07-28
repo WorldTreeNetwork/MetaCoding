@@ -209,6 +209,26 @@ class FarmOSAdapter(ImplementationAdapter):
         return self._log_bundles
 
     # ---- given / when ------------------------------------------------------ #
+    #: The RFC 4122 nil UUID. farmOS mints v4 UUIDs, whose version and variant
+    #: nibbles this cannot satisfy, so it is well-formed as an identifier and
+    #: unissuable as one — the exact pair a ghost handle needs.
+    _NIL_UUID = "00000000-0000-0000-0000-000000000000"
+
+    def ghost_handle(self, entity: str) -> Handle:
+        """A handle of farmOS's own shape that farmOS has never issued.
+
+        Shape matters here: this adapter reconstructs a resource path from the
+        handle, so a ``ghost:...`` string would ask farmOS about a resource TYPE
+        that does not exist (404 for the wrong reason). With the nil UUID under
+        a real bundle it asks about an ASSET that does not exist, and the 404 is
+        the source declining the question that was actually asked. Validated
+        live 2026-07-28: ``GET /api/asset/land/00000000-...`` -> 404.
+        """
+        bundle = _ASSET_BUNDLE.get(entity)
+        if bundle is None:
+            raise AdapterError(f"farmOS has no asset bundle for entity {entity!r}")
+        return f"asset:{bundle}:{self._NIL_UUID}"
+
     def create_asset(
         self, entity: str, name: str, descriptor: str = "", sex: str = ""
     ) -> Handle:

@@ -25,6 +25,13 @@ def flow_now() -> datetime:
 
 def apply_given(adapter: ImplementationAdapter, g: GivenStep) -> Handle:
     """Instantiate one ``given`` entity and return its handle."""
+    if g.ghost:
+        # A GHOST creates nothing (MetaCoding-b0s). It binds the alias to a
+        # handle the implementation never issued, so a probe can ask about a
+        # subject that does not exist. This arm comes FIRST: every branch below
+        # writes to the implementation, and a ghost that reached one of them
+        # would silently become a real thing.
+        return adapter.ghost_handle(g.entity)
     if g.entity == "plant_type":
         # A plant_type is a TAXONOMY TERM carrying its own planning fields, not
         # an asset (MetaCoding plant-type). crop_family/companions are term NAMES

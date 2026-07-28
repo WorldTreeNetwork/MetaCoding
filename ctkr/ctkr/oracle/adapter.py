@@ -50,6 +50,28 @@ class ImplementationAdapter(ABC):
     def close(self) -> None:  # noqa: B027 — optional hook, default no-op
         """Release resources. Default: no-op."""
 
+    # ---- the ghost subject (MetaCoding-b0s) -------------------------------- #
+    def ghost_handle(self, entity: str) -> Handle:
+        """A well-formed handle this implementation has NEVER ISSUED.
+
+        The one thing a ``ghost`` ``given`` binds. Nothing is created; the
+        handle exists only so a probe can ask a question about a subject that
+        does not exist, whose single honest answer is UNANSWERABLE.
+
+        Each adapter states its own, because "well-formed" is the
+        implementation's word: an implementation that recognises handles by
+        SHAPE must be given a handle of the right shape, or the question being
+        asked degenerates into "do you reject nonsense?" — which is not the
+        question. MetaCoding-5xa is the one being asked: the shared store
+        answered ``asset_active`` = true for any never-created handle, because
+        it looked only for an archive event and found none.
+
+        The default is honest for any implementation that resolves handles by
+        LOOKUP rather than by shape. An implementation that would mistake this
+        for a real handle must override it, never work around it.
+        """
+        return f"ghost:{entity}:never-issued"
+
     # ---- given / when: mutate domain state --------------------------------- #
     @abstractmethod
     def create_asset(

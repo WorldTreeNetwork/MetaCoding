@@ -133,6 +133,24 @@ class GivenStep(BaseModel):
     data_streams: list[str] = Field(default_factory=list)
     private_key: str = ""
     public: bool | None = None
+    # --- the GHOST subject (MetaCoding-b0s) ---------------------------------
+    # This alias names a subject that is DELIBERATELY NEVER CREATED. Nothing is
+    # instantiated; the alias binds to the adapter's `ghost_handle` — a
+    # well-formed handle the implementation never issued — so a probe can ask a
+    # question ABOUT A THING THAT DOES NOT EXIST and the only honest answer is
+    # UNANSWERABLE.
+    #
+    # Why the DSL needs it: probes reference aliases only, so a subject no
+    # `given` bound was unaddressable, and the ghost-handle property could not
+    # be stated at the scored layer at all. MetaCoding-5xa is the cost: the
+    # shared store answered `asset_active` = true for ANY never-created handle
+    # (it looked only for an archive event), the fix was made, and NO scored
+    # fixture could pin it — an adversarial port hardcoding `true` still
+    # reproduced 100%. A ghost is a write target for nothing: the validator
+    # refuses it in `against`, `ref`, `group`, `parents`, `equipment` and
+    # `inventory_asset`, because a write against a non-existent thing is an
+    # authoring error, not a semantic. Hash-inert at False.
+    ghost: bool = False
 
 
 class WhenStep(BaseModel):
@@ -210,6 +228,18 @@ class ThenAssertion(BaseModel):
     other: str = ""  # second entity alias (has_parent)
     op: str = "=="  # one of glossary.COMPARISON_OPS
     value: Any = None  # expected value (number | bool | status string)
+    #: The expected answer is NO ANSWER (MetaCoding-b0s). Legal only when the
+    #: subject is a ``ghost`` given, and then mandatory: asking an implementation
+    #: about a subject it never created has exactly one honest outcome, and any
+    #: VALUE — including the "obvious" one — is a fabrication.
+    #:
+    #: This is not an expected value and does not smuggle one in: ``value`` must
+    #: stay ``None``. It is the read-side sibling of ``expect_refusal``, and like
+    #: a refusal it is OBSERVED, never authored — the recorder asks the live
+    #: source about the ghost handle and records what came back. A source that
+    #: ANSWERS is a contradiction (:class:`~ctkr.oracle.recorder.UnansweredExpected`),
+    #: never quietly turned into a fixture.
+    unanswerable: bool = False
     #: The obs_id of the WITNESS observation this value was read from — the
     #: recorder's note of what the source actually answered for this exact probe.
     #: It is part of the hashed body, so an assertion cannot be detached from its
@@ -266,11 +296,18 @@ def probe_descriptor(t: ThenAssertion) -> dict[str, Any]:
     citing the ``yield_total(A, weight, kilogram)`` witness from a fixture whose
     assertion is ``yield_total(A, weight, pound)``.
     """
-    return {
+    d = {
         "assert": t.assert_, "subject": t.subject, "measure": t.measure,
         "unit": t.unit, "kind": t.kind, "group": t.group, "other": t.other,
         "op": t.op,
     }
+    # Added ONLY when set (MetaCoding-b0s). The descriptor is compared key-for-key
+    # against the witness recorded on disk (`pack._witness_problems`), so an
+    # unconditional new key would make every pack sealed before this field
+    # existed cite a witness that "answered a different question".
+    if t.unanswerable:
+        d["unanswerable"] = True
+    return d
 
 
 def same_value(a: Any, b: Any) -> bool:
@@ -390,9 +427,23 @@ class SemanticFixture(BaseModel):
                               ("crop_family", ""), ("companions", []),
                               # sensor asset bundle fields (MetaCoding-ej0)
                               ("data_streams", []), ("private_key", ""),
-                              ("public", None)):
+                              ("public", None),
+                              # the ghost subject (MetaCoding-b0s)
+                              ("ghost", False)):
             if d.get(late) == default:
                 d.pop(late, None)
+        return d
+
+    @staticmethod
+    def _dump_then_for_hash(t: ThenAssertion) -> dict[str, Any]:
+        """An assertion's hash form. Same discipline as the ``given``/``when``
+        dumps, and it matters more here: the ``then`` clause is hashed for every
+        fixture ever sealed, so a new field appearing at its default would re-id
+        the entire corpus at once."""
+        d = t.dump_aliased()
+        # the ghost channel's expectation (MetaCoding-b0s)
+        if d.get("unanswerable", False) is False:
+            d.pop("unanswerable", None)
         return d
 
     def _body_for_hash(self) -> dict[str, Any]:
@@ -402,7 +453,7 @@ class SemanticFixture(BaseModel):
             "glossary_terms": sorted(self.glossary_terms),
             "given": [self._dump_given_for_hash(g) for g in self.given],
             "when": [self._dump_when_for_hash(w) for w in self.when],
-            "then": [t.dump_aliased() for t in self.then],
+            "then": [self._dump_then_for_hash(t) for t in self.then],
             "schema_version": self.schema_version,
             # The evidence class is a CLAIM ABOUT THIS FIXTURE, not a recording
             # timestamp, so it belongs inside the id. Attack (c) — self-marking —
@@ -697,6 +748,67 @@ _LOG_PRODUCING_ACTIONS: frozenset[str] = frozenset(
     {"record_log", "record_inventory_adjustment", "record_birth"}
 )
 
+#: ``given`` fields that describe a thing being CREATED. A ghost creates
+#: nothing, so every one of them would be inert on it — the silent-drop family,
+#: rejected at author time (the plant_type / sensor discipline).
+_CREATION_FIELDS: tuple[str, ...] = (
+    "descriptor", "sex", "maturity_days", "harvest_days", "crop_family",
+    "companions", "data_streams", "private_key", "public",
+)
+
+
+def _ghost_given_problems(g: GivenStep, where: str) -> list[tuple[str, str]]:
+    """Problems with one ghost ``given`` — ``(where, message)`` (MetaCoding-b0s)."""
+    if not g.ghost:
+        return []
+    defaults = GivenStep(entity=g.entity, alias=g.alias, name=g.name)
+    stated = [
+        f for f in _CREATION_FIELDS if getattr(g, f) != getattr(defaults, f)
+    ]
+    if stated:
+        return [(
+            f"{where}.{stated[0]}",
+            f"a ghost subject is never created, so {stated} would describe "
+            f"nothing. State only its entity, alias and name",
+        )]
+    return []
+
+
+def _ghost_probe_problems(
+    t: ThenAssertion, ghosts: set[str], where: str
+) -> list[tuple[str, str]]:
+    """Problems with one assertion's ghost/unanswerable pairing (MetaCoding-b0s).
+
+    The pairing is exact in both directions, and both directions matter:
+
+    * an ``unanswerable`` expectation about a subject that WAS created is a
+      claim that a real thing cannot be read — a fabricated gap, and the way an
+      implementation could excuse itself from any question it disliked;
+    * a VALUE expected of a ghost is a fabrication in the other direction: the
+      recorder would have had to invent it, since nothing was created to read.
+    """
+    out: list[tuple[str, str]] = []
+    is_ghost = t.subject in ghosts
+    if t.unanswerable and not is_ghost:
+        out.append((
+            f"{where}.unanswerable",
+            f"subject {t.subject!r} was created, so its value is readable — an "
+            f"unanswerable expectation about a real subject is a fabricated gap",
+        ))
+    if is_ghost and not t.unanswerable:
+        out.append((
+            f"{where}.unanswerable",
+            f"subject {t.subject!r} is a ghost — never created — so there is no "
+            f"value to expect. State `unanswerable`",
+        ))
+    if t.unanswerable and t.value is not None:
+        out.append((
+            f"{where}.value",
+            f"an unanswerable expectation carries no value, and this one carries "
+            f"{t.value!r}. The two are alternatives, not companions",
+        ))
+    return out
+
 
 def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
     """Full validation: term legality, alias resolution, per-step required fields,
@@ -786,6 +898,11 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
                 if present:
                     err(f"given[{i}].{fname}",
                         f"{fname} is only recordable on a sensor asset")
+        for where, message in _ghost_given_problems(g, f"given[{i}]"):
+            err(where, message)
+
+    #: Aliases bound to nothing (MetaCoding-b0s). Probeable, never writable.
+    ghosts = {g.alias for g in fx.given if g.ghost and g.alias}
 
     # --- when: action terms legal, refs resolve, required fields present ----
     log_aliases: set[str] = set()
@@ -812,6 +929,26 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
                     f"{f} is only recordable on record_log")
         for where, message in _parentage_problems(w, f"when[{i}]"):
             err(where, message)
+        # A ghost is a write target for nothing (MetaCoding-b0s). Writing
+        # against a subject that was never created is an authoring error the
+        # implementation would answer with a crash or a phantom — either way not
+        # the semantic the flow meant to state.
+        for field in ("against", "parents", "equipment"):
+            for j, a in enumerate(getattr(w, field)):
+                if a in ghosts:
+                    err(f"when[{i}].{field}[{j}]",
+                        f"{a!r} is a ghost — never created — and cannot be "
+                        f"written against")
+        for field in ("ref", "group"):
+            if getattr(w, field) in ghosts:
+                err(f"when[{i}].{field}",
+                    f"{getattr(w, field)!r} is a ghost — never created — and "
+                    f"cannot be written against")
+        for j, q in enumerate(w.quantities):
+            if q.inventory_asset in ghosts:
+                err(f"when[{i}].quantities[{j}].inventory_asset",
+                    f"{q.inventory_asset!r} is a ghost — never created — and "
+                    f"cannot be written against")
         if w.action == "record_log":
             for j, e in enumerate(w.equipment):
                 if e not in aliases:
@@ -935,6 +1072,13 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"then[{i}].assert", f"{t.assert_!r} is not a glossary assertion term")
             continue
         for req in _ASSERT_REQUIRED.get(t.assert_, ()):
+            # An unanswerable expectation has no value BY CONSTRUCTION — the
+            # source declined to state one — so the required-value row does not
+            # apply to it. Every other required field still does: the question
+            # asked of the ghost must be as fully specified as any other, or the
+            # gap being pinned is not a specific gap.
+            if req == "value" and t.unanswerable:
+                continue
             got = getattr(t, req)
             # `value` is the OBSERVED value. Absence is ``None``; "" / 0 / False /
             # [] are values the live system genuinely delivered and must survive
@@ -942,6 +1086,8 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             missing = got is None if req == "value" else got in (None, "")
             if missing:
                 err(f"then[{i}].{req}", f"{t.assert_} requires {req!r}")
+        for where, message in _ghost_probe_problems(t, ghosts, f"then[{i}]"):
+            err(where, message)
         if t.subject and t.subject not in known:
             err(f"then[{i}].subject", f"unknown subject alias {t.subject!r}")
         if t.op not in glossary.COMPARISON_OPS:

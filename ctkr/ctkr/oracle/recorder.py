@@ -46,6 +46,11 @@ from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 #: A boundary request/response pair — transport-level provenance.
 BOUNDARY_RECORD = "boundary"
+#: A witness's ``response_status`` when the source DECLINED to answer — the
+#: ghost channel's observation (MetaCoding-b0s). Distinct from ``"refused"``,
+#: which is a WRITE the source would not perform: this is a READ the source
+#: could not answer because the subject does not exist.
+UNANSWERABLE_STATUS = "unanswerable"
 #: A WITNESS: the recorder's note of the VALUE a probe read from the source.
 #: Until this existed, an Observation's excerpt was ``{"type","id"}`` or
 #: ``{"count":n}`` — the recorder never recorded the value a probe observed, so
@@ -134,6 +139,11 @@ class Probe:
     group: str = ""
     other: str = ""
     op: str = "=="
+    #: The expected answer is NO ANSWER (MetaCoding-b0s) — legal only when the
+    #: subject is a ``ghost`` given, and then mandatory. Like ``expect_refusal``
+    #: this is an EXPECTATION, not a value: the recorder still asks, and a source
+    #: that answers is a contradiction, never a fixture.
+    unanswerable: bool = False
 
 
 @dataclass
@@ -771,6 +781,34 @@ def record_flow(
             # A probe after a refused write would read state the write never
             # produced. Refusal flows assert the refusal, nothing more.
             break
+        if probe.unanswerable:
+            # A GHOST probe (MetaCoding-b0s). The expectation is that there is
+            # no answer — and the expectation is not the observation, exactly as
+            # for `expect_refusal`. We ASK, and record what came back.
+            try:
+                answered = _observe_probe(adapter, probe, handles)
+            except AdapterError as exc:
+                a = ThenAssertion(
+                    assert_=probe.assert_, subject=probe.subject,
+                    measure=probe.measure, unit=probe.unit, kind=probe.kind,
+                    group=probe.group, other=probe.other, op=probe.op,
+                    value=None, unanswerable=True,
+                )
+                a.witness = _witness(probe_descriptor(a), None)
+                witnesses[-1].response_status = UNANSWERABLE_STATUS
+                witnesses[-1].response_excerpt = {"unanswerable": str(exc)[:600]}
+                then.append(a)
+                continue
+            raise AnswerNotExpected(
+                f"flow {flow.key!r} probes {probe.assert_}({probe.subject}) on a "
+                f"GHOST — a subject it declared is never created — and expected "
+                f"no answer. The source ANSWERED {answered!r}. That is a finding "
+                f"about the source, not a fixture: it cannot tell a thing that "
+                f"exists from one that does not, and every value it delivers for "
+                f"this question is a guess. (MetaCoding-5xa is this defect, "
+                f"found one level down: a store answered asset_active = true for "
+                f"any handle it had never issued.)"
+            )
         observed = _observe_probe(adapter, probe, handles)
         a = ThenAssertion(
             assert_=probe.assert_, subject=probe.subject,
@@ -845,6 +883,16 @@ class RefusalNotObserved(RuntimeError):
     """A flow declared ``expect_refusal`` but the source accepted the write."""
 
 
+class AnswerNotExpected(RuntimeError):
+    """A ghost probe expected no answer and the source delivered a value.
+
+    The read-side twin of :class:`RefusalNotObserved`, and a finding of the same
+    weight: a source that answers a question about a subject it never created
+    cannot distinguish existence from non-existence, so every value it gives for
+    that question is a guess dressed as a fact.
+    """
+
+
 class UnearnedExemption(RuntimeError):
     """A flow declared corroboration-only and nothing in the flow earns it."""
 
@@ -887,7 +935,8 @@ def record_session_result(
         obs_start = len(getattr(adapter.client, "observations", []))
         try:
             fx, obs = record_flow(adapter, flow, source_version)
-        except (AdapterError, RefusalNotObserved, UnearnedExemption,
+        except (AdapterError, RefusalNotObserved, AnswerNotExpected,
+                UnearnedExemption,
                 KeyError, ValueError) as exc:
             # Keep whatever the boundary said before it failed — for a refusal
             # that excerpt IS the finding.

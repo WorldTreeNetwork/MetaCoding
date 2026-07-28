@@ -93,6 +93,7 @@ from ctkr.oracle.fixtures import (
     write_fixtures,
 )
 from ctkr.oracle.probes import PROBE_CONTRACT, current_derivations
+from ctkr.oracle.recorder import UNANSWERABLE_STATUS
 
 #: The sealed-pack sidecar, next to ``fixtures.jsonl``.
 SEAL_NAME = "pack.seal.json"
@@ -425,6 +426,22 @@ def _witness_problem(fx: SemanticFixture, witnesses: dict[str, dict[str, Any]]) 
                 f"question (differs on: {', '.join(differing)}). A witness to one "
                 f"probe is not a witness to another"
             )
+        if t.unanswerable:
+            # A ghost assertion's witness carries no value to compare — `None`
+            # matching `None` would be satisfied by ANY unwitnessed silence. What
+            # the witness must record is that the source DECLINED, in its own
+            # words (MetaCoding-b0s). Without this, marking an assertion
+            # unanswerable would be a way to keep a witness while discarding
+            # what it said.
+            if w.get("response_status") != UNANSWERABLE_STATUS:
+                return (
+                    f"then[{i}] expects {t.assert_} to be UNANSWERABLE, but its "
+                    f"own witness {t.witness} records the source answering "
+                    f"(status {w.get('response_status')!r}). INVALID EVIDENCE: "
+                    f"a declared gap the source did not decline is a fabricated "
+                    f"gap"
+                )
+            continue
         if not same_value(w.get("observed"), t.value):
             return (
                 f"then[{i}] expects {t.assert_} == {t.value!r}, but its own "

@@ -138,9 +138,29 @@ def _evaluate(
     try:
         actual: object = getattr(adapter, spec.method)(subject, *args)
     except AdapterError as exc:
+        if t.unanswerable:
+            # The GHOST channel (MetaCoding-b0s). Declining to answer about a
+            # subject that was never created is the RIGHT answer here, and the
+            # only one — so this arm is a pass, not the failure it is for every
+            # other assertion.
+            return AssertionResult(
+                passed=True, assertion=t.assert_, subject=t.subject, op=t.op,
+                expected=None, actual=None,
+                detail=f"unanswerable, as expected: {exc}",
+            )
         return AssertionResult(
             passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
             expected=t.value, actual=None, detail=f"adapter error: {exc}",
+        )
+    if t.unanswerable:
+        # It ANSWERED a question about a thing that does not exist. Whatever the
+        # value is, it was not read from anything — this is the 5xa defect, and
+        # the whole reason the channel exists.
+        return AssertionResult(
+            passed=False, assertion=t.assert_, subject=t.subject, op=t.op,
+            expected=None, actual=actual,
+            detail=(f"answered {actual!r} about {t.subject!r}, which was never "
+                    f"created — a value read from nothing"),
         )
     passed = compare_values(t.op, actual, t.value)
     return AssertionResult(

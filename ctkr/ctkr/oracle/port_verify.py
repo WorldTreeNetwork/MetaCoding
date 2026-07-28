@@ -576,6 +576,22 @@ def _judge_assertion(
         return out(AssertionStatus.NO_VERDICT,
                    cause=NoVerdictCause.BRIDGE_DEAD, detail=str(exc))
     except Unanswerable as exc:
+        if t.unanswerable:
+            # The GHOST channel (MetaCoding-b0s). This is the ONE assertion for
+            # which declining is the right answer, so it PASSES rather than
+            # producing no verdict.
+            #
+            # Why that is not a laundering hole. The inversion is reachable only
+            # for an assertion the RECORDER marked unanswerable, which it can
+            # only do for a subject the flow declared a ghost, and only after
+            # the live source itself declined the same question. And the
+            # undeclared gate is upstream of this call: a port that declares no
+            # probe never reaches here, so "declare nothing, decline everything"
+            # buys NO_VERDICT on every row including this one — not a free pass.
+            # What it cannot buy is the pass, which requires DECLARING the probe
+            # and then answering the one question honestly.
+            return out(AssertionStatus.PASSED,
+                       detail=f"unanswerable, as expected: {exc}")
         # The port DECLARED this probe and then declined THIS call. Still never a
         # pass — but it is also not the same thing as a missing surface, and
         # conflating them is what let a bridge decline exactly the six inputs it
@@ -589,6 +605,23 @@ def _judge_assertion(
         return out(AssertionStatus.FAILED, detail=str(exc))
     except AdapterError as exc:
         return out(AssertionStatus.FAILED, detail=f"port error: {exc}")
+
+    if t.unanswerable:
+        # It ANSWERED about a subject that was never created. The value was read
+        # from nothing, and no divergence can be declared over it: a sanction
+        # excuses a different ANSWER, and this is not an answer.
+        #
+        # MetaCoding-5xa in one line — a store whose asset_active looked only for
+        # an archive event, found none, and returned true for every handle that
+        # had never existed. The fix was made and NO scored fixture could pin it:
+        # an adversarial port hardcoding `true` still reproduced 100%. This is
+        # the row that fails it.
+        return out(
+            AssertionStatus.FAILED, actual=actual,
+            detail=(f"answered {actual!r} about {t.subject!r}, which was never "
+                    f"created — a value read from nothing. The source declined "
+                    f"this question"),
+        )
 
     matched = compare_values(t.op, actual, t.value)
     try:

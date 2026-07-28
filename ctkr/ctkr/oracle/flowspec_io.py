@@ -39,7 +39,10 @@ from ctkr.oracle.fixtures import (
     GivenStep,
     QUANTITY_BUNDLES,
     QuantitySpec,
+    ThenAssertion,
     WhenStep,
+    _ghost_given_problems,
+    _ghost_probe_problems,
     _is_effective_time,
     _iter_string_values,
     _parentage_problems,
@@ -71,7 +74,10 @@ _GIVEN_KEYS = frozenset(
      # NAMES (ordered); private_key is stated verbatim (unstated keys are
      # oracle-minted and can never reproduce); public is tri-state at the
      # boundary (unset delivers null, not false — validated live).
-     "data_streams", "private_key", "public"}
+     "data_streams", "private_key", "public",
+     # ghost (MetaCoding-b0s) — this alias names a subject NEVER CREATED, so a
+     # probe can ask about a thing that does not exist. Nothing is written.
+     "ghost"}
 )
 _WHEN_KEYS = frozenset(
     {"action", "alias", "ref", "name", "kind", "status", "against", "group",
@@ -87,7 +93,12 @@ _QUANTITY_KEYS = frozenset(
      "test_method"}
 )
 _PROBE_KEYS = frozenset(
-    {"assert", "subject", "measure", "unit", "kind", "group", "other", "op"}
+    {"assert", "subject", "measure", "unit", "kind", "group", "other", "op",
+     # unanswerable declares that the expected answer is NO ANSWER — the
+     # read-side sibling of expect_refusal. It is NOT an expected value (the
+     # assertion's `value` stays None): the outcome is still OBSERVED, and a
+     # source that ANSWERS is reported as a contradiction, never recorded.
+     "unanswerable"}
 )
 
 #: Keys that would let a hand-written expected value into a flow. Named
@@ -113,6 +124,7 @@ def probe_to_dict(p: Probe) -> dict[str, Any]:
         "assert": p.assert_, "subject": p.subject, "measure": p.measure,
         "unit": p.unit, "kind": p.kind, "group": p.group, "other": p.other,
         "op": p.op if p.op != "==" else "",
+        **({"unanswerable": True} if p.unanswerable else {}),
     })
 
 
@@ -264,6 +276,7 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
         harvest_days=_opt_int(d, "harvest_days", where),
         crop_family=_str(d, "crop_family", where),
         companions=_str_list(d, "companions", where),
+        ghost=bool(_opt_bool(d, "ghost", where)),
         # sensor asset bundle fields (MetaCoding-ej0). A key accepted by
         # _GIVEN_KEYS but not mapped here is SILENTLY DROPPED — the recording
         # proceeds with defaults and every stated value is lost (caught live:
@@ -375,6 +388,24 @@ def probe_from_dict(d: dict[str, Any], where: str) -> Probe:
         assert_=assertion, subject=subject, measure=measure,
         unit=_str(d, "unit", where), kind=kind, group=_str(d, "group", where),
         other=_str(d, "other", where), op=op,
+        unanswerable=bool(_opt_bool(d, "unanswerable", where)),
+    )
+
+
+def _as_assertion(p: Probe) -> ThenAssertion:
+    """A probe in the assertion's shape, so a rule written once serves both.
+
+    A probe and the assertion it distils into are the same question asked at two
+    moments — before the value is known and after. Rules about the QUESTION
+    (which subject, paired with which expectation) therefore belong to one
+    function, called from the flow loader and the fixture validator alike. Only
+    the value differs, and it is deliberately left unset here: at load time
+    there is not one yet.
+    """
+    return ThenAssertion(
+        **{"assert": p.assert_}, subject=p.subject, measure=p.measure,
+        unit=p.unit, kind=p.kind, group=p.group, other=p.other, op=p.op,
+        unanswerable=p.unanswerable,
     )
 
 
@@ -417,6 +448,13 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
     aliases = {g.alias for g in given}
     if len(aliases) != len(given):
         raise FlowSpecError(f"{where}.given: duplicate alias")
+    for i, g in enumerate(given):
+        for _, message in _ghost_given_problems(g, f"{where}.given[{i}]"):
+            raise FlowSpecError(f"{where}.given[{i}]: {message}")
+    #: Aliases bound to nothing (MetaCoding-b0s). Probeable, never writable —
+    #: `_writable` is what every write-position check below resolves against.
+    ghosts = {g.alias for g in given if g.ghost}
+    writable = aliases - ghosts
 
     when: list[WhenStep] = []
     log_aliases: set[str] = set()
@@ -425,20 +463,26 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
         step = when_from_dict(w, f"{where}.when[{i}]")
         known_logs = set(log_aliases)
         known_quantities = set(quantity_aliases)
-        for field, pool, label in (
-            ("against", aliases, "entity"),
-            ("parents", aliases, "entity"),
-            ("equipment", aliases, "entity"),
-        ):
+        def _writable_or_die(alias: str, at: str, label: str = "entity") -> None:
+            """A write position takes a real alias. A ghost is not one.
+
+            The two rejections are different findings and say so: an unknown
+            alias is a typo, while a ghost in a write position is a flow trying
+            to act on a subject it declared does not exist (MetaCoding-b0s).
+            """
+            if alias in ghosts:
+                raise FlowSpecError(
+                    f"{at}: {alias!r} is a ghost — declared as never created — "
+                    f"and cannot be written against. A ghost is probeable only"
+                )
+            if alias not in writable:
+                raise FlowSpecError(f"{at}: unknown {label} alias {alias!r}")
+
+        for field in ("against", "parents", "equipment"):
             for a in getattr(step, field):
-                if a not in pool:
-                    raise FlowSpecError(
-                        f"{where}.when[{i}].{field}: unknown {label} alias {a!r}"
-                    )
-        if step.group and step.group not in aliases:
-            raise FlowSpecError(
-                f"{where}.when[{i}].group: unknown entity alias {step.group!r}"
-            )
+                _writable_or_die(a, f"{where}.when[{i}].{field}")
+        if step.group:
+            _writable_or_die(step.group, f"{where}.when[{i}].group")
         if step.ref:
             # delete_log targets a recorded LOG by its alias (like
             # set_log_status et al.). delete_quantity targets a QUANTITY alias
@@ -450,7 +494,13 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
             elif step.action == "delete_quantity":
                 pool = known_quantities
             else:
-                pool = aliases
+                pool = writable
+            if step.ref in ghosts:
+                raise FlowSpecError(
+                    f"{where}.when[{i}].ref: {step.ref!r} is a ghost — declared "
+                    f"as never created — and cannot be written against. A ghost "
+                    f"is probeable only"
+                )
             if step.ref not in pool:
                 raise FlowSpecError(
                     f"{where}.when[{i}].ref: unknown alias {step.ref!r}"
@@ -474,11 +524,10 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
                     f"quantities may state an alias, bundle, inventory_asset, "
                     f"or test_method"
                 )
-            if q.inventory_asset and q.inventory_asset not in aliases:
-                raise FlowSpecError(
-                    f"{where}.when[{i}].quantities[{j}].inventory_asset: "
-                    f"unknown entity alias {q.inventory_asset!r}"
-                )
+            if q.inventory_asset:
+                _writable_or_die(
+                    q.inventory_asset,
+                    f"{where}.when[{i}].quantities[{j}].inventory_asset")
             if q.test_method and q.bundle != "test":
                 # test_method exists only on quantity--test (TestQuantity.php).
                 raise FlowSpecError(
@@ -510,6 +559,12 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
                 raise FlowSpecError(
                     f"{where}.probes[{i}].{field}: unknown entity alias {ref!r}"
                 )
+        # The ghost/unanswerable pairing is exact in both directions, checked by
+        # the SAME function the fixture validator calls (MetaCoding-b0s).
+        for _, message in _ghost_probe_problems(
+            _as_assertion(probe), ghosts, f"{where}.probes[{i}]"
+        ):
+            raise FlowSpecError(f"{where}.probes[{i}]: {message}")
         probes.append(probe)
     expect_refusal = bool(d.get("expect_refusal", False))
     corroboration_only = bool(d.get("corroboration_only", False))

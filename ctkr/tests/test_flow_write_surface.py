@@ -143,10 +143,18 @@ def test_every_accepted_given_key_reaches_the_given_step() -> None:
         "sex": "", "maturity_days": 2, "harvest_days": 3,
         "crop_family": "F", "companions": ["C"],
         "data_streams": ["D"], "private_key": "K", "public": True,
+        # `ghost` cannot be True HERE: a ghost is never created, so every other
+        # key in this sample would describe nothing and the validator refuses
+        # the combination. Its non-default mapping is asserted on its own below.
+        "ghost": False,
     }
     assert set(sample) == set(_GIVEN_KEYS), (
         "extend `sample` when _GIVEN_KEYS grows — that is the point"
     )
+    ghost = given_from_dict(
+        {"entity": "land", "alias": "G", "name": "Never Field", "ghost": True},
+        "given[0]")
+    assert ghost.ghost is True
     g = given_from_dict(dict(sample), "given[0]")
     defaults = GivenStep(entity="sensor", alias="A", name="N")
     dropped = [
