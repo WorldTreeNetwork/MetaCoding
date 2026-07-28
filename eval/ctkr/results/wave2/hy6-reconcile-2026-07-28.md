@@ -14,12 +14,24 @@
 - **Port runs (in-repo, read):** `eval/ctkr/port_runs/{wave0-pilot,wave1,wave1-c1,wave2,compose-9h5.16,lexicon-bind}/`.
 - **Git history (read):** `ff714c4` (five spine clusters) and the six identity
   commits `07249b9 74c499f 47c61f2 9052c8f 3b3dad4 a88ec85 cba5ada`.
-- **Source sandbox (READ-ONLY, still present):**
-  `/private/tmp/farmos-cell3-2026-07-19/farm-src/modules/**`.
-- **Graph data-dir: GONE.** `/private/tmp/farmos-rebuild-2026-07-18/farmos-data-v2/ctkr/export`
-  no longer exists — on 2026-07-22 it existed and was empty; today the whole
-  path is absent. The structure lane is not merely degraded, its inputs are off
-  the disk. See §Structure lane.
+- **Source sandbox: GONE.** Corrected same day — the first pass of this document
+  said "still present" on the strength of `ls -d` returning the directory. It
+  returns the directory because macOS's `/tmp` cleaner deletes *files* older than
+  three days and leaves the *directory skeleton* standing. Measured:
+  `/private/tmp/farmos-cell3-2026-07-19` holds **1,255 directories and 0 files**,
+  including an empty `.git`. A path test that cannot distinguish a live tree from
+  its skeleton is not a provenance check.
+- **Graph data-dir: GONE**, same cause.
+  `/private/tmp/farmos-rebuild-2026-07-18/farmos-data-v2/ctkr/export`.
+- **Partition scratch: GONE**, same cause. Every `/private/tmp/farmos-*` path
+  this project has ever cited is now zero files.
+- **The pin survives, off-repo.** The running oracle container still carries the
+  source it was built from: farmOS `4.x-dev` @
+  `3fe0ce7e23de807be9b8bc97a211ce934327db39` (`composer.lock` inside
+  `farmos-oracle-www`; profile tree at `/opt/drupal/web/profiles/farm`). The
+  source is re-clonable at the exact commit the 43 packs were recorded against —
+  but that fact lives in a container that has been up 8 days, not in the repo.
+  See §Durability.
 - **Nothing written outside the repo.** Artifacts of this pass: this file plus
   the hy6 child beads.
 
@@ -129,6 +141,33 @@ plainly rather than assumed away:
 
 Filed as a narrow hy6 child (rebuild the export, re-run role-gaps over the six
 families, re-tier if the signal disagrees), linked to the broader `MetaCoding-u00`.
+
+## Durability — what is actually load-bearing and where it lives
+
+Prompted by Duke, 2026-07-28: *"if we expect something to stick around we can't be
+writing to a tmp dir."* An inventory, since the `/tmp` losses above were found by
+accident rather than by a check anyone runs:
+
+| thing | location | durable? |
+|---|---|---|
+| the port itself (23 modules) | `eval/ctkr/port_runs/**`, in-repo | **yes** — git + pushed |
+| sealed packs, `PACKS.jsonl`, glossary, provenance, decisions | in-repo | **yes** |
+| kernel, ctkr, judge, oracle client | in-repo | **yes** |
+| **farmOS source (the witness)** | `/private/tmp/farmos-cell3-*` | **NO — already lost** |
+| **graph export / data-dir** | `/private/tmp/farmos-rebuild-*` | **NO — already lost** |
+| **the live oracle's database** | anonymous Docker volume `621513a8b622…` | **NO** — no name, no bind mount; `docker system prune --volumes` or a `rm` of the container ends it |
+| **the oracle's farmOS site + code** | inside the `farmos-oracle-www` container layer | **NO** — zero mounts; the container is the only copy |
+| the source commit pin | `composer.lock` inside that same container | **NO** — recorded in this file as of today, which is the first time it has been in the repo |
+
+The deliverable is safe. **Every witness the deliverable was measured against is
+one `docker rm` or one `/tmp` sweep from gone**, and one of those sweeps has
+already happened. 43 sealed packs assert facts about a source tree no longer on
+this disk and an oracle whose only copy is an 8-day-old container.
+
+This is the `MetaCoding-u00` lesson generalized, and it is exactly what
+`MetaCoding-1gt` (port-workspace scaffold: source pristine / workspace repo /
+hidden regenerable caches) was filed to prevent — filed P3 on 2026-07-22, six
+days before the thing it warned about had already happened.
 
 ## What this pass did NOT do
 

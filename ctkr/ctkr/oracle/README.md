@@ -55,10 +55,40 @@ oracle itself.
 ## Bringing up a live farmOS (how the pack was recorded)
 
 **One command:** `./bring-up.sh` (this directory) runs the whole sequence below and
-ends with two health checks. It is idempotent on the network only — remove any
-existing `farmos-oracle-db` / `farmos-oracle-www` containers first. Rebuild takes
-~2 min with the images cached; the instance is ephemeral **by design**, so losing
-it (e.g. an OrbStack reset, 2026-07-20) costs nothing but the rebuild.
+ends with two health checks. It is idempotent on the network and volumes only —
+remove any existing `farmos-oracle-db` / `farmos-oracle-www` containers first.
+Rebuild takes ~2 min with the images cached.
+
+### The pin (2026-07-28) — read this before rebuilding
+
+The instance is ephemeral **by design**, and losing it costs nothing but the
+rebuild — *provided the rebuild lands on the same farmOS*. Until 2026-07-28 it
+could not promise that: the script ran `farmos/farmos:4.x`, a **floating tag**, so
+a rebuild after an upstream push would have silently re-based every one of the 43
+sealed packs onto a farmOS they were never recorded against, with no error
+anywhere. Both images are now pinned by digest in `bring-up.sh`:
+
+| | |
+|---|---|
+| farmOS | **4.0.4**, source `3fe0ce7e23de807be9b8bc97a211ce934327db39` |
+| image | `farmos/farmos@sha256:2c0ed3ed759f58b28c87b01be99ddc1dfbc509af3272721574b731a49c8afdd3` |
+| postgres | `postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20` |
+| pristine source | `/Users/dukejones/work/WorldTree/farmos-src` @ that commit, read-only |
+
+Moving the pin is a **re-baseline of every pack**, not a bring-up. Do it
+deliberately, and re-record.
+
+State now lives on three named volumes (`farmos-oracle-db-data`,
+`farmos-oracle-files`, `farmos-oracle-keys`) rather than an anonymous volume and
+the container layer, so `docker rm` no longer takes the witness with it.
+
+**Verified 2026-07-28:** a from-scratch rebuild on the pinned digest re-recorded
+the `last_gaps` pack to the **same five fixture ids** as the sealed pack
+`9b49878b6b17` — identical `given`/`when`/`then`, i.e. every observed value
+reproduced. The only deltas were fresh entity UUIDs and four extra POSTs, because
+a clean oracle must create the `animal_type` / `unit` terms that the long-lived
+one already had. That difference is itself the evidence that the packs do not
+depend on accumulated oracle state.
 
 After a rebuild, prove equivalence before recording anything new:
 
