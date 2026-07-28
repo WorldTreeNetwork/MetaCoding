@@ -14,9 +14,15 @@ ID scheme. You will NOT see the original system's source code.
   interface (`LocationAdapter`): assets that can be locations / fixed, movement
   events with `atTimestamp` reads, current location & geometry projections.
 - `FIXTURES_LOGS.jsonl` (17) — observed behavioral fixtures for the logs feature.
-- `FIXTURES_LOCATION.jsonl` (10) — observed behavioral fixtures for the location
-  feature. Each `then` value was recorded from the real system; your port must
-  reproduce every one across BOTH packs.
+  Each `then` value was recorded from the real system.
+- `FIXTURES_LOCATION.jsonl` (10) — **RETIRED 2026-07-28: SYNTHETIC, not
+  observed.** This line used to say each `then` value was recorded from the real
+  system. That was not true of this pack: every row carries `provenance: null`
+  with zero observation refs, and the current fixture schema rejects them
+  outright. See `inputs/FIXTURES_LOCATION.RETIRED.md`. The location semantics
+  are now recorded — `lexicon-bind/location` (seal `f3460165d338`) and
+  `lexicon-bind/location_asof` (seal `d7f164e35f20`), both self-verified cold
+  against the live oracle — and a new port should be judged against those.
 - `TARGET_PROFILE.yaml` — the local-first target architecture and the menu of
   legal answers for each consistency-model decision.
 
