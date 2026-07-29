@@ -34,6 +34,19 @@ def build_client(
                client_secret=client_secret, timeout=timeout)
 
 
+def preflight(
+    base_url: str, *, username: str, password: str, client_id: str,
+    client_secret: str, timeout: float,
+) -> Any:
+    """Fail in seconds with a remedy, rather than hanging per fixture."""
+    from ctkr.oracle.health import require_oracle
+
+    return require_oracle(
+        base_url, username=username, password=password, client_id=client_id,
+        client_secret=client_secret, timeout=timeout,
+    )
+
+
 def build_adapter(client: Any) -> Any:
     """Wrap a farmOS client in the value-level adapter the runner drives."""
     from ctkr.oracle.farmos_adapter import FarmOSAdapter
@@ -64,6 +77,7 @@ LENS = Lens(
     operation_contract=OPERATION_CONTRACT,
     build_client=build_client,
     build_adapter=build_adapter,
+    preflight=preflight,
     provenance_path=Path(__file__).with_name("glossary_provenance.jsonl"),
     codegen_targets=CODEGEN_TARGETS,
     glossary_module="ctkr.oracle.glossary",

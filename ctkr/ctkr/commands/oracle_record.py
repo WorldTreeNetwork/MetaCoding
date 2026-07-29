@@ -19,7 +19,8 @@ from pathlib import Path
 
 from ctkr.oracle.fixtures import validate_fixture, write_fixtures
 from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
-from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
+from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown
+from ctkr.oracle.lens import lens_names, resolve_lens, use_lens
 from ctkr.oracle.pack import PackError, seal_recording
 from ctkr.oracle.recorder import (
     build_client,
@@ -41,6 +42,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             "observations.jsonl and validates the distilled fixtures."
         ),
     )
+    names = lens_names()
+    p.add_argument("--adapter", default=(names[0] if len(names) == 1 else None),
+                   choices=list(names) or None,
+                   help="Registered lens to record through (default: %(default)s).")
     p.add_argument("--base-url", default="http://localhost:8095",
                    help="farmOS base URL (default: http://localhost:8095).")
     p.add_argument("--username", default="admin")
@@ -77,8 +82,14 @@ def _select_flows(args: argparse.Namespace):
 
 
 def run(args: argparse.Namespace) -> int:
-    from ctkr.oracle.farmos_adapter import FarmOSAdapter
+    # DISCOVERED, not hardcoded (MetaCoding-1gt): recording drives the ACTIVE
+    # LENS's boundary through the lens's own client + adapter.
+    lens = resolve_lens(getattr(args, "adapter", None))
+    with use_lens(lens):
+        return _run(lens, args)
 
+
+def _run(lens, args: argparse.Namespace) -> int:
     # Resolve the flows FIRST: a malformed pack must not cost an oracle round-trip,
     # and must never half-record.
     try:
@@ -87,11 +98,11 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write(f"\nINVALID FLOW PACK: {exc}\n")
         return 2
 
-    if not args.skip_preflight:
+    if lens.preflight is not None and not args.skip_preflight:
         # Recording against a dead oracle produces nothing but a long wait; and a
         # half-installed instance would silently record WRONG values.
         try:
-            require_oracle(
+            lens.preflight(
                 args.base_url, username=args.username, password=args.password,
                 client_id=args.client_id, client_secret=args.client_secret,
                 timeout=args.preflight_timeout,
@@ -102,9 +113,9 @@ def run(args: argparse.Namespace) -> int:
 
     client = build_client(
         args.base_url, args.username, args.password, recording=True,
-        client_id=args.client_id, client_secret=args.client_secret,
+        client_id=args.client_id, client_secret=args.client_secret, lens=lens,
     )
-    adapter = FarmOSAdapter(client)
+    adapter = lens.build_adapter(client)
 
     sys.stderr.write(
         f"recording {len(flows)} value-flows ({origin}) against {args.base_url} ...\n"

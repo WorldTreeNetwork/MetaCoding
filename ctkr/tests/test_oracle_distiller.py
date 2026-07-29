@@ -12,10 +12,9 @@ from __future__ import annotations
 import json
 import urllib.parse
 
-from ctkr.oracle.farmos_adapter import FarmOSAdapter
+from ctkr.oracle.farmos_adapter import FarmOSAdapter, RecordingClient
 from ctkr.oracle.fixtures import validate_fixture
 from ctkr.oracle.recorder import (
-    RecordingClient,
     core_flows,
     record_flow,
     record_session,

@@ -28,8 +28,7 @@ from typing import Any
 from blake3 import blake3
 from pydantic import BaseModel
 
-from ctkr.oracle.adapter import AdapterError, Handle
-from ctkr.oracle.farmos_adapter import FarmOSAdapter, FarmOSClient
+from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
 from ctkr.oracle.fixtures import (
     GivenStep,
     Provenance,
@@ -78,8 +77,14 @@ class Observation(BaseModel):
     observed: Any = None
 
 
-class RecordingClient(FarmOSClient):
-    """A FarmOSClient that logs every request/response as an :class:`Observation`."""
+class RecordingMixin:
+    """Logs every request/response of the client it is mixed into.
+
+    Target-agnostic on purpose (MetaCoding-1gt): the recorder used to subclass
+    ``FarmOSClient`` directly, which was the one hard code-level dependency from
+    the instrument down into a target. A lens now mixes this into ITS transport
+    — see :func:`recording_client_class`.
+    """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -90,7 +95,7 @@ class RecordingClient(FarmOSClient):
         self, method: str, path: str, doc: dict | None = None
     ) -> dict[str, Any]:
         try:
-            resp = super().request(method, path, doc)
+            resp = super().request(method, path, doc)  # type: ignore[misc]
         except AdapterError as exc:
             # A REFUSED write is evidence, and it used to be the one thing the
             # recorder threw away: the exception propagated before any
@@ -122,6 +127,11 @@ class RecordingClient(FarmOSClient):
             )
         )
         return resp
+
+
+def recording_client_class(base: type) -> type:
+    """Build a recording subclass of ``base`` — the lens's transport, observed."""
+    return type(f"Recording{base.__name__}", (RecordingMixin, base), {})
 
 
 # --------------------------------------------------------------------------- #
@@ -588,7 +598,7 @@ def hardening_flows() -> list[FlowSpec]:
 # Recording + distillation                                                    #
 # --------------------------------------------------------------------------- #
 def _observe_probe(
-    adapter: FarmOSAdapter, probe: Probe, handles: dict[str, Handle]
+    adapter: ImplementationAdapter, probe: Probe, handles: dict[str, Handle]
 ) -> Any:
     """Read the value the live system delivers for a probe (the distilled fact)."""
     subject = handles[probe.subject]
@@ -741,7 +751,7 @@ def detect_order_sensitivity(flow: FlowSpec) -> str:
 
 
 def record_flow(
-    adapter: FarmOSAdapter, flow: FlowSpec, source_version: str = "4.x"
+    adapter: ImplementationAdapter, flow: FlowSpec, source_version: str = "4.x"
 ) -> tuple[SemanticFixture, list[Observation]]:
     """Execute a flow against live farmOS and distill it into a semantic fixture.
 
@@ -953,7 +963,7 @@ class SessionResult:
 
 
 def record_session_result(
-    adapter: FarmOSAdapter,
+    adapter: ImplementationAdapter,
     flows: list[FlowSpec] | None = None,
     source_version: str = "4.x",
 ) -> SessionResult:
@@ -991,7 +1001,7 @@ def record_session_result(
 
 
 def record_session(
-    adapter: FarmOSAdapter,
+    adapter: ImplementationAdapter,
     flows: list[FlowSpec] | None = None,
     source_version: str = "4.x",
 ) -> tuple[list[SemanticFixture], list[Observation]]:
@@ -1015,8 +1025,22 @@ def write_observations(observations: list[Observation], path: Any) -> int:
 def build_client(
     base_url: str, username: str, password: str, *, recording: bool = True,
     client_id: str = "farm", client_secret: str = "", timeout: float = 30.0,
-) -> FarmOSClient:
-    """Construct a (recording) farmOS client for the CLI + tests."""
-    cls = RecordingClient if recording else FarmOSClient
-    return cls(base_url, username, password, client_id=client_id,
-              client_secret=client_secret, timeout=timeout)
+    lens: Any = None,
+) -> Any:
+    """Construct a (recording) client for the ACTIVE LENS's boundary.
+
+    MetaCoding-1gt: the transport class is the lens's, not the instrument's.
+    Callers that already know their lens pass it; the CLI does.
+    """
+    from ctkr.oracle.lens import active_lens
+
+    lens = lens if lens is not None else active_lens()
+    if lens.build_client is None:
+        raise AdapterError(
+            f"lens {lens.name!r} supplies no client factory — it cannot be "
+            f"recorded against a live boundary"
+        )
+    return lens.build_client(
+        base_url, username, password, recording=recording,
+        client_id=client_id, client_secret=client_secret, timeout=timeout,
+    )

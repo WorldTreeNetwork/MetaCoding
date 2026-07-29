@@ -15,7 +15,8 @@ import json
 import sys
 
 from ctkr.oracle.fixtures import load_fixtures
-from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown, require_oracle
+from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown
+from ctkr.oracle.lens import lens_names, resolve_lens, use_lens
 from ctkr.oracle.runner import run_fixtures
 
 
@@ -26,13 +27,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "Execute value-equivalence semantic fixtures against an "
             "implementation through its adapter and report pass/fail per fixture. "
-            "Default adapter 'farmos' runs against a live farmOS — recorded "
-            "fixtures re-run against their source is self-verification."
+            "The adapter comes from a registered LENS; recorded fixtures re-run "
+            "against their own source is self-verification."
         ),
     )
     p.add_argument("fixtures", help="Path to the semantic-fixture JSONL file.")
-    p.add_argument("--adapter", default="farmos", choices=["farmos"],
-                   help="Implementation adapter to verify against.")
+    # DISCOVERED, not hardcoded (MetaCoding-1gt): the choices are the registered
+    # lenses. A lens package outside this repo appears here with no edit to ctkr.
+    names = lens_names()
+    p.add_argument("--adapter", default=(names[0] if len(names) == 1 else None),
+                   choices=list(names) or None,
+                   help="Registered lens to verify against (default: %(default)s).")
     p.add_argument("--base-url", default="http://localhost:8095")
     p.add_argument("--username", default="admin")
     p.add_argument("--password", default="admin")
@@ -47,25 +52,27 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.set_defaults(func=run)
 
 
-def _build_adapter(args: argparse.Namespace):
-    if args.adapter == "farmos":
-        from ctkr.oracle.farmos_adapter import FarmOSAdapter
-        from ctkr.oracle.recorder import build_client
-
-        client = build_client(
-            args.base_url, args.username, args.password, recording=False,
-            client_id=args.client_id, client_secret=args.client_secret,
-        )
-        return FarmOSAdapter(client)
-    raise SystemExit(f"unknown adapter {args.adapter!r}")
+def _build_adapter(lens, args: argparse.Namespace):
+    if lens.build_adapter is None or lens.build_client is None:
+        raise SystemExit(f"lens {lens.name!r} supplies no adapter to verify against")
+    client = lens.build_client(
+        args.base_url, args.username, args.password, recording=False,
+        client_id=args.client_id, client_secret=args.client_secret,
+    )
+    return lens.build_adapter(client)
 
 
 def run(args: argparse.Namespace) -> int:
+    lens = resolve_lens(getattr(args, "adapter", None))
+    with use_lens(lens):
+        return _run(lens, args)
+
+
+def _run(lens, args: argparse.Namespace) -> int:
     fixtures = load_fixtures(args.fixtures)
-    if args.adapter == "farmos" and not args.skip_preflight:
-        # Fail in seconds with a remedy, rather than hanging per fixture.
+    if lens.preflight is not None and not args.skip_preflight:
         try:
-            require_oracle(
+            lens.preflight(
                 args.base_url, username=args.username, password=args.password,
                 client_id=args.client_id, client_secret=args.client_secret,
                 timeout=args.preflight_timeout,
@@ -73,7 +80,7 @@ def run(args: argparse.Namespace) -> int:
         except OracleDown as exc:
             sys.stderr.write(f"\n{exc}\n")
             return 2
-    adapter = _build_adapter(args)
+    adapter = _build_adapter(lens, args)
     summary = run_fixtures(adapter, fixtures)
 
     if args.as_json:

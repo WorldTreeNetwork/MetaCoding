@@ -1652,3 +1652,18 @@ def _quantity_value(value: Any) -> float:
     return float(value)
 
 
+
+# --------------------------------------------------------------------------- #
+# The recording transport (MetaCoding-1gt)                                    #
+# --------------------------------------------------------------------------- #
+# The recorder used to declare ``class RecordingClient(FarmOSClient)`` — the one
+# hard code-level dependency from the instrument down into a target. The mixin
+# is the instrument's (target-agnostic); the class it is mixed into is the
+# lens's. Defined at the bottom so the import lands after FarmOSClient exists.
+from ctkr.oracle.recorder import recording_client_class  # noqa: E402
+
+#: A :class:`FarmOSClient` that logs every request/response as an Observation.
+RecordingClient = recording_client_class(FarmOSClient)
+RecordingClient.__name__ = "RecordingClient"
+RecordingClient.__qualname__ = "RecordingClient"
+RecordingClient.__module__ = __name__

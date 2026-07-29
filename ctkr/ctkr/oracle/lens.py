@@ -198,6 +198,9 @@ class Lens:
     build_client: Callable[..., Any] | None = None
     #: ``build_adapter(client)`` → an :class:`~ctkr.oracle.adapter.ImplementationAdapter`.
     build_adapter: Callable[..., Any] | None = None
+    #: Optional liveness probe run before a live session. ``None`` means the
+    #: target has no preflight — the CLI must not invent one for it.
+    preflight: Callable[..., Any] | None = None
     #: The lens's ledger of bound terms (``glossary_provenance.jsonl``).
     provenance_path: Path | None = None
     #: Logical name → repo-relative path, for every name in :data:`CODEGEN_TARGETS`.
@@ -337,6 +340,18 @@ def use_lens(lens: Lens | str) -> Iterator[Lens]:
         yield _active.get()  # type: ignore[misc]
     finally:
         _active.reset(token)
+
+
+def resolve_lens(name: str | None) -> Lens:
+    """CLI helper: a named lens, else the active one, else a clean ``SystemExit``.
+
+    Kept here rather than in each command so that "which target am I speaking
+    to" has exactly one answer in the whole instrument.
+    """
+    try:
+        return get_lens(name) if name else active_lens()
+    except LensError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def active_vocabulary() -> Vocabulary:

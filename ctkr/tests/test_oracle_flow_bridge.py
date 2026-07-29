@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 import pytest
 
 from ctkr.oracle.adapter import AdapterError
-from ctkr.oracle.farmos_adapter import FarmOSAdapter
+from ctkr.oracle.farmos_adapter import FarmOSAdapter, RecordingClient
 from ctkr.oracle.fixtures import (
     GivenStep,
     QuantitySpec,
@@ -45,7 +45,6 @@ from ctkr.oracle.flowspec_io import (
 from ctkr.oracle.recorder import (
     FlowSpec,
     Probe,
-    RecordingClient,
     core_flows,
     hardening_flows,
     record_flow,
