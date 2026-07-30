@@ -12,10 +12,11 @@ directory to find it — the way ``git`` finds ``.git``.
 
 What is pinned here:
 
-1. With no manifest anywhere above cwd, resolution falls back to today's in-repo
-   layout, the resolved registry actually EXISTS (MetaCoding still holds the
-   authoritative copy), and the workspace reports itself ``implicit`` — assumed,
-   not declared.
+1. With no manifest anywhere above cwd, the SEARCH PATH finds the extracted
+   workspace repo beside this one, the resolved registry actually EXISTS (a path
+   that is merely spelled correctly is not enough), the source pin still travels,
+   and the workspace reports itself ``implicit`` — the root was assumed from the
+   search path rather than found from cwd.
 2. A manifest wins, whether it sits in cwd or any parent.
 3. The manifest moves the ROOT and nothing else. The registry's location *within*
    the workspace stays fixed and no manifest key can move it, because a port
@@ -31,11 +32,17 @@ import pytest
 
 from ctkr.oracle.port_contract import (
     DECISION_REGISTRY_RELPATHS,
-    DEFAULT_PORT_WORKSPACE,
     decision_sources,
     port_workspace,
 )
-from ctkr.workspace import MANIFEST_NAME, WorkspaceError, discover, find_manifest
+from ctkr.workspace import (
+    MANIFEST_NAME,
+    WORKSPACE_SEARCH_PATH,
+    WorkspaceError,
+    default_workspace,
+    discover,
+    find_manifest,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,20 +60,36 @@ def _manifest(root: Path, **sections: str) -> Path:
 
 
 # --------------------------------------------------------------------------- #
-# 1. the fallback, while the ledger still lives in this repo                    #
+# 1. the search path, now that the ledger is a sibling repo                     #
 # --------------------------------------------------------------------------- #
-def test_with_no_manifest_the_in_repo_workspace_is_used_and_resolves(
+def test_with_no_manifest_the_search_path_finds_the_workspace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Run from anywhere, and the ledger is still found — by search, not by env."""
     monkeypatch.chdir(tmp_path)  # nothing above tmp_path carries a port.toml
     assert find_manifest(tmp_path) is None
-    assert port_workspace(REPO_ROOT) == REPO_ROOT / DEFAULT_PORT_WORKSPACE
+
+    found = default_workspace(REPO_ROOT)
+    assert found is not None, (
+        f"no workspace on the search path {list(WORKSPACE_SEARCH_PATH)} relative "
+        f"to {REPO_ROOT} — clone github.com/WorldTreeNetwork/FarmOS2 beside it"
+    )
+    assert port_workspace(REPO_ROOT) == found
 
     sources = decision_sources(REPO_ROOT)
-    assert sources, "the fallback must name at least one registry"
+    assert sources, "the resolved workspace must name at least one registry"
     assert [p for p in sources if p.exists()], (
-        f"fallback registry missing: {[str(p) for p in sources]}"
+        f"resolved registry missing: {[str(p) for p in sources]}"
     )
+
+
+def test_a_searched_workspace_still_carries_its_manifest_metadata() -> None:
+    """Found by search, not by cwd — but the pin must still travel."""
+    found = default_workspace(REPO_ROOT)
+    assert found is not None
+    ws = discover(start=Path(REPO_ROOT.anchor), fallback=found)
+    assert ws.implicit is True, "the ROOT was assumed from the search path"
+    assert ws.source.pin, "a searched workspace must still deliver its source pin"
 
 
 def test_an_assumed_workspace_says_so(
@@ -74,7 +97,7 @@ def test_an_assumed_workspace_says_so(
 ) -> None:
     """`implicit` is the difference between declared and guessed."""
     monkeypatch.chdir(tmp_path)
-    assumed = discover(fallback=REPO_ROOT / DEFAULT_PORT_WORKSPACE)
+    assumed = discover(fallback=tmp_path / "assumed")
     assert assumed.implicit is True
 
     declared = discover(start=_manifest(tmp_path / "ws").parent)
@@ -172,9 +195,11 @@ def test_term_incidence_default_roots_follow_the_workspace(
     from ctkr.commands.term_incidence import default_roots
 
     monkeypatch.chdir(tmp_path)
+    searched = default_workspace(REPO_ROOT)
+    assert searched is not None
     assert default_roots() == (
-        REPO_ROOT / DEFAULT_PORT_WORKSPACE / "port_runs" / "wave1",
-        REPO_ROOT / DEFAULT_PORT_WORKSPACE / "port_runs" / "wave0-pilot",
+        searched / "port_runs" / "wave1",
+        searched / "port_runs" / "wave0-pilot",
     )
 
     ws = tmp_path / "ws"

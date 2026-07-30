@@ -34,7 +34,7 @@ pile it replaced:
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 #: The manifest filename, at the workspace root.
@@ -111,12 +111,34 @@ def load(manifest: Path) -> Workspace:
     )
 
 
+#: Where an EXTRACTED workspace is looked for, relative to the instrument repo
+#: root. Both repos are checked out as siblings; the ledger for farmOS lives at
+#: github.com/WorldTreeNetwork/FarmOS2 and is cloned beside MetaCoding.
+#:
+#: This is a SEARCH PATH, not configuration: an ordered list of places to look,
+#: each confirmed by the presence of a manifest, degrading to a named error. It
+#: is deliberately not an env var — see the module docstring for why the last one
+#: was deleted.
+WORKSPACE_SEARCH_PATH: tuple[str, ...] = (
+    "../farmos-port",   # the extracted ledger repo, cloned beside this one
+)
+
+
+def default_workspace(repo_root: Path) -> Path | None:
+    """First place on the search path that actually carries a manifest."""
+    for rel in WORKSPACE_SEARCH_PATH:
+        candidate = (repo_root / rel).resolve()
+        if (candidate / MANIFEST_NAME).is_file():
+            return candidate
+    return None
+
+
 def discover(start: Path | None = None, *, fallback: Path | None = None) -> Workspace:
     """The workspace in effect.
 
-    A discovered manifest wins. Otherwise ``fallback`` — the in-repo workspace,
-    which exists while the farmOS ledger still lives inside this repo — is used
-    and flagged :attr:`Workspace.implicit`. Otherwise it is an error that says
+    A manifest found by walking up from ``start`` wins. Otherwise ``fallback``
+    (normally :func:`default_workspace`, the first hit on the search path) is
+    used and flagged :attr:`Workspace.implicit`. Otherwise it is an error that says
     what to do, because guessing a workspace is how a run writes its evidence
     somewhere nobody looks.
     """
@@ -124,6 +146,13 @@ def discover(start: Path | None = None, *, fallback: Path | None = None) -> Work
     if manifest is not None:
         return load(manifest)
     if fallback is not None:
+        # The fallback usually DOES carry a manifest (a sibling workspace repo).
+        # Read it, so the pin and source travel — but keep implicit=True, because
+        # the ROOT was assumed from the search path rather than found from cwd,
+        # and anything that writes evidence should be able to tell the difference.
+        fallback_manifest = fallback / MANIFEST_NAME
+        if fallback_manifest.is_file():
+            return replace(load(fallback_manifest), implicit=True)
         return Workspace(root=fallback, implicit=True)
     raise WorkspaceError(
         f"no {MANIFEST_NAME} found in this directory or any parent, and no "

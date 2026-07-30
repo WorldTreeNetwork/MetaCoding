@@ -27,6 +27,7 @@ from ctkr.oracle.glossary_provenance import (
     load_registry,
     provisional_terms,
 )
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 
 def _row(term: str, set_name: str, status: str = "provisional",
@@ -120,9 +121,7 @@ def test_bind_refuses_a_pack_without_the_witness_position(tmp_path) -> None:
     substring match anywhere in the pack must never count)."""
     p = tmp_path / "reg.jsonl"
     add_enum_value("greenhouse", "STRUCTURE_TYPES", config_source="c.yml:x", path=p)
-    sensor_pack = (Path(__file__).resolve().parents[2] / "eval" / "ctkr"
-                   / "port_runs" / "wave2" / "identity-sensor" / "observe"
-                   / "fixtures.jsonl")
+    sensor_pack = PORT_RUNS / "wave2" / "identity-sensor" / "observe" / "fixtures.jsonl"
     if not sensor_pack.exists():
         pytest.skip("no committed sensor pack in this tree")
     with pytest.raises(ProvenanceError, match="witness position"):
@@ -132,9 +131,7 @@ def test_bind_refuses_a_pack_without_the_witness_position(tmp_path) -> None:
 def test_bind_flips_via_a_real_witnessing_pack(tmp_path) -> None:
     p = tmp_path / "reg.jsonl"
     add_enum_value("greenhouse", "STRUCTURE_TYPES", config_source="c.yml:x", path=p)
-    pack = (Path(__file__).resolve().parents[2] / "eval" / "ctkr"
-            / "port_runs" / "wave2" / "identity-structure" / "observe"
-            / "fixtures.jsonl")
+    pack = PORT_RUNS / "wave2" / "identity-structure" / "observe" / "fixtures.jsonl"
     if not pack.exists():
         pytest.skip("no committed structure pack in this tree")
     row = bind_enum_value("greenhouse", "STRUCTURE_TYPES", pack, path=p)
@@ -148,9 +145,7 @@ def test_an_ungoverned_set_cannot_bind_without_a_declared_witness_position(tmp_p
     fixture' would let any string constant witness anything."""
     p = tmp_path / "reg.jsonl"
     add_enum_value("increment", "ADJUSTMENT_KINDS", config_source="c.yml:x", path=p)
-    pack = (Path(__file__).resolve().parents[2] / "eval" / "ctkr"
-            / "port_runs" / "wave2" / "identity-structure" / "observe"
-            / "fixtures.jsonl")
+    pack = PORT_RUNS / "wave2" / "identity-structure" / "observe" / "fixtures.jsonl"
     if not pack.exists():
         pytest.skip("no committed structure pack in this tree")
     with pytest.raises(ProvenanceError, match="no declared witness position"):

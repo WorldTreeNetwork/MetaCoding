@@ -223,9 +223,9 @@ def port_workspace(root: Path) -> Path:
     was the eighth path-ish knob in a system whose problem was that a port had
     no identity. The manifest gives it one.
     """
-    from ctkr.workspace import discover
+    from ctkr.workspace import default_workspace, discover
 
-    return discover(fallback=root / DEFAULT_PORT_WORKSPACE).root
+    return discover(fallback=default_workspace(root) or root / DEFAULT_PORT_WORKSPACE).root
 
 
 def decision_sources(root: Path) -> tuple[Path, ...]:

@@ -38,6 +38,7 @@ from ctkr.oracle.fixtures import (
 )
 from ctkr.oracle.flowspec_io import FlowSpecError, flows_from_obj
 from ctkr.oracle.steps import apply_when
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 # --------------------------------------------------------------------------- #
 # Seal stability + discrimination (the fixture-hash surface)                   #
@@ -88,8 +89,7 @@ def test_committed_lexicon_bind_flow_packs_still_load() -> None:
     parse under the extended DSL."""
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2] / "eval" / "ctkr" / "port_runs" \
-        / "lexicon-bind"
+    root = PORT_RUNS / "lexicon-bind"
     if not root.is_dir():
         pytest.skip(f"no lexicon-bind tree at {root}")
     packs = sorted(root.glob("*/*-flows.json"))

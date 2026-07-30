@@ -8,6 +8,7 @@ import {
   MANIFEST_NAME,
   PORT_GRAPH_RELPATH,
   cmDecisionsPath,
+  defaultWorkspace,
   discoverWorkspace,
   findManifest,
   portGraphDir,
@@ -26,19 +27,26 @@ function declaredWorkspace(body = '[port]\nname = "testport"\n'): string {
 }
 
 describe("port workspace resolution", () => {
-  test("with no manifest above it, today's in-repo layout is used — and it exists", () => {
+  test("with no manifest above it, the search path finds the sibling repo", () => {
     const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
     expect(findManifest(nowhere)).toBeNull();
-    expect(portWorkspace(ROOT, nowhere)).toBe(join(ROOT, "eval/ctkr"));
-    // The fallback must not merely be spelled right: MetaCoding still holds the
-    // authoritative workspace copy, so the paths must actually resolve.
+
+    const searched = defaultWorkspace(ROOT);
+    expect(searched).not.toBeNull();
+    expect(portWorkspace(ROOT, nowhere)).toBe(searched!);
+    // Not merely spelled right: the ledger must actually be there. These paths
+    // resolving is what makes the sibling checkout a real dependency rather than
+    // a hopeful string.
     expect(existsSync(cmDecisionsPath(ROOT, nowhere))).toBe(true);
     expect(existsSync(portGraphDir(ROOT, nowhere))).toBe(true);
   });
 
   test("an assumed workspace says so, a declared one does not", () => {
     const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
-    expect(discoverWorkspace(ROOT, nowhere).implicit).toBe(true);
+    // Found by search: the root was assumed, so implicit — but the pin travels.
+    const searched = discoverWorkspace(ROOT, nowhere);
+    expect(searched.implicit).toBe(true);
+    expect(searched.sourcePin).toBeTruthy();
     expect(discoverWorkspace(ROOT, declaredWorkspace()).implicit).toBe(false);
   });
 

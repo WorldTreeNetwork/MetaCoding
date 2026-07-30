@@ -30,8 +30,9 @@ from pathlib import Path
 import pytest
 
 from ctkr.oracle.probes import PROBE_CONTRACT
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
-_ROOT = Path(__file__).resolve().parents[2] / "eval" / "ctkr" / "port_runs"
+_ROOT = PORT_RUNS
 
 SYNTHETIC = [
     _ROOT / "kernel-9h5.24" / "build" / "inputs" / "FIXTURES_LOCATION.jsonl",

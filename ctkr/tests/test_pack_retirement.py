@@ -25,8 +25,9 @@ from ctkr.oracle.pack import (
     registry_entries,
     retire_seal,
 )
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
-ROOT = Path(__file__).resolve().parents[2] / "eval" / "ctkr" / "port_runs"
+ROOT = PORT_RUNS
 LEDGER = ROOT / "PACKS.jsonl"
 
 

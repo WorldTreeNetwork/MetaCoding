@@ -11,9 +11,9 @@
  *
  * This replaced a `METACODING_PORT_WORKSPACE` environment variable. It was the
  * eighth path-ish knob in a system whose actual problem was that a port had no
- * identity — see docs/design/instrument-lens-source.md. Until the ledger
- * physically moves, a run with no manifest above it falls back to today's in-repo
- * `eval/ctkr`, so nothing changes for anyone who does nothing.
+ * identity — see docs/design/instrument-lens-source.md. The ledger has now moved
+ * out of this repo, so a run with no manifest above it searches for the sibling
+ * workspace repo and fails with a named remedy if it is not cloned.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -21,8 +21,17 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 /** The manifest filename, at the workspace root. */
 export const MANIFEST_NAME = "port.toml";
 
-/** The in-repo workspace location, relative to the repo root. */
-export const DEFAULT_PORT_WORKSPACE = "eval/ctkr";
+/**
+ * Where an EXTRACTED workspace is looked for, relative to the instrument repo
+ * root — the mirror of `ctkr.workspace.WORKSPACE_SEARCH_PATH`. Both repos are
+ * checked out as siblings; the farmOS ledger lives at
+ * github.com/WorldTreeNetwork/FarmOS2 and is cloned beside MetaCoding.
+ *
+ * A SEARCH PATH, not configuration: an ordered list of places to look, each
+ * confirmed by a manifest, degrading to a named error. Deliberately not an env
+ * var — see the header for why the last one was deleted.
+ */
+export const WORKSPACE_SEARCH_PATH = ["../farmos-port"] as const;
 
 /**
  * Registry paths inside the workspace. Fixed on purpose: only the ROOT is
@@ -80,23 +89,33 @@ export function loadManifest(manifest: string): PortManifest {
   };
 }
 
-/**
- * The workspace in effect: a discovered manifest wins, else the in-repo
- * fallback, flagged `implicit` so a caller can tell declared from guessed.
- */
+/** First place on the search path that actually carries a manifest. */
+export function defaultWorkspace(repoRoot: string): string | null {
+  for (const rel of WORKSPACE_SEARCH_PATH) {
+    const candidate = resolve(repoRoot, rel);
+    if (existsSync(join(candidate, MANIFEST_NAME))) return candidate;
+  }
+  return null;
+}
+
 export function discoverWorkspace(
   repoRoot: string,
   start: string = process.cwd(),
 ): PortManifest {
   const manifest = findManifest(start);
   if (manifest) return loadManifest(manifest);
-  return {
-    root: join(repoRoot, DEFAULT_PORT_WORKSPACE),
-    name: "",
-    sourcePin: "",
-    sourcePath: null,
-    implicit: true,
-  };
+
+  // Found by search rather than from cwd: read the manifest so the pin and
+  // source travel, but keep implicit=true, because the ROOT was assumed.
+  const searched = defaultWorkspace(repoRoot);
+  if (searched) return { ...loadManifest(join(searched, MANIFEST_NAME)), implicit: true };
+
+  throw new Error(
+    `no ${MANIFEST_NAME} found above ${start}, and no workspace on the search ` +
+      `path ${WORKSPACE_SEARCH_PATH.join(", ")} relative to ${repoRoot}. The farmOS ` +
+      `ledger is a separate repo: clone github.com/WorldTreeNetwork/FarmOS2 beside ` +
+      `this one.`,
+  );
 }
 
 /** Resolve the port-workspace root. */
