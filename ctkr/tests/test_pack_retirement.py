@@ -14,9 +14,9 @@ filters it) or shrink another pack (the subset check skips it).
 """
 
 import json
-from pathlib import Path
 
 import pytest
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 from ctkr.oracle.pack import (
     PackError,
@@ -25,7 +25,6 @@ from ctkr.oracle.pack import (
     registry_entries,
     retire_seal,
 )
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 ROOT = PORT_RUNS
 LEDGER = ROOT / "PACKS.jsonl"

@@ -28,9 +28,9 @@ import json
 from pathlib import Path
 
 import pytest
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 from ctkr.oracle.probes import PROBE_CONTRACT
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 _ROOT = PORT_RUNS
 

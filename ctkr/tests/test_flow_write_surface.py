@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 from ctkr.oracle.adapter import AdapterError, ImplementationAdapter
 from ctkr.oracle.farmos_adapter import FarmOSAdapter, FarmOSClient
@@ -38,7 +39,6 @@ from ctkr.oracle.fixtures import (
 )
 from ctkr.oracle.flowspec_io import FlowSpecError, flows_from_obj
 from ctkr.oracle.steps import apply_when
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 # --------------------------------------------------------------------------- #
 # Seal stability + discrimination (the fixture-hash surface)                   #
@@ -87,7 +87,6 @@ def test_using_a_new_field_changes_the_id(override) -> None:
 def test_committed_lexicon_bind_flow_packs_still_load() -> None:
     """The flow packs in the repo (including the new delete_quantity pack) must
     parse under the extended DSL."""
-    from pathlib import Path
 
     root = PORT_RUNS / "lexicon-bind"
     if not root.is_dir():

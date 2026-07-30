@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import pytest
+from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 from ctkr.oracle.glossary_provenance import (
     ENUM_VALUE_KIND,
@@ -27,7 +28,6 @@ from ctkr.oracle.glossary_provenance import (
     load_registry,
     provisional_terms,
 )
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
 
 
 def _row(term: str, set_name: str, status: str = "provisional",
