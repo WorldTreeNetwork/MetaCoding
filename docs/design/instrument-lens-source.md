@@ -254,6 +254,30 @@ Each step leaves the suite green and is independently revertible.
    `eval/ctkr/{port_runs,results}` from MetaCoding. **Not before:** until that
    push, MetaCoding holds the only pushed copy of 43 sealed packs.
 
+### Step 5 is blocked, and not on the remote — measured 2026-07-30
+
+The remote exists (`github.com/WorldTreeNetwork/FarmOS2`, private, pushed). The
+deletion is blocked on something else: **19 files reference the in-repo ledger,
+and MetaCoding's own suite reads real packs out of it.** Some tests already carry
+skip guards (`test_pack_retirement`, `test_enum_provenance`,
+`test_retired_location_fixtures`); others read unconditionally
+(`test_go_membership_pack`), and `test_port_workspace` deliberately asserts the
+fallback registry *exists* rather than merely spelling its path.
+
+So deleting the ledger forces exactly the question Duke deferred — *tests point at
+farmOS for now; extract synthetic tests once the porting code in MetaCoding is
+stable*. Without that extraction there are only two outcomes, both bad:
+
+- the instrument's tests depend on a **sibling checkout**, so a fresh clone of
+  MetaCoding cannot pass its own suite; or
+- the affected tests get **skip guards**, which turns real coverage into a green
+  tick that measures nothing.
+
+Therefore the order is: synthetic fixture target → then the deletion. The
+instrument keeps the authoritative ledger copy until then, which costs nothing
+now that both copies are pushed and byte-identical, and the manifests in both
+trees say which is authoritative.
+
 Steps 1–2 are worth doing regardless of how the layout question lands: they are
 the parts that make the boundary real rather than declared.
 
