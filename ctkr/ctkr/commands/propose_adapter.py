@@ -34,7 +34,7 @@ def discover_cm_registry(start: Path | None = None) -> Path | None:
 
     Mirrors :func:`ctkr.oracle.port_contract.decision_sources` — the same fixed
     registry inside the same port workspace ``port-verify`` resolves sanctions
-    from (see ``METACODING_PORT_WORKSPACE``) — so the surface generator and the
+    from (the discovered port.toml workspace) — so the surface generator and the
     reader consult ONE set of bound decisions. Walks parents until a match or a
     ``.git`` root; returns ``None`` if the tree has no registry (the caller must
     then warn, never proceed silently).

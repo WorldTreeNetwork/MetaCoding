@@ -1,0 +1,39 @@
+# The farmOS port workspace — IN-REPO COPY.
+#
+# This tree (port_runs/ + results/) is the farmOS port's ledger: packs, seals,
+# PACKS.jsonl, the bound CM-decision registry, the risk partition, the builds.
+# It is the TARGET's evidence, not the instrument's, and it has been extracted to
+# github.com/WorldTreeNetwork/FarmOS2 with history preserved. MetaCoding still
+# holds the authoritative copy until the consumers are cut over (MetaCoding-1gt).
+#
+# This manifest exists so the workspace DECLARES itself rather than being found
+# by a path someone remembered. Running any ctkr command from inside this tree
+# resolves the workspace by walking up to this file — the way git finds .git.
+# See docs/design/instrument-lens-source.md.
+#
+# Deliberately absent: any key naming the CM-decision registry or the graph data
+# dir. Only the ROOT is discovered; the paths within a workspace are fixed by the
+# instrument, because a port that can point the resolver at a registry it just
+# wrote is self-certifying its own sanctions.
+
+[port]
+name = "farmos"
+
+[source]
+# The pristine codebase, read-only always. Re-clonable at the pin below; the pin
+# is the build all 43 sealed packs here were recorded against.
+path = "../../../farmos-src"
+pin = "3fe0ce7e23de807be9b8bc97a211ce934327db39"  # farmOS 4.0.4
+
+[oracle]
+# Digest-pinned in ctkr/ctkr/oracle/bring-up.sh, which is the single source of
+# truth for how to stand it up. Moving these is a re-baseline of every pack.
+base_url = "http://localhost:8095"
+farmos_image = "farmos/farmos@sha256:2c0ed3ed759f58b28c87b01be99ddc1dfbc509af3272721574b731a49c8afdd3"
+postgres_image = "postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20"
+
+[cache]
+# DERIVED ONLY, never load-bearing: everything here must be reconstructible from
+# [source] plus the ledger by one command. The wave-2 partition cited a graph
+# export that lived in /tmp, vanished, and nothing could tell.
+path = ".metacoding"

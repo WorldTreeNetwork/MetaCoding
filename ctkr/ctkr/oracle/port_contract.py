@@ -34,15 +34,13 @@ means the pen does not exist rather than being unavailable.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ctkr.oracle.lens import active_vocabulary
-from ctkr.oracle.lens import active_operation_contract, active_probe_contract
+from ctkr.oracle.lens import active_operation_contract, active_probe_contract, active_vocabulary
 
 
 class ContractError(ValueError):
@@ -197,35 +195,37 @@ class PortManifest(BaseModel):
 #: is being extracted into its own repo (MetaCoding-1gt); this variable is how an
 #: extracted workspace is pointed at without editing the instrument. Unset means
 #: :data:`DEFAULT_PORT_WORKSPACE` under the repo root — today's in-repo layout.
-PORT_WORKSPACE_ENV = "METACODING_PORT_WORKSPACE"
-
-#: The in-repo workspace location, relative to the repo root. The default, so
-#: that behaviour is unchanged for anyone who sets nothing.
+#: The in-repo workspace location, relative to the repo root — the FALLBACK
+#: while the farmOS ledger still lives inside this repo. A workspace that has
+#: been extracted declares itself with a port.toml instead (MetaCoding-1gt).
 DEFAULT_PORT_WORKSPACE = "eval/ctkr"
 
 #: Where decision ids resolve from, relative to the PORT WORKSPACE root — never
 #: from a caller-supplied path. `--decisions <anything>` let a port author point
 #: the resolver at a registry they had just written, which makes "it's a
-#: sanctioned divergence" self-certifying again one level up. The workspace root
-#: is operator configuration (one env var, read once, same for every port in the
-#: run); the registry path *within* it stays fixed, so no port can move it.
+#: sanctioned divergence" self-certifying again one level up. Only the workspace
+#: ROOT is discovered; the registry path *within* it stays fixed, so no port can
+#: move it — and deliberately no port.toml key exposes it.
 DECISION_REGISTRY_RELPATHS: tuple[str, ...] = (
     "port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
 )
 
 
 def port_workspace(root: Path) -> Path:
-    """The port workspace directory, honouring :data:`PORT_WORKSPACE_ENV`.
+    """The port workspace directory, DISCOVERED rather than configured.
 
-    ``root`` is the repo root. An unset (or blank) env var yields
-    ``root / DEFAULT_PORT_WORKSPACE``; a relative override resolves against
-    ``root``; an absolute override is taken as-is (an extracted workspace repo).
+    Walks up from the working directory for a ``port.toml`` (see
+    :mod:`ctkr.workspace`); falls back to the in-repo ``eval/ctkr`` while the
+    ledger still lives here. ``root`` is the repo root, used only for that
+    fallback.
+
+    This replaced a ``METACODING_PORT_WORKSPACE`` environment variable, which
+    was the eighth path-ish knob in a system whose problem was that a port had
+    no identity. The manifest gives it one.
     """
-    raw = (os.environ.get(PORT_WORKSPACE_ENV) or "").strip()
-    if not raw:
-        return root / DEFAULT_PORT_WORKSPACE
-    override = Path(raw).expanduser()
-    return override if override.is_absolute() else root / override
+    from ctkr.workspace import discover
+
+    return discover(fallback=root / DEFAULT_PORT_WORKSPACE).root
 
 
 def decision_sources(root: Path) -> tuple[Path, ...]:

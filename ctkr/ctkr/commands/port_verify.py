@@ -170,7 +170,7 @@ def run(args: argparse.Namespace) -> int:
         sys.stderr.write(
             "\n  no decision registry found in the port workspace — every cited "
             "decision_id will be reported as unresolvable. (Set "
-            "METACODING_PORT_WORKSPACE if the workspace lives outside this repo.)\n"
+            "a port.toml at the workspace root if it lives outside this repo.)\n"
         )
 
     adapter = PortAdapter(manifest)

@@ -1,57 +1,81 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   CM_DECISIONS_RELPATH,
+  MANIFEST_NAME,
   PORT_GRAPH_RELPATH,
-  PORT_WORKSPACE_ENV,
   cmDecisionsPath,
+  discoverWorkspace,
+  findManifest,
   portGraphDir,
   portWorkspace,
 } from "./paths";
 
 const ROOT = join(import.meta.dir, "..");
 
+/** A workspace that DECLARES itself, in a tree with no manifest above it. */
+function declaredWorkspace(body = '[port]\nname = "testport"\n'): string {
+  const base = mkdtempSync(join(tmpdir(), "portws-"));
+  const ws = join(base, "farmos-port");
+  mkdirSync(ws, { recursive: true });
+  writeFileSync(join(ws, MANIFEST_NAME), body);
+  return ws;
+}
+
 describe("port workspace resolution", () => {
-  test("unset env keeps today's in-repo layout — and it exists", () => {
-    expect(portWorkspace(ROOT, {})).toBe(join(ROOT, "eval/ctkr"));
-    // The default must not merely be spelled right: MetaCoding still holds the
+  test("with no manifest above it, today's in-repo layout is used — and it exists", () => {
+    const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
+    expect(findManifest(nowhere)).toBeNull();
+    expect(portWorkspace(ROOT, nowhere)).toBe(join(ROOT, "eval/ctkr"));
+    // The fallback must not merely be spelled right: MetaCoding still holds the
     // authoritative workspace copy, so the paths must actually resolve.
-    expect(existsSync(cmDecisionsPath(ROOT, {}))).toBe(true);
-    expect(existsSync(portGraphDir(ROOT, {}))).toBe(true);
+    expect(existsSync(cmDecisionsPath(ROOT, nowhere))).toBe(true);
+    expect(existsSync(portGraphDir(ROOT, nowhere))).toBe(true);
   });
 
-  test("a blank override is treated as unset, not as the repo root", () => {
-    expect(portWorkspace(ROOT, { [PORT_WORKSPACE_ENV]: "   " })).toBe(
-      join(ROOT, "eval/ctkr"),
-    );
+  test("an assumed workspace says so, a declared one does not", () => {
+    const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
+    expect(discoverWorkspace(ROOT, nowhere).implicit).toBe(true);
+    expect(discoverWorkspace(ROOT, declaredWorkspace()).implicit).toBe(false);
   });
 
-  test("an absolute override is honoured for BOTH artifacts", () => {
-    const env = { [PORT_WORKSPACE_ENV]: "/srv/farmos-port" };
-    expect(portWorkspace(ROOT, env)).toBe("/srv/farmos-port");
-    expect(cmDecisionsPath(ROOT, env)).toBe(
-      join("/srv/farmos-port", CM_DECISIONS_RELPATH),
-    );
-    expect(portGraphDir(ROOT, env)).toBe(
-      join("/srv/farmos-port", PORT_GRAPH_RELPATH),
-    );
+  test("a declared manifest wins for BOTH artifacts", () => {
+    const ws = declaredWorkspace();
+    expect(portWorkspace(ROOT, ws)).toBe(ws);
+    expect(cmDecisionsPath(ROOT, ws)).toBe(join(ws, CM_DECISIONS_RELPATH));
+    expect(portGraphDir(ROOT, ws)).toBe(join(ws, PORT_GRAPH_RELPATH));
   });
 
-  test("a relative override resolves against the repo root", () => {
-    const env = { [PORT_WORKSPACE_ENV]: "../farmos-port" };
-    expect(portWorkspace(ROOT, env)).toBe(join(ROOT, "../farmos-port"));
-    expect(cmDecisionsPath(ROOT, env)).toBe(
-      join(ROOT, "../farmos-port", CM_DECISIONS_RELPATH),
+  test("a manifest in a parent is found from a subdirectory", () => {
+    const ws = declaredWorkspace();
+    const deep = join(ws, "port_runs", "wave2", "spine-asset");
+    mkdirSync(deep, { recursive: true });
+    expect(portWorkspace(ROOT, deep)).toBe(ws);
+  });
+
+  test("the manifest carries the source pin", () => {
+    const pin = "3fe0ce7e23de807be9b8bc97a211ce934327db39";
+    const ws = declaredWorkspace(
+      `[port]\nname = "farmos"\n[source]\npath = "../farmos-src"\npin = "${pin}"\n`,
     );
+    const found = discoverWorkspace(ROOT, ws);
+    expect(found.sourcePin).toBe(pin);
+    expect(found.sourcePath).toBe(join(ws, "..", "farmos-src"));
   });
 
   test("the registry path INSIDE the workspace is not configurable", () => {
     // Only the root moves. A port author who could also move the registry
-    // within it would be back to pointing the resolver at their own file.
+    // within it would be back to pointing the resolver at their own file, so a
+    // manifest that names one is ignored rather than honoured.
+    const ws = declaredWorkspace(
+      '[port]\nname = "x"\n[ledger]\ndecisions = "i-wrote-this.jsonl"\n',
+    );
     expect(CM_DECISIONS_RELPATH).toBe(
       "port_runs/kernel-9h5.24/build/cm-decisions.jsonl",
     );
+    expect(cmDecisionsPath(ROOT, ws)).toBe(join(ws, CM_DECISIONS_RELPATH));
   });
 });

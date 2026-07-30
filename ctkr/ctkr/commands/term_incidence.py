@@ -27,7 +27,7 @@ from pathlib import Path
 # Default port-run roots, resolved inside the PORT WORKSPACE — by default the
 # in-repo one, relative to the checkout that contains this package
 # (<repo>/ctkr/ctkr/commands/term_incidence.py -> <repo>), or wherever
-# METACODING_PORT_WORKSPACE points once the workspace has its own repo.
+# the discovered port.toml workspace points once the ledger has its own repo.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -57,7 +57,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help="Port-run roots to scan for fixtures.jsonl (default: "
         "<port-workspace>/port_runs/wave1 + wave0-pilot, where the workspace is "
-        "METACODING_PORT_WORKSPACE or eval/ctkr of this checkout).",
+        "the discovered port.toml workspace, or eval/ctkr of this checkout).",
     )
     p.add_argument(
         "--role-classes",
