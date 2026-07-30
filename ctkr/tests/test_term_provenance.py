@@ -101,7 +101,7 @@ def _row(**overrides) -> dict:
 
 def test_the_in_repo_registry_exists_and_loads() -> None:
     """The version-controlled registry beside glossary.py is always loadable."""
-    assert gp.DEFAULT_REGISTRY.exists()
+    assert gp._default_registry().exists()
     gp.load_registry()  # must not raise
 
 
@@ -308,7 +308,7 @@ def test_a_provisional_term_yields_NO_VERDICT_and_the_port_is_never_asked(
     registry BEFORE the port is called, so agreement with a proposal can never
     masquerade as evidence."""
     reg = _write_rows(tmp_path, [_row(term="stock_on_hand")])
-    monkeypatch.setattr(gp, "DEFAULT_REGISTRY", reg)
+    monkeypatch.setattr(gp, "_default_registry", lambda: reg)
 
     fx = fixture("f-prov", [soh(4.0)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
@@ -330,7 +330,7 @@ def test_a_bound_term_scores_normally(tmp_path, monkeypatch) -> None:
     bound = _row(term="stock_on_hand", status="bound")
     bound["provenance"]["first_pack_seal"] = "cafe" * 8
     reg = _write_rows(tmp_path, [bound])
-    monkeypatch.setattr(gp, "DEFAULT_REGISTRY", reg)
+    monkeypatch.setattr(gp, "_default_registry", lambda: reg)
 
     fx = fixture("f-bound", [soh(4.0)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])
@@ -345,7 +345,7 @@ def test_a_bound_term_scores_normally(tmp_path, monkeypatch) -> None:
 def test_an_invalid_registry_stops_the_judge_loudly(tmp_path, monkeypatch) -> None:
     """A broken instrument must halt, never quietly score around itself."""
     reg = _write_rows(tmp_path, [_row(term="stock_on_hand", status="bound")])
-    monkeypatch.setattr(gp, "DEFAULT_REGISTRY", reg)
+    monkeypatch.setattr(gp, "_default_registry", lambda: reg)
 
     fx = fixture("f-broken", [soh(4.0)])
     manifest = make_manifest(ALL_OPS, ["stock_on_hand"])

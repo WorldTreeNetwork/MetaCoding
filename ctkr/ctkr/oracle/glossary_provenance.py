@@ -82,8 +82,20 @@ GOVERNED_SETS: dict[str, frozenset[str]] = {
     "STRUCTURE_TYPES": frozenset(),
 }
 
-#: The version-controlled registry, beside the glossary it governs.
-DEFAULT_REGISTRY: Path = Path(__file__).with_name("glossary_provenance.jsonl")
+#: The version-controlled registry, beside the glossary it governs. Which file
+#: that is belongs to the LENS (MetaCoding-1gt): the rules in this module are the
+#: instrument's and apply to any target's ledger, so the path is resolved from
+#: the active lens rather than assumed to sit next to this file.
+def _default_registry() -> Path:
+    from ctkr.oracle.lens import active_lens
+
+    path = active_lens().provenance_path
+    if path is None:
+        raise ProvenanceError(
+            f"lens {active_lens().name!r} declares no provenance_path, so it has "
+            f"no term ledger to read or bind into"
+        )
+    return path
 
 _TERM_RE = re.compile(r"[a-z][a-z0-9_]*\Z")
 
@@ -228,10 +240,10 @@ def _row_problems(row: Any, line_no: int, seen: set[str]) -> list[str]:
         # MetaCoding-852: an enum row must name a real glossary set that
         # actually contains the value — a row for a value the glossary does
         # not carry is drift, refused at load.
-        from ctkr.oracle import glossary as _glossary
+        from ctkr.oracle.lens import active_vocabulary
 
         set_name = row.get("set")
-        members = getattr(_glossary, str(set_name), None)
+        members = getattr(active_vocabulary(), str(set_name), None)
         if not isinstance(members, frozenset):
             problems.append(
                 f"{where}: enum_value row names set {set_name!r}, which is "
@@ -283,7 +295,7 @@ def load_registry(path: str | Path | None = None) -> list[dict[str, Any]]:
     A missing file is an empty registry (a tree that has never added a term),
     never an error — but a present file must be wholly valid.
     """
-    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    p = Path(path) if path is not None else _default_registry()
     if not p.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -359,7 +371,7 @@ def add_provisional(
         raise ProvenanceError(
             "not a TERM-SPEC v1:\n  - " + "\n  - ".join(problems)
         )
-    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    p = Path(path) if path is not None else _default_registry()
     rows = load_registry(p)
     term = spec["term"]
     term_rows = [r for r in rows if r["kind"] != ENUM_VALUE_KIND]
@@ -426,7 +438,7 @@ def bind_term(
     # instrument stack, and this module must be importable beneath all of it.
     from ctkr.oracle.pack import load_pack
 
-    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    p = Path(path) if path is not None else _default_registry()
     rows = load_registry(p)
     row = next((r for r in rows
                 if r["term"] == term and r["kind"] != ENUM_VALUE_KIND), None)
@@ -494,15 +506,16 @@ def governance_problems(path: str | Path | None = None) -> list[str]:
     bar terms already meet. The reverse direction (a row for a value the
     glossary dropped) is refused at load by ``_row_problems``.
     """
-    from ctkr.oracle import glossary as _glossary
+    from ctkr.oracle.lens import active_vocabulary
 
+    vocab = active_vocabulary()
     rowed = {
         (r["set"], r["term"])
         for r in load_registry(path) if r["kind"] == ENUM_VALUE_KIND
     }
     problems: list[str] = []
     for set_name, grandfathered in GOVERNED_SETS.items():
-        members = getattr(_glossary, set_name)
+        members = getattr(vocab, set_name)
         for value in sorted(members - grandfathered):
             if (set_name, value) not in rowed:
                 problems.append(
@@ -529,7 +542,7 @@ def add_enum_value(
             f"enum_value {value!r} needs a config_source: the channel exists "
             f"precisely because commit-message-only provenance was the gap"
         )
-    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    p = Path(path) if path is not None else _default_registry()
     rows = load_registry(p)
     if any(r["kind"] == ENUM_VALUE_KIND and r.get("set") == set_name
            and r["term"] == value for r in rows):
@@ -587,7 +600,7 @@ def bind_enum_value(
     in its set's witness position. The bind_term gate, one namespace over."""
     from ctkr.oracle.pack import load_pack
 
-    p = Path(path) if path is not None else DEFAULT_REGISTRY
+    p = Path(path) if path is not None else _default_registry()
     rows = load_registry(p)
     row = next((r for r in rows if r["kind"] == ENUM_VALUE_KIND
                 and r.get("set") == set_name and r["term"] == value), None)

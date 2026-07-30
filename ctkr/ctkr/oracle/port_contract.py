@@ -42,7 +42,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ctkr.oracle.lens import active_vocabulary
-from ctkr.oracle.probes import OPERATION_CONTRACT, PROBE_CONTRACT
+from ctkr.oracle.lens import active_operation_contract, active_probe_contract
 
 
 class ContractError(ValueError):
@@ -59,9 +59,9 @@ class PortCapabilities(BaseModel):
 
     def unknown_terms(self) -> list[str]:
         bad = [f"operation {o!r} is not a glossary action term"
-               for o in self.operations if o not in OPERATION_CONTRACT]
+               for o in self.operations if o not in active_operation_contract()]
         bad += [f"probe {p!r} is not a glossary assertion term"
-                for p in self.probes if p not in PROBE_CONTRACT]
+                for p in self.probes if p not in active_probe_contract()]
         return bad
 
     def as_sets(self) -> tuple[frozenset[str], frozenset[str]]:

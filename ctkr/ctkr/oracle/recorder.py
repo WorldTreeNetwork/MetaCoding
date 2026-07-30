@@ -39,7 +39,7 @@ from ctkr.oracle.fixtures import (
     order_sensitivity,
     probe_descriptor,
 )
-from ctkr.oracle.probes import PROBE_CONTRACT
+from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 
@@ -895,12 +895,12 @@ def record_flow(
     # honestly state this, because it is the party that made the reads.
     asserted = {a.assert_ for a in then}
     authority = {
-        t: PROBE_CONTRACT[t].authority for t in sorted(asserted) if t in PROBE_CONTRACT
+        t: active_probe_contract()[t].authority for t in sorted(asserted) if t in active_probe_contract()
     }
     derivations = {
-        t: PROBE_CONTRACT[t].derivation_id
+        t: active_probe_contract()[t].derivation_id
         for t in sorted(asserted)
-        if t in PROBE_CONTRACT and PROBE_CONTRACT[t].derivation_id
+        if t in active_probe_contract() and active_probe_contract()[t].derivation_id
     }
 
     observations = list(getattr(client, "observations", []))[obs_start:] + witnesses

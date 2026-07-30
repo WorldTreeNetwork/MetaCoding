@@ -900,7 +900,7 @@ def _as_of_problems(t: ThenAssertion, where: str) -> list[tuple[str, str]]:
     """
     if not t.as_of:
         return []
-    from ctkr.oracle.probes import PROBE_CONTRACT
+    from ctkr.oracle.lens import active_probe_contract
 
     out: list[tuple[str, str]] = []
     if _OFFSET_RE.match(t.as_of):
@@ -916,7 +916,7 @@ def _as_of_problems(t: ThenAssertion, where: str) -> list[tuple[str, str]]:
             f"{where}.as_of",
             f"{t.as_of!r} is not an ISO-8601 instant",
         ))
-    spec = PROBE_CONTRACT.get(t.assert_)
+    spec = active_probe_contract().get(t.assert_)
     if spec is not None and not any(p.field_name == "as_of" for p in spec.params):
         out.append((
             f"{where}.as_of",

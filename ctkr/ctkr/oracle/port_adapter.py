@@ -42,7 +42,7 @@ from typing import Any
 from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
 from ctkr.oracle.fixtures import QuantitySpec
 from ctkr.oracle.port_contract import PortCapabilities, PortManifest
-from ctkr.oracle.probes import PROBE_CONTRACT
+from ctkr.oracle.lens import active_probe_contract
 
 #: The reader-side ceiling on ``BridgeSpec.timeout``, in seconds. The manifest's
 #: timeout is written by the port; a port may ask the reader to wait LESS than
@@ -318,7 +318,7 @@ class PortAdapter(ImplementationAdapter):
     def _need_probe(self, assertion: str) -> None:
         if self.declares_probe(assertion):
             return
-        spec = PROBE_CONTRACT.get(assertion)
+        spec = active_probe_contract().get(assertion)
         needs = f" (would need adapter method {spec.method!r})" if spec else ""
         raise Unanswerable(
             f"port {self.manifest.port!r} declares no probe {assertion!r}{needs}"
