@@ -62,7 +62,7 @@ from ctkr.label_roles import (
     RoleCluster,
     compute_role_clusters,
 )
-from ctkr.oracle.glossary import ACTION_TERMS, ASSERTION_TERMS, ENTITY_TERMS
+from ctkr.oracle.lens import active_vocabulary
 
 FAMILY_ROOT_FEATURE = "(family-root)"
 
@@ -75,7 +75,7 @@ FAMILY_ROOT_FEATURE = "(family-root)"
 # channel exists to surface.
 GLOSSARY_TERM_TO_CLASS: dict[str, str] = {}
 
-_VALID_MAPPING_TERMS = ACTION_TERMS | ASSERTION_TERMS | ENTITY_TERMS
+_VALID_MAPPING_TERMS = active_vocabulary().ACTION_TERMS | active_vocabulary().ASSERTION_TERMS | active_vocabulary().ENTITY_TERMS
 
 
 def validate_mapping(mapping: dict[str, str]) -> None:

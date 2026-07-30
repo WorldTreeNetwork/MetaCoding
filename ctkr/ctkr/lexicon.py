@@ -35,13 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from ctkr.drupal import _CONFIG_NAME, _rel, _safe_yaml
-from ctkr.oracle.glossary import (
-    ENTITY_TERMS,
-    LOG_KINDS,
-    LOG_STATUSES,
-    MEASURES,
-    all_terms,
-)
+from ctkr.oracle.lens import active_vocabulary
 
 # ---------------------------------------------------------------------------
 # Gap row
@@ -180,9 +174,9 @@ def _scan_workflows(path: Path, root: Path) -> list[Gap]:
         if not isinstance(states, dict):
             continue
         if group == "log":
-            known, gset = LOG_STATUSES, "LOG_STATUSES"
+            known, gset = active_vocabulary().LOG_STATUSES, "LOG_STATUSES"
         else:
-            known = all_terms()
+            known = active_vocabulary().all_terms()
             gset = f"(no closed set for group {group!r})"
         for state in sorted(states):
             if state in known:
@@ -232,7 +226,7 @@ def _scan_config_entity(path: Path, root: Path,
     gaps: list[Gap] = []
 
     if config_type == "log.type":
-        if entity_id not in LOG_KINDS:
+        if entity_id not in active_vocabulary().LOG_KINDS:
             ref = f"{rel}:id"
             desc = (f"log type {entity_id!r}"
                     f"{' (' + label + ')' if label else ''} — a recordable "
@@ -249,8 +243,8 @@ def _scan_config_entity(path: Path, root: Path,
             qty = tps.get("farm_log_quantity")
             if isinstance(qty, dict):
                 dqt = qty.get("default_quantity_type")
-                if isinstance(dqt, str) and dqt and dqt not in MEASURES \
-                        and dqt not in all_terms():
+                if isinstance(dqt, str) and dqt and dqt not in active_vocabulary().MEASURES \
+                        and dqt not in active_vocabulary().all_terms():
                     ref = (f"{rel}:third_party_settings.farm_log_quantity."
                            f"default_quantity_type")
                     desc = (f"quantity type {dqt!r} — the default measured-"
@@ -265,7 +259,7 @@ def _scan_config_entity(path: Path, root: Path,
                                    "outside this file"]),
                     ))
     elif config_type == "asset.type":
-        if entity_id not in ENTITY_TERMS:
+        if entity_id not in active_vocabulary().ENTITY_TERMS:
             ref = f"{rel}:id"
             desc = (f"asset type {entity_id!r}"
                     f"{' (' + label + ')' if label else ''} — a domain noun "
@@ -288,7 +282,7 @@ def _scan_field_definition(path: Path, rel: str, doc: dict) -> list[Gap]:
     gaps: list[Gap] = []
     field_name = doc.get("field_name")
     if isinstance(field_name, str) and field_name \
-            and field_name not in all_terms():
+            and field_name not in active_vocabulary().all_terms():
         ref = f"{rel}:field_name"
         desc = (f"field {field_name!r} (type {doc.get('type', '?')!r}) — a "
                 f"declared per-record value")
@@ -307,7 +301,7 @@ def _scan_field_definition(path: Path, rel: str, doc: dict) -> list[Gap]:
             for item in allowed:
                 if isinstance(item, dict) and "value" in item:
                     values.append(str(item["value"]))
-        missing = sorted(v for v in values if v not in all_terms())
+        missing = sorted(v for v in values if v not in active_vocabulary().all_terms())
         if missing:
             ref = f"{rel}:settings.allowed_values"
             name = field_name or path.stem
@@ -330,7 +324,7 @@ def _emit_type_lists(
     for config_type in sorted(type_lists):
         members = sorted(type_lists[config_type])
         ids = [m[0] for m in members]
-        missing = sorted(i for i in ids if i not in all_terms())
+        missing = sorted(i for i in ids if i not in active_vocabulary().all_terms())
         if not missing:
             continue
         # Anchor the row at the family's first file (sorted → deterministic).
@@ -378,7 +372,7 @@ def _scan_plugin_php(path: Path, root: Path) -> list[Gap]:
     matches = list(_FIELD_ASSIGN.finditer(text))
     for i, m in enumerate(matches):
         name = m.group(1)
-        if name in all_terms():
+        if name in active_vocabulary().all_terms():
             continue
         # The declarative $options block for this field sits between the
         # previous $fields[...] assignment (or the attribute) and this one.

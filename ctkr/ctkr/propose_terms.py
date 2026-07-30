@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # READ-ONLY use of the shared instrument: the closed vocabulary a flow sketch
 # is allowed to speak. This module never mutates or extends these sets.
-from ctkr.oracle.glossary import ACTION_TERMS, ASSERTION_TERMS, all_terms
+from ctkr.oracle.lens import active_vocabulary
 
 
 class SpendExceededError(RuntimeError):
@@ -246,7 +246,7 @@ class TermProposal(BaseModel):
                 f"term {v!r} must be snake_case: lowercase letters, digits and "
                 "underscores, starting with a letter"
             )
-        if v in all_terms():
+        if v in active_vocabulary().all_terms():
             raise ValueError(
                 f"term {v!r} is ALREADY a bound glossary term; propose a NEW "
                 "term for the unnamed concept"
@@ -262,17 +262,17 @@ class TermProposal(BaseModel):
                 "value assertion — a flow that asserts nothing discriminates "
                 "nothing"
             )
-        allowed_actions = ACTION_TERMS | {self.term}
+        allowed_actions = active_vocabulary().ACTION_TERMS | {self.term}
         for step in flow.when:
             head = (step.split() or [""])[0]
             if head not in allowed_actions:
                 raise ValueError(
                     f"when step {step!r} starts with unknown action {head!r}; "
                     "each when step must start with an existing flow-DSL "
-                    f"action ({', '.join(sorted(ACTION_TERMS))}) or the "
+                    f"action ({', '.join(sorted(active_vocabulary().ACTION_TERMS))}) or the "
                     f"proposed term {self.term!r} itself"
                 )
-        allowed_assertions = ASSERTION_TERMS | {self.term}
+        allowed_assertions = active_vocabulary().ASSERTION_TERMS | {self.term}
         for step in flow.then:
             head = (step.split() or [""])[0]
             if head not in allowed_assertions:
@@ -304,13 +304,13 @@ def _vocab_block() -> str:
         [
             "Existing flow-DSL action terms (the ONLY verbs a `when` step may "
             "start with, besides the proposed term itself):",
-            "  " + ", ".join(sorted(ACTION_TERMS)),
+            "  " + ", ".join(sorted(active_vocabulary().ACTION_TERMS)),
             "Existing assertion terms (the ONLY predicates a `then` step may "
             "start with, besides the proposed term itself):",
-            "  " + ", ".join(sorted(ASSERTION_TERMS)),
+            "  " + ", ".join(sorted(active_vocabulary().ASSERTION_TERMS)),
             "Every already-bound glossary term (the proposed term must NOT be "
             "one of these):",
-            "  " + ", ".join(sorted(all_terms())),
+            "  " + ", ".join(sorted(active_vocabulary().all_terms())),
         ]
     )
 

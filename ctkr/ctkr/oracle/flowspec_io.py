@@ -32,7 +32,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ctkr.oracle import glossary
+from ctkr.oracle.lens import active_vocabulary
 from ctkr.oracle.fixtures import (
     _ACTION_REQUIRED,
     _OFFSET_RE,
@@ -247,10 +247,10 @@ def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
     if not isinstance(raw, (int, float)) or isinstance(raw, bool):
         raise FlowSpecError(f"{where}.value: expected a number, got {raw!r}")
     measure = _str(d, "measure", where)
-    if measure and measure not in glossary.MEASURES:
+    if measure and measure not in active_vocabulary().MEASURES:
         raise FlowSpecError(
             f"{where}.measure: {measure!r} is not a glossary measure "
-            f"({sorted(glossary.MEASURES)})"
+            f"({sorted(active_vocabulary().MEASURES)})"
         )
     bundle = _str(d, "bundle", where)
     if bundle and bundle not in QUANTITY_BUNDLES:
@@ -270,19 +270,19 @@ def quantity_from_dict(d: dict[str, Any], where: str) -> QuantitySpec:
 def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
     _check_keys(d, _GIVEN_KEYS, where)
     entity = _str(d, "entity", where)
-    if entity not in glossary.ENTITY_TERMS:
+    if entity not in active_vocabulary().ENTITY_TERMS:
         raise FlowSpecError(
             f"{where}.entity: {entity!r} is not a glossary entity term "
-            f"({sorted(glossary.ENTITY_TERMS)})"
+            f"({sorted(active_vocabulary().ENTITY_TERMS)})"
         )
     alias = _str(d, "alias", where)
     if not alias:
         raise FlowSpecError(f"{where}.alias: an alias is required")
     sex = _str(d, "sex", where)
-    if sex and sex not in glossary.ANIMAL_SEXES:
+    if sex and sex not in active_vocabulary().ANIMAL_SEXES:
         raise FlowSpecError(
             f"{where}.sex: {sex!r} is not a glossary animal sex "
-            f"({sorted(glossary.ANIMAL_SEXES)})"
+            f"({sorted(active_vocabulary().ANIMAL_SEXES)})"
         )
     return GivenStep(
         entity=entity, alias=alias, name=_str(d, "name", where),
@@ -309,28 +309,28 @@ def given_from_dict(d: dict[str, Any], where: str) -> GivenStep:
 def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
     _check_keys(d, _WHEN_KEYS, where)
     action = _str(d, "action", where)
-    if action not in glossary.ACTION_TERMS:
+    if action not in active_vocabulary().ACTION_TERMS:
         raise FlowSpecError(
             f"{where}.action: {action!r} is not a glossary action term "
-            f"({sorted(glossary.ACTION_TERMS)})"
+            f"({sorted(active_vocabulary().ACTION_TERMS)})"
         )
     kind = _str(d, "kind", where)
     if action == "record_inventory_adjustment":
-        if kind not in glossary.ADJUSTMENT_KINDS:
+        if kind not in active_vocabulary().ADJUSTMENT_KINDS:
             raise FlowSpecError(
                 f"{where}.kind: {kind!r} is not a glossary stock adjustment kind "
-                f"({sorted(glossary.ADJUSTMENT_KINDS)})"
+                f"({sorted(active_vocabulary().ADJUSTMENT_KINDS)})"
             )
-    elif kind and kind not in glossary.LOG_KINDS:
+    elif kind and kind not in active_vocabulary().LOG_KINDS:
         raise FlowSpecError(
             f"{where}.kind: {kind!r} is not a glossary log kind "
-            f"({sorted(glossary.LOG_KINDS)})"
+            f"({sorted(active_vocabulary().LOG_KINDS)})"
         )
     status = _str(d, "status", where)
-    if status and status not in glossary.LOG_STATUSES:
+    if status and status not in active_vocabulary().LOG_STATUSES:
         raise FlowSpecError(
             f"{where}.status: {status!r} is not a glossary log status "
-            f"({sorted(glossary.LOG_STATUSES)})"
+            f"({sorted(active_vocabulary().LOG_STATUSES)})"
         )
     at = _str(d, "at", where)
     if at and not _is_effective_time(at):
@@ -393,24 +393,24 @@ def when_from_dict(d: dict[str, Any], where: str) -> WhenStep:
 def probe_from_dict(d: dict[str, Any], where: str) -> Probe:
     _check_keys(d, _PROBE_KEYS, where)
     assertion = _str(d, "assert", where)
-    if assertion not in glossary.ASSERTION_TERMS:
+    if assertion not in active_vocabulary().ASSERTION_TERMS:
         raise FlowSpecError(
             f"{where}.assert: {assertion!r} is not a glossary assertion term "
-            f"({sorted(glossary.ASSERTION_TERMS)})"
+            f"({sorted(active_vocabulary().ASSERTION_TERMS)})"
         )
     subject = _str(d, "subject", where)
     if not subject:
         raise FlowSpecError(f"{where}.subject: a subject alias is required")
     measure = _str(d, "measure", where)
-    if measure and measure not in glossary.MEASURES:
+    if measure and measure not in active_vocabulary().MEASURES:
         raise FlowSpecError(
             f"{where}.measure: {measure!r} is not a glossary measure"
         )
     kind = _str(d, "kind", where)
-    if kind and kind not in glossary.LOG_KINDS:
+    if kind and kind not in active_vocabulary().LOG_KINDS:
         raise FlowSpecError(f"{where}.kind: {kind!r} is not a glossary log kind")
     op = _str(d, "op", where, "==") or "=="
-    if op not in glossary.COMPARISON_OPS:
+    if op not in active_vocabulary().COMPARISON_OPS:
         raise FlowSpecError(f"{where}.op: {op!r} is not a comparison operator")
     return Probe(
         assert_=assertion, subject=subject, measure=measure,
@@ -442,14 +442,14 @@ def _check_storage_leaks(d: dict[str, Any], where: str) -> None:
     """Reject a flow that names a table/column/id/storage primitive (§5)."""
     for path, s in _iter_string_values(d, where):
         low = s.lower()
-        for bad in glossary.FORBIDDEN_SUBSTRINGS:
+        for bad in active_vocabulary().FORBIDDEN_SUBSTRINGS:
             if bad in low:
                 raise FlowSpecError(
                     f"{path}: representation term {bad!r} leaked in value {s!r} — "
                     "a flow speaks domain vocabulary only"
                 )
         words = {w.strip(".,;:!?()[]{}\"'").lower() for w in s.split()}
-        leaked = sorted(glossary.FORBIDDEN_WORDS & words)
+        leaked = sorted(active_vocabulary().FORBIDDEN_WORDS & words)
         if leaked:
             raise FlowSpecError(
                 f"{path}: storage word {leaked[0]!r} leaked in value {s!r} — "
@@ -467,7 +467,7 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
     _check_storage_leaks(d, where)
 
     for term in _str_list(d, "glossary_terms", where):
-        if term not in glossary.all_terms():
+        if term not in active_vocabulary().all_terms():
             raise FlowSpecError(
                 f"{where}.glossary_terms: {term!r} is not in the domain glossary"
             )

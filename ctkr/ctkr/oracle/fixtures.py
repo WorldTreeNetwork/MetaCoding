@@ -38,7 +38,7 @@ from typing import Any
 from blake3 import blake3
 from pydantic import BaseModel, ConfigDict, Field
 
-from ctkr.oracle import glossary
+from ctkr.oracle.lens import active_vocabulary
 
 SCHEMA_VERSION: int = 1
 
@@ -57,7 +57,7 @@ class QuantitySpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    measure: str  # one of glossary.MEASURES
+    measure: str  # one of active_vocabulary().MEASURES
     value: float
     unit: str  # domain unit name, e.g. "kilogram", "head", "liter"
     label: str = ""  # glossary role, e.g. "yield" (free text, storage-free)
@@ -97,11 +97,11 @@ class GivenStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    entity: str  # one of glossary.ENTITY_TERMS
+    entity: str  # one of active_vocabulary().ENTITY_TERMS
     alias: str  # logical handle, unique within the fixture ("A")
     name: str  # domain display name ("North Field")
     descriptor: str = ""  # optional domain sub-classification ("paddock"); adapter maps
-    sex: str = ""  # optional domain trait; one of glossary.ANIMAL_SEXES
+    sex: str = ""  # optional domain trait; one of active_vocabulary().ANIMAL_SEXES
     # --- plant_type term planning fields (MetaCoding plant-type) -------------
     # The four assertion fields the plant_type identity port carries ON a
     # plant_type TERM (farm_plant_type). All INPUTS, never expected values, and
@@ -185,12 +185,12 @@ class WhenStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: str  # one of glossary.ACTION_TERMS
+    action: str  # one of active_vocabulary().ACTION_TERMS
     alias: str = ""  # handle bound to the thing this action creates (record_log)
     ref: str = ""  # handle of an existing entity the action targets
     name: str = ""  # display name for a created log
-    kind: str = ""  # log kind (record_log): one of glossary.LOG_KINDS
-    # record_inventory_adjustment: one of glossary.ADJUSTMENT_KINDS
+    kind: str = ""  # log kind (record_log): one of active_vocabulary().LOG_KINDS
+    # record_inventory_adjustment: one of active_vocabulary().ADJUSTMENT_KINDS
     status: str = ""  # log status (record_log / set_log_status)
     against: list[str] = Field(default_factory=list)  # asset aliases a log references
     group: str = ""  # group alias (assign_to_group)
@@ -257,14 +257,14 @@ class ThenAssertion(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     # `assert` is a Python keyword; accept it from JSON via alias.
-    assert_: str = Field(alias="assert")  # one of glossary.ASSERTION_TERMS
+    assert_: str = Field(alias="assert")  # one of active_vocabulary().ASSERTION_TERMS
     subject: str  # handle the assertion is about
     measure: str = ""  # yield_total / quantity_recorded
     unit: str = ""  # yield_total / quantity_recorded
     kind: str = ""  # log_count
     group: str = ""  # group_member
     other: str = ""  # second entity alias (has_parent)
-    op: str = "=="  # one of glossary.COMPARISON_OPS
+    op: str = "=="  # one of active_vocabulary().COMPARISON_OPS
     value: Any = None  # expected value (number | bool | status string)
     #: The expected answer is NO ANSWER (MetaCoding-b0s). Legal only when the
     #: subject is a ``ghost`` given, and then mandatory: asking an implementation
@@ -632,7 +632,7 @@ def storage_leaks(fx: SemanticFixture) -> list[ValidationIssue]:
     }
     for path, s in _iter_string_values(body, "fixture"):
         low = s.lower()
-        for bad in glossary.FORBIDDEN_SUBSTRINGS:
+        for bad in active_vocabulary().FORBIDDEN_SUBSTRINGS:
             if bad in low:
                 issues.append(
                     ValidationIssue(
@@ -643,7 +643,7 @@ def storage_leaks(fx: SemanticFixture) -> list[ValidationIssue]:
                     )
                 )
         words = {w.strip(".,;:!?()[]{}\"'").lower() for w in s.split()}
-        for bad in glossary.FORBIDDEN_WORDS & words:
+        for bad in active_vocabulary().FORBIDDEN_WORDS & words:
             issues.append(
                 ValidationIssue(
                     fixture_id=fx.fixture_id or fx.content_id(),
@@ -989,7 +989,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
     # --- given: entity terms legal, aliases unique --------------------------
     aliases: dict[str, str] = {}  # alias -> entity term
     for i, g in enumerate(fx.given):
-        if g.entity not in glossary.ENTITY_TERMS:
+        if g.entity not in active_vocabulary().ENTITY_TERMS:
             err(f"given[{i}].entity", f"{g.entity!r} is not a glossary entity term")
         if not g.alias:
             err(f"given[{i}].alias", "alias is required")
@@ -997,14 +997,14 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(f"given[{i}].alias", f"duplicate alias {g.alias!r}")
         else:
             aliases[g.alias] = g.entity
-        if g.sex and g.sex not in glossary.ANIMAL_SEXES:
+        if g.sex and g.sex not in active_vocabulary().ANIMAL_SEXES:
             err(f"given[{i}].sex", f"{g.sex!r} is not a glossary animal sex")
-        # Land descriptors are a CLOSED vocabulary (glossary.LAND_TYPES); every
+        # Land descriptors are a CLOSED vocabulary (active_vocabulary().LAND_TYPES); every
         # other entity's descriptor stays free text. This gate is new to a field
         # that was previously ungated, and no existing land fixture carries a
         # descriptor, so it rejects nothing that was legal before.
         if g.entity == "land" and g.descriptor \
-                and g.descriptor not in glossary.LAND_TYPES:
+                and g.descriptor not in active_vocabulary().LAND_TYPES:
             err(f"given[{i}].descriptor",
                 f"{g.descriptor!r} is not a glossary land descriptor")
         # structure_type is a REQUIRED closed list_string at the boundary
@@ -1013,7 +1013,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         # fixture carries any descriptor, so this rejects nothing that was
         # legal before.
         if g.entity == "structure" and g.descriptor \
-                and g.descriptor not in glossary.STRUCTURE_TYPES:
+                and g.descriptor not in active_vocabulary().STRUCTURE_TYPES:
             err(f"given[{i}].descriptor",
                 f"{g.descriptor!r} is not a glossary structure descriptor")
         # plant_type term planning fields (MetaCoding plant-type). On any other
@@ -1061,7 +1061,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
     log_aliases: set[str] = set()
     quantity_aliases: set[str] = set()
     for i, w in enumerate(fx.when):
-        if w.action not in glossary.ACTION_TERMS:
+        if w.action not in active_vocabulary().ACTION_TERMS:
             err(f"when[{i}].action", f"{w.action!r} is not a glossary action term")
             continue
         for req in _ACTION_REQUIRED.get(w.action, ()):
@@ -1123,15 +1123,15 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
                 if e not in aliases:
                     err(f"when[{i}].equipment[{j}]",
                         f"unknown equipment alias {e!r}")
-            if w.kind and w.kind not in glossary.LOG_KINDS:
+            if w.kind and w.kind not in active_vocabulary().LOG_KINDS:
                 err(f"when[{i}].kind", f"{w.kind!r} is not a glossary log kind")
-            if w.status and w.status not in glossary.LOG_STATUSES:
+            if w.status and w.status not in active_vocabulary().LOG_STATUSES:
                 err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
             for j, a in enumerate(w.against):
                 if a not in aliases:
                     err(f"when[{i}].against[{j}]", f"unknown asset alias {a!r}")
             for j, q in enumerate(w.quantities):
-                if q.measure not in glossary.MEASURES:
+                if q.measure not in active_vocabulary().MEASURES:
                     err(f"when[{i}].quantities[{j}].measure",
                         f"{q.measure!r} is not a glossary measure")
                 if q.bundle and q.bundle not in QUANTITY_BUNDLES:
@@ -1159,7 +1159,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
         elif w.action == "set_log_status":
             if w.ref and w.ref not in log_aliases:
                 err(f"when[{i}].ref", f"set_log_status ref {w.ref!r} is not a log alias")
-            if w.status and w.status not in glossary.LOG_STATUSES:
+            if w.status and w.status not in active_vocabulary().LOG_STATUSES:
                 err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
         elif w.action == "assign_to_group":
             if w.ref and w.ref not in aliases:
@@ -1170,16 +1170,16 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             if w.ref and w.ref not in aliases:
                 err(f"when[{i}].ref", f"unknown asset alias {w.ref!r}")
         elif w.action == "record_inventory_adjustment":
-            if w.kind and w.kind not in glossary.ADJUSTMENT_KINDS:
+            if w.kind and w.kind not in active_vocabulary().ADJUSTMENT_KINDS:
                 err(f"when[{i}].kind",
                     f"{w.kind!r} is not a glossary stock adjustment kind")
-            if w.status and w.status not in glossary.LOG_STATUSES:
+            if w.status and w.status not in active_vocabulary().LOG_STATUSES:
                 err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
             for j, a in enumerate(w.against):
                 if a not in aliases:
                     err(f"when[{i}].against[{j}]", f"unknown asset alias {a!r}")
             for j, q in enumerate(w.quantities):
-                if q.measure not in glossary.MEASURES:
+                if q.measure not in active_vocabulary().MEASURES:
                     err(f"when[{i}].quantities[{j}].measure",
                         f"{q.measure!r} is not a glossary measure")
             if w.alias:
@@ -1196,7 +1196,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             for j, p in enumerate(w.parents):
                 if p not in aliases:
                     err(f"when[{i}].parents[{j}]", f"unknown animal alias {p!r}")
-            if w.status and w.status not in glossary.LOG_STATUSES:
+            if w.status and w.status not in active_vocabulary().LOG_STATUSES:
                 err(f"when[{i}].status", f"{w.status!r} is not a glossary log status")
             if w.at and not _is_effective_time(w.at):
                 err(f"when[{i}].at", f"{w.at!r} is neither an instant nor an offset")
@@ -1237,7 +1237,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
     # delete_quantity IS a quantity alias (caught live, MetaCoding-l52).
     known = set(aliases) | log_aliases | quantity_aliases
     for i, t in enumerate(fx.then):
-        if t.assert_ not in glossary.ASSERTION_TERMS:
+        if t.assert_ not in active_vocabulary().ASSERTION_TERMS:
             err(f"then[{i}].assert", f"{t.assert_!r} is not a glossary assertion term")
             continue
         for req in _ASSERT_REQUIRED.get(t.assert_, ()):
@@ -1261,7 +1261,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
             err(where, message)
         if t.subject and t.subject not in known:
             err(f"then[{i}].subject", f"unknown subject alias {t.subject!r}")
-        if t.op not in glossary.COMPARISON_OPS:
+        if t.op not in active_vocabulary().COMPARISON_OPS:
             err(f"then[{i}].op", f"{t.op!r} is not a comparison operator")
         if t.assert_ == "group_member" and t.group and t.group not in aliases:
             err(f"then[{i}].group", f"unknown group alias {t.group!r}")
@@ -1271,7 +1271,7 @@ def validate_fixture(fx: SemanticFixture) -> list[ValidationIssue]:
 
     # --- declared glossary_terms are all legal ------------------------------
     for term in fx.glossary_terms:
-        if term not in glossary.all_terms():
+        if term not in active_vocabulary().all_terms():
             err("glossary_terms", f"{term!r} is not in the domain glossary")
 
     # --- storage-leak lint --------------------------------------------------

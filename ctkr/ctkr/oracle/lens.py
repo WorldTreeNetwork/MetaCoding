@@ -253,11 +253,23 @@ def _builtin_loader(spec: str) -> Callable[[], Any]:
     return load
 
 
+#: Memoised loader table. `importlib.metadata.entry_points()` walks every
+#: installed distribution, and `active_lens()` is called from inside pydantic
+#: validators — i.e. per fixture field. Unmemoised it cost 15s across the suite
+#: (20.17s vs 5.20s), which is the kind of tax that gets a seam reverted rather
+#: than fixed. Cleared by :func:`clear_lens_cache` along with the lens cache, so
+#: a test that registers a lens mid-run still sees it.
+_loaders_cache: dict[str, Callable[[], Any]] | None = None
+
+
 def _loaders() -> dict[str, Callable[[], Any]]:
     """All lens loaders. Entry points win over builtins of the same name."""
-    loaders = {name: _builtin_loader(spec) for name, spec in BUILTIN_LENSES.items()}
-    loaders.update(_entry_point_loaders())
-    return loaders
+    global _loaders_cache
+    if _loaders_cache is None:
+        loaders = {name: _builtin_loader(spec) for name, spec in BUILTIN_LENSES.items()}
+        loaders.update(_entry_point_loaders())
+        _loaders_cache = loaders
+    return _loaders_cache
 
 
 def lens_names() -> tuple[str, ...]:
@@ -287,8 +299,10 @@ def get_lens(name: str) -> Lens:
 
 
 def clear_lens_cache() -> None:
-    """Drop memoised lenses (tests that register a lens mid-run)."""
+    """Drop memoised lenses AND the loader table (tests registering mid-run)."""
+    global _loaders_cache
     _cache.clear()
+    _loaders_cache = None
 
 
 # --- the active lens -------------------------------------------------------- #

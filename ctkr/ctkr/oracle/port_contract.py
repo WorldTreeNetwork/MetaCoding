@@ -41,7 +41,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ctkr.oracle import glossary
+from ctkr.oracle.lens import active_vocabulary
 from ctkr.oracle.probes import OPERATION_CONTRACT, PROBE_CONTRACT
 
 
@@ -162,7 +162,7 @@ class PortManifest(BaseModel):
     def check(self) -> None:
         problems = self.capabilities.unknown_terms()
         for d in self.divergences:
-            if d.assert_ not in glossary.ASSERTION_TERMS:
+            if d.assert_ not in active_vocabulary().ASSERTION_TERMS:
                 problems.append(
                     f"divergence on {d.fixture_id}: {d.assert_!r} is not a "
                     f"glossary assertion term"
