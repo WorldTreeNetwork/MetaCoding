@@ -46,7 +46,70 @@
 23 of 41 in-scope modules are ported (56%). The epic is roughly half-built and
 had **zero children**, which is why it read as unstarted.
 
-## SPINE — 18 done, 3 remaining
+## Amendment, 2026-07-30 — four of the "remaining" were already delivered
+
+Starting `hy6.1` (the spine-log promotion) began by asking the project's own
+**mechanical judge** whether the wave-1 pilots reproduce their packs, rather than
+by reading their code. They do. All four run clean against their sealed oracle
+packs on kernel **1.3.0**:
+
+| module | pack | passed | failed | sanctioned | no verdict | coverage | goal_fit |
+|---|---|--:|--:|--:|--:|--:|--:|
+| log/activity | `761d70409a77` | 25/28 | **0** | 3 | 0 | 1.0 | 1.0 |
+| log/harvest | `d3720566ae3c` | 33/37 | **0** | 4 | 0 | 1.0 | 1.0 |
+| log/observation | `edc3f5f49731` | 38/42 | **0** | 4 | 0 | 1.0 | 1.0 |
+| log/input | `d7f7ad0b8fe7` | 35/39 | **0** | 4 | 0 | 1.0 | 1.0 |
+
+Every non-pass is a **sanctioned divergence citing `pending-status-gates`** — the
+bound decision — with zero declaration problems and zero invalid evidence.
+
+**Why this counts as v1.3 rather than a pre-freeze pilot**, which is what `hy6.1`
+was filed to fix: `pending-status-gates` is the *per-projection* gate that v1.3
+re-bound on evidence (v1.2 applied one blanket confirmed-only rule). A build still
+running v1.2 semantics would diverge in a different pattern. The divergences are
+therefore positive evidence of the v1.3 contract, not merely an absence of failure.
+`KERNEL_VERSION` is `1.3.0`, and the three log ports plus maintenance all import
+the same shared wave-1 store.
+
+**And they exceed spine tier.** Spine ceremony is *build + existing regression +
+smoke, no per-feature recipe*. These four carry `scope.md`,
+`adapter_contract.md`/`.json`, `fixture_candidates.jsonl`, a recorded `observe/`
+pack, `port.manifest.json` with declared capabilities and divergences,
+`punts.jsonl`, and a judge verdict — the full identity recipe. `log/harvest` is
+349 lines of source against the wave-2 spine reference's 125.
+
+### Corrected counts
+
+| lane | in partition | ported | remaining |
+|---|--:|--:|--:|
+| SPINE | 21 | **21** | **0** |
+| IDENTITY | 20 | **6** | **14** |
+| total | 41 | **27** | **14** |
+
+The log family is closed. `hy6.1` was done on arrival; `hy6.4` (log/input) too.
+
+**Where my 2026-07-28 count went wrong:** I read the wave-2 partition's `spine-log`
+cluster and the wave-2 build directory, saw only `maintenance` there, and inferred
+the other three were unbuilt. They had been delivered in wave 1 — to a *higher*
+standard than the tier they were later classified under. A partition describes what
+work a module *would* need; it is not a record of what has been done, and I used it
+as one.
+
+**The one criterion genuinely unmet, stated rather than waved past:** `hy6.1` asked
+for the three to be built "in one cluster", the rule that stops blind builders
+diverging. They were built as three separate wave-1 runs. What the rule protects —
+one shared implementation of the log spine — holds anyway, because all four ports
+go through the single `wave1/shared-store`, which is also what wave-2's maintenance
+port reuses. The intent is satisfied; the letter is not, and nothing is re-run on
+that basis.
+
+**Not delivered, correctly:** the wave-0 pilots (`asset/animal`, `log/birth`). Their
+packs are **retired** by `MetaCoding-2oo` — every fixture predates the hash-compat
+discipline and no longer re-hashes to its stored `fixture_id`. The judge refuses
+them: *"a retired pack is history — kept, cited, never re-judged. NO VERDICT."* So
+those two stay on the remaining list, and their wave-0 builds are prior art only.
+
+## SPINE — 18 done, 3 remaining (superseded by the amendment above)
 
 Delivered by `ff714c4` on frozen kernel v1.3, 101 tests green at commit time:
 
