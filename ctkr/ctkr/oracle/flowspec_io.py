@@ -48,7 +48,7 @@ from ctkr.oracle.fixtures import (
     _iter_string_values,
     _parentage_problems,
 )
-from ctkr.oracle.probes import PROBE_CONTRACT
+from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.recorder import FlowSpec, Probe
 
 #: Current on-disk pack version.
@@ -623,7 +623,7 @@ def flow_from_dict(d: dict[str, Any], where: str = "flow") -> FlowSpec:
     # run twice. The schema now refuses to express it.
     timestamp_probes = sorted({
         pr.assert_ for pr in probes
-        if (spec := PROBE_CONTRACT.get(pr.assert_)) and spec.returns_timestamp
+        if (spec := active_probe_contract().get(pr.assert_)) and spec.returns_timestamp
     })
     relative_steps = sorted({
         w.at for w in when if w.at and _OFFSET_RE.match(w.at)

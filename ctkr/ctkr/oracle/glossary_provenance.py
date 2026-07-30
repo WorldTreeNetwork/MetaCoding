@@ -449,9 +449,9 @@ def bind_term(
         # DERIVED with no validated_against by design; recording and binding
         # would otherwise both succeed and the miss surfaces only as 100%
         # NO VERDICT at port-verify — the plant_type lesson, 2026-07-23).
-        from ctkr.oracle.probes import PROBE_CONTRACT
+        from ctkr.oracle.lens import active_probe_contract
 
-        pspec = PROBE_CONTRACT.get(term)
+        pspec = active_probe_contract().get(term)
         if pspec is not None and not pspec.is_evidence:
             raise ProvenanceError(
                 f"assertion term {term!r} cannot score: its ProbeSpec is still "

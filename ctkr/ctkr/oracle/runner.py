@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 
 from ctkr.oracle.adapter import AdapterError, Handle, ImplementationAdapter
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
-from ctkr.oracle.probes import PROBE_CONTRACT, ProbeSpec
+from ctkr.oracle.contract import ProbeSpec
+from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
 _OPS = {
@@ -121,7 +122,7 @@ def _evaluate(
             expected=t.value, actual=None,
             detail=f"subject alias {t.subject!r} was never created",
         )
-    spec = PROBE_CONTRACT.get(t.assert_)
+    spec = active_probe_contract().get(t.assert_)
     if spec is None:  # pragma: no cover — validator forbids this
         return AssertionResult(
             passed=False, assertion=t.assert_, subject=t.subject, op=t.op,

@@ -92,7 +92,8 @@ from ctkr.oracle.fixtures import (
     same_value,
     write_fixtures,
 )
-from ctkr.oracle.probes import PROBE_CONTRACT, current_derivations
+from ctkr.oracle.contract import current_derivations
+from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.recorder import UNANSWERABLE_STATUS
 
 #: The sealed-pack sidecar, next to ``fixtures.jsonl``.
@@ -506,7 +507,7 @@ def _fixture_problems(
     # since CORRECTED is stale, whatever it says about itself.
     current = current_derivations()
     for t in {a.assert_ for a in fx.then}:
-        spec = PROBE_CONTRACT.get(t)
+        spec = active_probe_contract().get(t)
         if spec is None or not spec.derivation_id:
             continue
         # The FIXTURE's own stamp, not the seal's. A pack-level map would let a

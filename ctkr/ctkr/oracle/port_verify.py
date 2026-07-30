@@ -56,7 +56,8 @@ from ctkr.oracle.port_adapter import (
     Unanswerable,
 )
 from ctkr.oracle.port_contract import Divergence, PortManifest, decision_covers
-from ctkr.oracle.probes import PROBE_CONTRACT, methods_for_action
+from ctkr.oracle.contract import methods_for_action
+from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.runner import UnresolvedAlias, compare_values, resolve_probe_args
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
@@ -405,7 +406,7 @@ def _no_verdict_verdict(
 
 
 def _authority_of(assertion: str) -> str:
-    spec = PROBE_CONTRACT.get(assertion)
+    spec = active_probe_contract().get(assertion)
     return spec.authority if spec else ""
 
 
@@ -525,7 +526,7 @@ def _judge_assertion(
             authority=_authority_of(t.assert_), **kw,
         )
 
-    spec = PROBE_CONTRACT.get(t.assert_)
+    spec = active_probe_contract().get(t.assert_)
     if spec is None:
         return out(AssertionStatus.NO_VERDICT,
                    cause=NoVerdictCause.INVALID_EVIDENCE,
