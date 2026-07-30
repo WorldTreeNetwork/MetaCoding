@@ -54,14 +54,24 @@ from pathlib import Path
 
 from ctkr.oracle.glossary_provenance import validate_term_spec
 
-GLOSSARY = "ctkr/oracle/glossary.py"
-PROBES = "ctkr/oracle/probes.py"
-STEPS = "ctkr/oracle/steps.py"
-ADAPTER = "ctkr/oracle/adapter.py"
-FARMOS = "ctkr/oracle/farmos_adapter.py"
-RECORDER = "ctkr/oracle/recorder.py"
-FIXTURES = "ctkr/oracle/fixtures.py"
-PORT_ADAPTER = "ctkr/oracle/port_adapter.py"
+
+# WHICH files add-term writes into belongs to the LENS (MetaCoding-1gt). These
+# were eight hardcoded instrument paths, which is why adding one farmOS word
+# edited MetaCoding's source and why a second target would have written its
+# vocabulary into the first target's files. Resolved per call, so nothing is
+# captured at import time.
+def _t(name: str) -> str:
+    """The active lens's path for one codegen target."""
+    from ctkr.oracle.lens import active_lens
+
+    lens = active_lens()
+    try:
+        return lens.codegen_targets[name]
+    except KeyError:
+        raise CodegenError(
+            f"lens {lens.name!r} declares no codegen target {name!r}; it cannot "
+            f"receive generated {name} code"
+        ) from None
 
 _SET_FOR_KIND = {
     "entity": "ENTITY_TERMS",
@@ -189,10 +199,10 @@ def _glossary_edit(src: str, term: str, kind: str, description: str) -> str:
     marker = f"{set_name}: frozenset[str] = frozenset("
     start = src.find(marker)
     if start < 0:
-        raise CodegenError(f"{GLOSSARY}: cannot find the {set_name} set")
+        raise CodegenError(f"{_t('glossary')}: cannot find the {set_name} set")
     close = src.find("\n    }", start)
     if close < 0:
-        raise CodegenError(f"{GLOSSARY}: cannot find the end of {set_name}")
+        raise CodegenError(f"{_t('glossary')}: cannot find the end of {set_name}")
     line = f'\n        "{term}",  # {_short(description)} [PROVISIONAL]'
     return src[:close] + line + src[close:]
 
@@ -356,10 +366,10 @@ def _assert_required_has_row(src: str, term: str) -> bool:
     fixtures.py (a GivenStep write-field, say) is not mistaken for a row."""
     start = src.find(_ASSERT_REQUIRED_MARKER)
     if start < 0:
-        raise CodegenError(f"{FIXTURES}: cannot find the _ASSERT_REQUIRED table")
+        raise CodegenError(f"{_t('fixtures')}: cannot find the _ASSERT_REQUIRED table")
     close = src.find("\n}", start)
     if close < 0:
-        raise CodegenError(f"{FIXTURES}: cannot find the end of _ASSERT_REQUIRED")
+        raise CodegenError(f"{_t('fixtures')}: cannot find the end of _ASSERT_REQUIRED")
     return f'"{term}":' in src[start:close]
 
 
@@ -370,10 +380,10 @@ def _fixtures_edit(src: str, term: str, params: tuple[tuple[str, str], ...]) -> 
     marker = _ASSERT_REQUIRED_MARKER
     start = src.find(marker)
     if start < 0:
-        raise CodegenError(f"{FIXTURES}: cannot find the _ASSERT_REQUIRED table")
+        raise CodegenError(f"{_t('fixtures')}: cannot find the _ASSERT_REQUIRED table")
     close = src.find("\n}", start)
     if close < 0:
-        raise CodegenError(f"{FIXTURES}: cannot find the end of _ASSERT_REQUIRED")
+        raise CodegenError(f"{_t('fixtures')}: cannot find the end of _ASSERT_REQUIRED")
     required = tuple(f for f, _ in params) + ("value",)
     fields_src = "(" + ", ".join(repr(f) for f in required) + (",)" if len(required) == 1 else ")")
     line = (
@@ -463,25 +473,25 @@ def plan_edits(spec: dict, root: str | Path) -> list[FileEdit]:
 
     edits: list[FileEdit] = []
 
-    g = _read(root, GLOSSARY)
-    edits.append(FileEdit(GLOSSARY, g, _glossary_edit(g, term, kind, description)))
+    g = _read(root, _t('glossary'))
+    edits.append(FileEdit(_t('glossary'), g, _glossary_edit(g, term, kind, description)))
 
     if kind == "assertion":
-        p = _read(root, PROBES)
+        p = _read(root, _t('probes'))
         p2 = _insert_before(
             p, "\n)\n\nPROBE_CONTRACT",
             "\n" + _probe_entry(term, description, semantics, params,
                                 subject_kind).rstrip("\n"),
-            PROBES)
-        edits.append(FileEdit(PROBES, p, p2))
-        r = _read(root, RECORDER)
+            _t('probes'))
+        edits.append(FileEdit(_t('probes'), p, p2))
+        r = _read(root, _t('recorder'))
         if f'probe.assert_ == "{term}"' in r:
-            raise CodegenError(f"{RECORDER}: a dispatch arm for {term!r} already exists")
+            raise CodegenError(f"{_t('recorder')}: a dispatch arm for {term!r} already exists")
         r2 = _insert_before(
             r, '    raise ValueError(f"unknown probe assertion',
-            _recorder_arm(term, params), RECORDER)
-        edits.append(FileEdit(RECORDER, r, r2))
-        x = _read(root, FIXTURES)
+            _recorder_arm(term, params), _t('recorder'))
+        edits.append(FileEdit(_t('recorder'), r, r2))
+        x = _read(root, _t('fixtures'))
         # Scope the "already has a row" check to the _ASSERT_REQUIRED table: a
         # whole-file substring match on '"{term}":' also trips on an unrelated
         # dict key elsewhere in fixtures.py — e.g. a GivenStep write-field named
@@ -489,40 +499,43 @@ def plan_edits(spec: dict, root: str | Path) -> list[FileEdit]:
         # glossary READ term both exist, MetaCoding plant-type). The row lives
         # only inside the table.
         if _assert_required_has_row(x, term):
-            raise CodegenError(f"{FIXTURES}: {term!r} already has a required-fields row")
-        edits.append(FileEdit(FIXTURES, x, _fixtures_edit(x, term, params)))
+            raise CodegenError(f"{_t('fixtures')}: {term!r} already has a required-fields row")
+        edits.append(FileEdit(_t('fixtures'), x, _fixtures_edit(x, term, params)))
     elif kind == "action":
-        p = _read(root, PROBES)
+        p = _read(root, _t('probes'))
         p2 = _insert_before(p, "\n)\n\nOPERATION_CONTRACT",
                             "\n" + _operation_entry(term, description).rstrip("\n"),
-                            PROBES)
-        edits.append(FileEdit(PROBES, p, p2))
-        s = _read(root, STEPS)
+                            _t('probes'))
+        edits.append(FileEdit(_t('probes'), p, p2))
+        s = _read(root, _t('steps'))
         s2 = _insert_before(s, "    else:\n        raise AdapterError",
-                            _steps_arm(term), STEPS)
-        edits.append(FileEdit(STEPS, s, s2))
+                            _steps_arm(term), _t('steps'))
+        edits.append(FileEdit(_t('steps'), s, s2))
 
     if kind in ("action", "assertion"):
-        a = _read(root, ADAPTER)
+        a = _read(root, _t('adapter'))
         if f"def {term}(" in a:
-            raise CodegenError(f"{ADAPTER}: method {term!r} already exists")
-        edits.append(FileEdit(ADAPTER, a, a.rstrip("\n") + "\n" + _adapter_stub(term, kind, semantics, params)))
+            raise CodegenError(f"{_t('adapter')}: method {term!r} already exists")
+        edits.append(FileEdit(
+            _t('adapter'), a,
+            a.rstrip("\n") + "\n" + _adapter_stub(term, kind, semantics, params),
+        ))
 
-        f = _read(root, FARMOS)
+        f = _read(root, _t('adapter_impl'))
         if f"def {term}(" in f:
-            raise CodegenError(f"{FARMOS}: method {term!r} already exists")
+            raise CodegenError(f"{_t('adapter_impl')}: method {term!r} already exists")
         f2 = _insert_at_class_end(f, "\ndef _iso(",
-                                  _farmos_stub(term, kind, semantics, params), FARMOS)
-        edits.append(FileEdit(FARMOS, f, f2))
+                                  _farmos_stub(term, kind, semantics, params), _t('adapter_impl'))
+        edits.append(FileEdit(_t('adapter_impl'), f, f2))
 
         # The port-side dispatch method (MetaCoding-wob). PortAdapter is the last
         # class in the file and nothing module-level follows it, so the stub is
         # appended at end-of-file exactly like the ABC's — a class-body method.
-        pa = _read(root, PORT_ADAPTER)
+        pa = _read(root, _t('port_adapter'))
         if f"def {term}(" in pa:
-            raise CodegenError(f"{PORT_ADAPTER}: method {term!r} already exists")
+            raise CodegenError(f"{_t('port_adapter')}: method {term!r} already exists")
         edits.append(FileEdit(
-            PORT_ADAPTER, pa,
+            _t('port_adapter'), pa,
             pa.rstrip("\n") + "\n"
             + _port_adapter_stub(term, kind, semantics, params, value_shape)))
 
