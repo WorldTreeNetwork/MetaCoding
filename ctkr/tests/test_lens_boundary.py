@@ -38,7 +38,7 @@ LENS_MODULES: frozenset[str] = frozenset({
 #: is listed HERE, visibly, rather than quietly widening the rule. Every entry in
 #: this dict must name the bead that removes it.
 KNOWN_BREACHES: dict[str, str] = {
-    "ctkr.lexicon": "MetaCoding-1gt — needs Lens.config_harvester; see docs/design/instrument-lens-source.md",
+    "ctkr.lexicon": "MetaCoding-1gt.2 — needs Lens.config_harvester; see docs/design/instrument-lens-source.md",
 }
 
 #: Files allowed to import a lens module: the lens itself, plus the two places
