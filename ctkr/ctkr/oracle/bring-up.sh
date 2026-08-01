@@ -120,6 +120,31 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_structur
 #   port (MetaCoding-xq7) records all three. Enabled on the live oracle
 #   2026-07-23.
 
+step "enable quick form modules"
+docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
+  farm_quick farm_quick_birth farm_quick_group farm_quick_inventory \
+  farm_quick_movement farm_quick_planting'
+# farm_quick + the five forms: without them the quick/* identity ports
+#   (MetaCoding-hy6.17..21) cannot record anything — there is no quick-form
+#   surface at all — and the `quick` provenance field does not exist, so the
+#   question of whether it is wholesale-replaceable at /api (the gating unknown
+#   on hy6.12, claim A2) cannot be observed. Probed 2026-08-02 before enabling:
+#   POST /api/asset/equipment with a `quick` attribute returned 422 "the
+#   attribute quick does not exist on the asset--equipment resource type", which
+#   was the MODULE being absent and not the field being internal — a probe that
+#   measured the oracle rather than farmOS.
+#
+#   THIS ONE IS DIFFERENT FROM THE ADDITIONS ABOVE, and the difference is why it
+#   is called out here: farm_quick's FieldHooks::entityBaseFieldInfo injects a
+#   base field onto EVERY asset and log, not just onto its own bundles. It
+#   changes the shape of resources that all 43 sealed packs were recorded
+#   against, so enabling it is only an EXTENSION if those packs still reproduce.
+#   Verified at the time of enabling (2026-08-02) by re-recording
+#   port_runs/lexicon-bind/location/location-flows.json and confirming all TEN
+#   fixture ids still match sealed pack f3460165d338da4c6043262a05bd3a99. Redo
+#   that check if this line ever moves; a mismatch means re-baseline, not
+#   extension. See MetaCoding-hy6.22.
+
 step "oauth keys"
 docker exec -u root farmos-oracle-www sh -c \
   'mkdir -p /opt/drupal/keys && chown www-data:www-data /opt/drupal/keys'

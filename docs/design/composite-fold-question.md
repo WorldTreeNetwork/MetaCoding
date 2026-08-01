@@ -72,20 +72,35 @@ field onto `asset` and `log` **only**. Same for taxonomy terms. Composite-act
 attribution in farmOS is **partial**. A port that stamped every created entity
 would diverge in the "looks like an improvement" direction.
 
-**What the boundary says is still UNKNOWN, and cannot currently be observed.**
-The judge argued from `FarmFieldFactory.php:209-223` that `hidden` is only a
-display option (correct — it sets `region: hidden` then
-`setDisplayConfigurable(TRUE)`), with no `setInternal`, no `setReadOnly`, and no
-field-access hook anywhere, and concluded `quick` is wholesale-replaceable at
-`/api`. I probed the live oracle to settle it and got 422 *"The attribute quick
-does not exist on the asset--equipment resource type"* — **but that probe is
-void**: `farm_quick` and all five submodules are **DISABLED** on the pinned
-oracle (`drush pm:list --filter=quick` → all Disabled). The field was absent
-because the module was absent. That measured the oracle, not farmOS, and it
-neither confirms nor refutes the judge.
+**Reason 3: SETTLED BY OBSERVATION (2026-08-02). The boundary replaces it
+wholesale.** The judge argued from `FarmFieldFactory.php:209-223` that `hidden`
+is only a display option — it sets `region: hidden` then
+`setDisplayConfigurable(TRUE)`, with no `setInternal`, no `setReadOnly`, and no
+field-access hook anywhere — and concluded `quick` must be writable at `/api`.
+With the quick modules enabled on the oracle (`hy6.22`), measured directly:
 
-**This is now the gating unknown**, and it is also a blocker for the builds —
-see "The oracle cannot see the quick forms" below.
+| probe | result |
+|---|---|
+| is `quick` exposed on `asset--equipment`? | **yes**, `[]` |
+| `PATCH quick=["inventory"]` | **200** → `["inventory"]` |
+| `PATCH quick=["planting"]` | **200** → `["planting"]` — **`inventory` is GONE** |
+| `PATCH quick=[]` | **200** → `[]` — clearable |
+| `PATCH quick=["b","a","c"]` | **200** → `["b","a","c"]` — arbitrary order |
+
+`quick` is a **last-writer-wins multi-value register**: replaceable, clearable,
+reorderable by any API client with update permission. It is **not** grow-only and
+**not** a `GSet`. The kernel primitive it actually needs is element 3, the one
+latest-wins comparator (`lww.ts`).
+
+An earlier probe of mine returned 422 *"the attribute quick does not exist"* and
+looked like it refuted the judge. It was **void** — `farm_quick` was disabled, so
+that measured the oracle, not farmOS. Withdrawn.
+
+**The methodological finding, which matters more than the answer:** this exact
+question — "is a `multiple => TRUE` farmOS field grow-only?" — has now been
+answered wrongly **twice by static source reading** (nicknames in `ci2`, `quick`
+here) and correctly **twice by one cheap boundary PATCH**. For this field shape,
+source reading is not evidence.
 
 ## B — the rule of three has NOT fired.
 
@@ -157,30 +172,35 @@ source has none, changing lineage semantics. **The recommendation is withdrawn.
 - **`createOrLoadTerm` is upsert-by-natural-key** with a race window; the nearest
   kernel primitive is `GuardedFirstWrite`, but no decision names it for terms.
 
-## The oracle cannot see the quick forms
+## The oracle now sees the quick forms — and it is an extension, not a re-baseline
 
-`farm_quick`, `farm_quick_birth`, `farm_quick_group`, `farm_quick_inventory`,
-`farm_quick_movement` and `farm_quick_planting` are **all Disabled** on the
-digest-pinned oracle. `bring-up.sh` never enables them.
+`farm_quick` and the five form modules were **all Disabled** on the pinned
+oracle; `bring-up.sh` never enabled them, so no quick build could observe
+anything and the `quick` question above could not be settled.
 
-So **none of the five builds can run their observe step today**, and the `quick`
-boundary question above cannot be settled either. Extending `bring-up.sh` to
-enable them is the established pattern (it already does this for `farm_sensor`
-and `farm_structure_types`) — but `farm_quick` injects a base field onto **every
-asset and log**, so the change must be made in `bring-up.sh` (never by hand) and
-validated by re-running a reproduction check: re-record `lexicon-bind/location`
-and confirm its ten fixture ids still match `f3460165d338da4c6043262a05bd3a99`.
-That check is cheap and it is the difference between extending the oracle and
-silently re-baselining it.
+Fixed in `bring-up.sh` (never by hand), following the established pattern it
+already uses for `farm_sensor` and `farm_structure_types`. Because `farm_quick`
+injects a base field onto **every asset and log**, enabling it changes the shape
+of resources all 43 sealed packs were recorded against, so it counts as an
+extension only if those packs still reproduce. Measured across the change:
+
+| | fixture ids |
+|---|---|
+| sealed pack `f3460165d338…` (2026-07) | 10 |
+| re-recorded BEFORE enabling | **identical** |
+| re-recorded AFTER enabling | **identical** |
+
+Reproduction holds. **Extension, not re-baseline.** Redo that check if the
+enable line ever moves.
 
 ## Before any of the five builds
 
-1. **Enable the quick modules in `bring-up.sh`**, then re-verify reproduction.
-2. **Observe `quick` at the boundary**: can `/api` replace, reorder or clear it?
-   That settles A2 empirically instead of by static reading — the method that has
-   now failed twice on this exact question.
-3. **Bind a CM decision naming whichever primitive `quick` actually is.** It must
-   not name `GSet` without one; `gset.ts` forbids it.
+1. ~~Enable the quick modules~~ **DONE** (`hy6.22`), reproduction re-verified.
+2. ~~Observe `quick` at the boundary~~ **DONE** — it is latest-wins,
+   replaceable, clearable, reorderable.
+3. **Bind a CM decision naming `lww` for `quick`.** The observation is recorded;
+   the decision is not yet bound, and `gset.ts` forbids reaching for `GSet`
+   without one — which is now moot, since `GSet` is the wrong answer anyway.
 4. **Record the partial-provenance divergence**: quantities and terms are
    unstamped and unstampable; the port must not stamp them.
 5. **Cite `w0a-2`** in the inventory build for the `l.id` → HLC tie-break.
