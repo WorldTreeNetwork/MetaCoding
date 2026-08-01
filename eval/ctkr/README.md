@@ -25,7 +25,7 @@ the discovery gate — see `docs/notes/functor-spike/2hop-findings.md`).
 # CI gate (asserts the must-pass thresholds):
 bun test eval/ctkr/functor_eval.test.ts
 
-# full report (prints tables, writes eval/ctkr/results/functor-<ts>.md):
+# full report (prints tables, writes <port-workspace>/results/functor-<ts>.md):
 bun run eval/ctkr/run_functor_eval.ts
 ```
 
@@ -83,7 +83,7 @@ known ground-truth equivalences.
 bun run eval/ctkr/run_role_equivalent_eval.ts
 ```
 
-The harness writes a Markdown report to `eval/ctkr/results/<timestamp>.md`.
+The harness writes a Markdown report to `<port-workspace>/results/<timestamp>.md`.
 
 **Until `ctkr.role_equivalent` is implemented**, the harness runs against a
 stub client that returns empty results.  All metrics will be 0.0.  This is

@@ -1,6 +1,0 @@
-{
-  "name": "w2-spine-log-maintenance-port",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "bun test" }
-}

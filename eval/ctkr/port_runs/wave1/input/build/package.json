@@ -1,6 +1,0 @@
-{
-  "name": "w1d-input-port",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "bun test" }
-}

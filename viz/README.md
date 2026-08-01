@@ -42,7 +42,7 @@ CM decision registry (kernel v1.3) alongside.
 | `/api/graph` | `.metacoding/ctkr/export/{nodes,edges}.jsonl` |
 | `/api/profiles` | `.metacoding/ctkr/hom_profiles.parquet` |
 | `/api/subsystems` | `.metacoding/ctkr/{subsystems,subsystem_members}.parquet` + `subsystem_cards.jsonl` |
-| `/api/port` | `eval/ctkr/results/feature-kind-graph-data/graph_real.json` + `eval/ctkr/port_runs/kernel-9h5.24/build/cm-decisions.jsonl` |
+| `/api/port` | `<port-workspace>/results/feature-kind-graph-data/graph_real.json` + `<port-workspace>/port_runs/kernel-9h5.24/build/cm-decisions.jsonl` — the workspace is DISCOVERED via `port.toml` (FarmOS2, cloned beside this repo), not a path in this tree |
 
 The only write is the layout cache `.metacoding/viz-layout.json`
 (ForceAtlas2, ~5 min cold, instant after). Regenerate the export with

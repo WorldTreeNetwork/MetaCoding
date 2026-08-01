@@ -1,4 +1,0 @@
-quantity.settings:
-  base_route: farm.setup.settings
-  route_name: quantity.settings
-  title: 'Quantity'

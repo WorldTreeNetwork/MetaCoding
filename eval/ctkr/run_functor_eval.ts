@@ -17,6 +17,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { portWorkspace } from "../../viz/paths.ts";
 import {
   buildBaseGraph,
   runRenameFork,
@@ -158,8 +159,12 @@ function main() {
 
   const md = lines.join("\n") + "\n";
 
+  // The report belongs to the WORKSPACE, not beside this file. Writing it to
+  // `join(__dir, "results")` recreated the ledger inside the instrument tree on
+  // every run — so deleting eval/ctkr/results would not have stayed deleted
+  // (MetaCoding-1gt). mkdirSync made that silent rather than an error.
   const __dir = dirname(fileURLToPath(import.meta.url));
-  const resultsDir = join(__dir, "results");
+  const resultsDir = join(portWorkspace(join(__dir, "..", "..")), "results");
   mkdirSync(resultsDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const reportPath = join(resultsDir, `functor-${ts}.md`);

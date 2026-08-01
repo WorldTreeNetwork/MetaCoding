@@ -4,9 +4,9 @@
 Drives the reusable diff engine (``ctkr.farmos_diff``) over two local farmOS
 checkouts + the ``farm_migrate`` ground-truth map, and writes:
 
-* ``eval/ctkr/results/farmos-differential.jsonl`` — one DiffRecord per signal
+* ``<port-workspace>/results/farmos-differential.jsonl`` — one DiffRecord per signal
   (the per-identifier survival ledger; deterministic).
-* ``eval/ctkr/results/farmos-differential.md`` — the calibration report: real
+* ``<port-workspace>/results/farmos-differential.md`` — the calibration report: real
   survival numbers per §7.2 tier hypothesis + proposed dial/tier reassignments.
 
 Usage:
@@ -43,7 +43,23 @@ from ctkr.farmos_diff import (  # noqa: E402
     write_diff_jsonl,
 )
 
-RESULTS = Path(__file__).resolve().parent / "results"
+
+def _results_dir() -> Path:
+    """Where the calibration report goes: the WORKSPACE, not beside this file.
+
+    This used to be ``Path(__file__).parent / "results"`` — a report written
+    into the instrument's own tree. That is the coupling MetaCoding-1gt exists
+    to remove, and it is worse than a stale path: it is self-resurrecting.
+    Delete ``eval/ctkr/results`` and the next run silently recreates it, so the
+    ledger reappears inside the instrument with nobody deciding it should.
+
+    Resolved late (not at import) because the workspace is discovered from the
+    working directory, and a module-level constant would freeze whichever
+    workspace happened to be in effect when this module was first imported.
+    """
+    from ctkr.oracle.port_contract import port_workspace
+
+    return port_workspace(Path(__file__).resolve().parents[2]) / "results"
 
 
 def _pct(x: float) -> str:
@@ -278,8 +294,8 @@ def main() -> int:
     ap.add_argument("--v1", required=True, help="farmOS 1.x (Drupal 7) tree")
     ap.add_argument("--v2", required=True, help="farmOS 2.x (Drupal 9) tree")
     ap.add_argument("--migrate", required=True, help="farm_migrate module dir (2.x)")
-    ap.add_argument("--out-md", default=str(RESULTS / "farmos-differential.md"))
-    ap.add_argument("--out-jsonl", default=str(RESULTS / "farmos-differential.jsonl"))
+    ap.add_argument("--out-md", default=str(_results_dir() / "farmos-differential.md"))
+    ap.add_argument("--out-jsonl", default=str(_results_dir() / "farmos-differential.jsonl"))
     args = ap.parse_args()
 
     tables = load_tables()

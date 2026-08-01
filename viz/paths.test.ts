@@ -26,28 +26,68 @@ function declaredWorkspace(body = '[port]\nname = "testport"\n'): string {
   return ws;
 }
 
+/**
+ * A fake instrument root with a workspace on its own search path.
+ *
+ * The search path is relative to the root the resolver is HANDED, so the
+ * mechanism can be exercised without depending on what is cloned beside this
+ * checkout. The two tests below used to read the REAL sibling and therefore
+ * FAILED — not skipped — on a clone without it: environment assertions wearing
+ * mechanism tests' clothes (MetaCoding-1gt, the same defect fixed on the Python
+ * side in tests/test_port_workspace.py).
+ */
+function siblingWorkspace(body = '[port]\nname = "testport"\n'): {
+  root: string;
+  ws: string;
+} {
+  const base = mkdtempSync(join(tmpdir(), "portroot-"));
+  const root = join(base, "instrument");
+  const ws = join(base, "farmos-port"); // = WORKSPACE_SEARCH_PATH[0] from root
+  mkdirSync(root, { recursive: true });
+  mkdirSync(ws, { recursive: true });
+  writeFileSync(join(ws, MANIFEST_NAME), body);
+  return { root, ws };
+}
+
+/** Whether the real farmOS ledger is cloned beside this checkout. */
+const LEDGER_PRESENT = defaultWorkspace(ROOT) !== null;
+
 describe("port workspace resolution", () => {
   test("with no manifest above it, the search path finds the sibling repo", () => {
     const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
     expect(findManifest(nowhere)).toBeNull();
 
-    const searched = defaultWorkspace(ROOT);
-    expect(searched).not.toBeNull();
-    expect(portWorkspace(ROOT, nowhere)).toBe(searched!);
-    // Not merely spelled right: the ledger must actually be there. These paths
-    // resolving is what makes the sibling checkout a real dependency rather than
-    // a hopeful string.
-    expect(existsSync(cmDecisionsPath(ROOT, nowhere))).toBe(true);
-    expect(existsSync(portGraphDir(ROOT, nowhere))).toBe(true);
+    const { root, ws } = siblingWorkspace();
+    expect(defaultWorkspace(root)).toBe(ws);
+    expect(portWorkspace(root, nowhere)).toBe(ws);
+    // The relpaths within a workspace are fixed by the instrument, so they are
+    // derived from the resolved root rather than read from the manifest.
+    expect(cmDecisionsPath(root, nowhere)).toBe(join(ws, CM_DECISIONS_RELPATH));
+    expect(portGraphDir(root, nowhere)).toBe(join(ws, PORT_GRAPH_RELPATH));
   });
+
+  test.skipIf(!LEDGER_PRESENT)(
+    "CORPUS: the real ledger is on this checkout's search path and populated",
+    () => {
+      // Not merely spelled right: the ledger must actually be there. This is the
+      // environment claim, split out from the mechanism above — it is allowed to
+      // be absent on a bare clone, and says so instead of failing.
+      const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
+      expect(existsSync(cmDecisionsPath(ROOT, nowhere))).toBe(true);
+      expect(existsSync(portGraphDir(ROOT, nowhere))).toBe(true);
+    },
+  );
 
   test("an assumed workspace says so, a declared one does not", () => {
     const nowhere = mkdtempSync(join(tmpdir(), "nomanifest-"));
+    const { root } = siblingWorkspace(
+      '[port]\nname = "testport"\n[source]\npin = "deadbeef"\n',
+    );
     // Found by search: the root was assumed, so implicit — but the pin travels.
-    const searched = discoverWorkspace(ROOT, nowhere);
+    const searched = discoverWorkspace(root, nowhere);
     expect(searched.implicit).toBe(true);
-    expect(searched.sourcePin).toBeTruthy();
-    expect(discoverWorkspace(ROOT, declaredWorkspace()).implicit).toBe(false);
+    expect(searched.sourcePin).toBe("deadbeef");
+    expect(discoverWorkspace(root, declaredWorkspace()).implicit).toBe(false);
   });
 
   test("a declared manifest wins for BOTH artifacts", () => {

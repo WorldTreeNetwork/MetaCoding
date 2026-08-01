@@ -1,6 +1,0 @@
-{
-  "name": "w1a-activity-port",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "bun test" }
-}
