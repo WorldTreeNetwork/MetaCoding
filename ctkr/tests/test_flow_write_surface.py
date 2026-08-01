@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
+from _workspace import PORT_RUNS, requires_ledger  # the ledger is its own repo
 
 from ctkr.oracle.adapter import AdapterError, ImplementationAdapter
 from ctkr.oracle.farmos_adapter import FarmOSAdapter, FarmOSClient
@@ -84,9 +84,16 @@ def test_using_a_new_field_changes_the_id(override) -> None:
     assert _golden_fixture(**override).content_id() != GOLDEN_PRE_XDT_ID
 
 
+@requires_ledger
 def test_committed_lexicon_bind_flow_packs_still_load() -> None:
-    """The flow packs in the repo (including the new delete_quantity pack) must
-    parse under the extended DSL."""
+    """The flow packs in the LEDGER must parse under the extended DSL.
+
+    CORPUS, not mechanism (MetaCoding-1gt): the claim is about the real
+    committed packs, so a synthetic stand-in would assert the DSL parses what
+    this test itself just wrote. The DSL's mechanism is covered unconditionally
+    by the validation tests below; what only the ledger can answer is whether
+    the flows recorded BEFORE the write surface opened still parse after it.
+    """
 
     root = PORT_RUNS / "lexicon-bind"
     if not root.is_dir():

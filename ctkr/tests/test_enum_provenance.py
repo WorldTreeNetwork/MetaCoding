@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 
 import pytest
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
+from _synthetic_ledger import SyntheticLedger, typed_entity_fixture
 
 from ctkr.oracle.glossary_provenance import (
     ENUM_VALUE_KIND,
@@ -115,39 +115,50 @@ def test_add_requires_a_citation_and_registers_once(tmp_path) -> None:
         add_enum_value("other", "STRUCTURE_TYPES", config_source="c.yml:x", path=p)
 
 
-def test_bind_refuses_a_pack_without_the_witness_position(tmp_path) -> None:
-    """The sensor pack is sealed and VALID but carries no structure given —
-    a real pack in the wrong position must not witness the value (and a mere
-    substring match anywhere in the pack must never count)."""
+def test_bind_refuses_a_pack_without_the_witness_position(
+    tmp_path, synthetic_ledger: SyntheticLedger
+) -> None:
+    """A pack sealed and VALID but carrying no structure given must not witness —
+    the position is the observation, and a mere substring match anywhere in the
+    pack must never count.
+
+    The pack here holds a SENSOR, and the value being bound is a structure kind.
+    Everything about it is real except its subject matter, which is the point:
+    the refusal has to come from the position, not from the pack being defective.
+    """
     p = tmp_path / "reg.jsonl"
     add_enum_value("greenhouse", "STRUCTURE_TYPES", config_source="c.yml:x", path=p)
-    sensor_pack = PORT_RUNS / "wave2" / "identity-sensor" / "observe" / "fixtures.jsonl"
-    if not sensor_pack.exists():
-        pytest.skip("no committed sensor pack in this tree")
+    wrong_position, _ = synthetic_ledger.seal_pack(
+        "sensor", [typed_entity_fixture("sensor", "greenhouse")]
+    )
     with pytest.raises(ProvenanceError, match="witness position"):
-        bind_enum_value("greenhouse", "STRUCTURE_TYPES", sensor_pack, path=p)
+        bind_enum_value("greenhouse", "STRUCTURE_TYPES", wrong_position, path=p)
 
 
-def test_bind_flips_via_a_real_witnessing_pack(tmp_path) -> None:
+def test_bind_flips_via_a_real_witnessing_pack(
+    tmp_path, synthetic_ledger: SyntheticLedger
+) -> None:
     p = tmp_path / "reg.jsonl"
     add_enum_value("greenhouse", "STRUCTURE_TYPES", config_source="c.yml:x", path=p)
-    pack = PORT_RUNS / "wave2" / "identity-structure" / "observe" / "fixtures.jsonl"
-    if not pack.exists():
-        pytest.skip("no committed structure pack in this tree")
+    pack, _ = synthetic_ledger.seal_pack(
+        "structure", [typed_entity_fixture("structure", "greenhouse")]
+    )
     row = bind_enum_value("greenhouse", "STRUCTURE_TYPES", pack, path=p)
     assert row["status"] == "bound" and row["provenance"]["first_pack_seal"]
     with pytest.raises(ProvenanceError, match="issued once"):
         bind_enum_value("greenhouse", "STRUCTURE_TYPES", pack, path=p)
 
 
-def test_an_ungoverned_set_cannot_bind_without_a_declared_witness_position(tmp_path) -> None:
+def test_an_ungoverned_set_cannot_bind_without_a_declared_witness_position(
+    tmp_path, synthetic_ledger: SyntheticLedger
+) -> None:
     """The witness map is CLOSED on purpose: 'appears somewhere in the
     fixture' would let any string constant witness anything."""
     p = tmp_path / "reg.jsonl"
     add_enum_value("increment", "ADJUSTMENT_KINDS", config_source="c.yml:x", path=p)
-    pack = PORT_RUNS / "wave2" / "identity-structure" / "observe" / "fixtures.jsonl"
-    if not pack.exists():
-        pytest.skip("no committed structure pack in this tree")
+    pack, _ = synthetic_ledger.seal_pack(
+        "structure", [typed_entity_fixture("structure", "greenhouse")]
+    )
     with pytest.raises(ProvenanceError, match="no declared witness position"):
         bind_enum_value("increment", "ADJUSTMENT_KINDS", pack, path=p)
 

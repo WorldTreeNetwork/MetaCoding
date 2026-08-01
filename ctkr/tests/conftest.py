@@ -14,3 +14,8 @@ from pathlib import Path
 _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+# The synthetic port workspace (MetaCoding-1gt) is registered HERE rather than
+# imported per module: a fixture imported by name shadows its own definition in
+# every consumer, which lints as a redefinition and hides real shadowing bugs.
+from _synthetic_ledger import synthetic_ledger  # noqa: E402,F401

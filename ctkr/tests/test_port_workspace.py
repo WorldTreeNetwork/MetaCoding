@@ -29,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from _workspace import requires_ledger  # the ledger is its own repo (MetaCoding-1gt)
 
 from ctkr.oracle.port_contract import (
     DECISION_REGISTRY_RELPATHS,
@@ -62,6 +63,22 @@ def _manifest(root: Path, **sections: str) -> Path:
 # --------------------------------------------------------------------------- #
 # 1. the search path, now that the ledger is a sibling repo                     #
 # --------------------------------------------------------------------------- #
+def _sibling_workspace(tmp_path: Path, **sections: str) -> tuple[Path, Path]:
+    """A fake instrument root with a workspace on its search path.
+
+    The resolver's search path is relative to the root it is HANDED, so the
+    mechanism can be exercised without depending on what happens to be cloned
+    beside the developer's checkout. Before MetaCoding-1gt these tests read the
+    real sibling and therefore FAILED (not skipped) on a clone without it —
+    an environment assertion wearing a mechanism test's clothes.
+    """
+    root = tmp_path / "instrument"
+    root.mkdir()
+    ws = (root / WORKSPACE_SEARCH_PATH[0]).resolve()
+    _manifest(ws, **sections)
+    return root, ws
+
+
 def test_with_no_manifest_the_search_path_finds_the_workspace(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -69,27 +86,49 @@ def test_with_no_manifest_the_search_path_finds_the_workspace(
     monkeypatch.chdir(tmp_path)  # nothing above tmp_path carries a port.toml
     assert find_manifest(tmp_path) is None
 
+    root, ws = _sibling_workspace(tmp_path)
+    found = default_workspace(root)
+    assert found == ws, (
+        f"nothing found on the search path {list(WORKSPACE_SEARCH_PATH)} "
+        f"relative to {root}"
+    )
+    assert port_workspace(root) == found
+
+    sources = decision_sources(root)
+    assert sources, "the resolved workspace must name at least one registry"
+    assert all(str(p).startswith(str(ws)) for p in sources), (
+        f"a resolved registry escaped the workspace: {[str(p) for p in sources]}"
+    )
+
+
+def test_a_searched_workspace_still_carries_its_manifest_metadata(
+    tmp_path: Path,
+) -> None:
+    """Found by search, not by cwd — but the pin must still travel."""
+    _, ws = _sibling_workspace(tmp_path, source='pin = "deadbeef"')
+    found = default_workspace(ws.parent / "instrument")
+    assert found == ws
+    workspace = discover(start=Path(tmp_path.anchor), fallback=found)
+    assert workspace.implicit is True, "the ROOT was assumed from the search path"
+    assert workspace.source.pin == "deadbeef", (
+        "a searched workspace must still deliver its source pin"
+    )
+
+
+@requires_ledger
+def test_the_real_farmos_workspace_is_on_this_checkouts_search_path() -> None:
+    """CORPUS (MetaCoding-1gt): the mechanism above is environment-free; THIS is
+    the environment claim, and it is the one that may legitimately be absent."""
     found = default_workspace(REPO_ROOT)
     assert found is not None, (
         f"no workspace on the search path {list(WORKSPACE_SEARCH_PATH)} relative "
         f"to {REPO_ROOT} — clone github.com/WorldTreeNetwork/FarmOS2 beside it"
     )
     assert port_workspace(REPO_ROOT) == found
-
-    sources = decision_sources(REPO_ROOT)
-    assert sources, "the resolved workspace must name at least one registry"
-    assert [p for p in sources if p.exists()], (
-        f"resolved registry missing: {[str(p) for p in sources]}"
+    assert [p for p in decision_sources(REPO_ROOT) if p.exists()], (
+        "the real workspace names no registry that exists"
     )
-
-
-def test_a_searched_workspace_still_carries_its_manifest_metadata() -> None:
-    """Found by search, not by cwd — but the pin must still travel."""
-    found = default_workspace(REPO_ROOT)
-    assert found is not None
-    ws = discover(start=Path(REPO_ROOT.anchor), fallback=found)
-    assert ws.implicit is True, "the ROOT was assumed from the search path"
-    assert ws.source.pin, "a searched workspace must still deliver its source pin"
+    assert discover(start=Path(REPO_ROOT.anchor), fallback=found).source.pin
 
 
 def test_an_assumed_workspace_says_so(
@@ -194,20 +233,34 @@ def test_term_incidence_default_roots_follow_the_workspace(
 ) -> None:
     from ctkr.commands.term_incidence import default_roots
 
-    monkeypatch.chdir(tmp_path)
-    searched = default_workspace(REPO_ROOT)
-    assert searched is not None
-    assert default_roots() == (
-        searched / "port_runs" / "wave1",
-        searched / "port_runs" / "wave0-pilot",
-    )
-
     ws = tmp_path / "ws"
     _manifest(ws)
     monkeypatch.chdir(ws)
     assert default_roots() == (
         ws / "port_runs" / "wave1",
         ws / "port_runs" / "wave0-pilot",
+    )
+
+
+@requires_ledger
+def test_term_incidence_falls_back_to_the_searched_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CORPUS: with no manifest above cwd, the roots come off the SEARCH PATH.
+
+    Unlike the test above, this one cannot be handed a synthetic root —
+    ``default_roots()`` takes no root argument and falls back to the real
+    checkout's search path by construction, so what it resolves to is a fact
+    about this machine rather than about the code.
+    """
+    from ctkr.commands.term_incidence import default_roots
+
+    monkeypatch.chdir(tmp_path)  # nothing above tmp_path carries a port.toml
+    searched = default_workspace(REPO_ROOT)
+    assert searched is not None
+    assert default_roots() == (
+        searched / "port_runs" / "wave1",
+        searched / "port_runs" / "wave0-pilot",
     )
 
 

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import networkx as nx
+from _workspace import requires_ledger  # the ledger is its own repo (MetaCoding-1gt)
 
 from ctkr.llm import LLMClient, _ProviderResponse
 from ctkr.propose_adapter import (
@@ -377,9 +378,21 @@ def test_format_cm_constraints_block_omits_unresolved():
 # --------------------------------------------------------------------------- #
 # MetaCoding-sag: the CM-registry coupling is discovered, never silently absent #
 # --------------------------------------------------------------------------- #
-def test_cm_registry_is_discovered_from_the_repo(tmp_path) -> None:
-    """Omitting --cm-decisions finds the repo's own bound registry; a tree
-    without one yields None so the caller warns instead of generating blind."""
+def test_discovery_stops_at_a_tree_with_no_registry(tmp_path) -> None:
+    """A tree without a registry yields None, so the caller warns instead of
+    generating blind. MECHANISM: needs no ledger (MetaCoding-1gt)."""
+    from ctkr.commands.propose_adapter import discover_cm_registry
+
+    (tmp_path / ".git").mkdir()  # a bare unrelated repo: discovery must stop
+    assert discover_cm_registry(start=tmp_path) is None
+
+
+@requires_ledger
+def test_cm_registry_is_discovered_from_the_repo() -> None:
+    """Omitting --cm-decisions finds the repo's own bound registry.
+
+    CORPUS: 'the repo's own registry' is the farmOS ledger's, so this asserts
+    something about what is cloned here, not about the discovery code."""
     from pathlib import Path
 
     from ctkr.commands.propose_adapter import discover_cm_registry
@@ -389,6 +402,3 @@ def test_cm_registry_is_discovered_from_the_repo(tmp_path) -> None:
     found = discover_cm_registry(start=repo_root / "ctkr")
     assert found is not None
     assert found in decision_sources(repo_root)
-
-    (tmp_path / ".git").mkdir()  # a bare unrelated repo: discovery must stop
-    assert discover_cm_registry(start=tmp_path) is None

@@ -28,7 +28,7 @@ import json
 from pathlib import Path
 
 import pytest
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
+from _workspace import PORT_RUNS, requires_ledger  # the ledger is its own repo
 
 from ctkr.oracle.probes import PROBE_CONTRACT
 
@@ -58,10 +58,11 @@ REDUNDANT = {
 
 
 def _rows(path: Path) -> list[dict]:
-    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 @pytest.mark.parametrize("path", SYNTHETIC, ids=lambda p: p.parts[-4])
+@requires_ledger
 def test_the_retired_fixtures_are_synthetic_for_the_stated_reason(path) -> None:
     if not path.is_file():
         pytest.skip(f"no build tree at {path}")
@@ -74,6 +75,7 @@ def test_the_retired_fixtures_are_synthetic_for_the_stated_reason(path) -> None:
 
 
 @pytest.mark.parametrize("path", SYNTHETIC, ids=lambda p: p.parts[-4])
+@requires_ledger
 def test_the_retirement_is_recorded_beside_the_file(path) -> None:
     """A reader who opens the directory must not have to know the history."""
     if not path.is_file():
@@ -85,6 +87,7 @@ def test_the_retirement_is_recorded_beside_the_file(path) -> None:
         assert seal[:12] in text, "the note must name what replaced the file"
 
 
+@requires_ledger
 def test_the_replacement_packs_are_sealed_and_load_through_the_judging_path() -> None:
     from ctkr.oracle.pack import load_pack
 
@@ -105,6 +108,7 @@ def test_the_replacement_packs_are_sealed_and_load_through_the_judging_path() ->
             )
 
 
+@requires_ledger
 def test_every_retired_assertion_is_recorded_or_provably_redundant() -> None:
     """THE test. Retirement without this is deletion: the semantics would go
     quiet rather than move somewhere they are actually observed."""

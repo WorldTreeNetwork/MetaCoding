@@ -17,7 +17,10 @@ Hermetic: the bridges are local python processes; no Docker, no oracle.
 
 from __future__ import annotations
 
-from _workspace import PORT_RUNS  # the ledger lives in its own repo (MetaCoding-1gt)
+from _workspace import (  # the ledger lives in its own repo (MetaCoding-1gt)
+    PORT_RUNS,
+    requires_ledger,
+)
 
 from ctkr.oracle.pack import load_pack
 from ctkr.oracle.port_adapter import PortAdapter
@@ -34,6 +37,7 @@ def _report(port_dir: str) -> PortVerifyReport:
     return verify_port(adapter, pack, manifest, {})
 
 
+@requires_ledger
 def test_the_shipped_membership_pack_discriminates_the_c1_fix() -> None:
     matching = _report("portB")   # RECURSIVE=1 — matches GroupMembership.php
     diverging = _report("portA")  # RECURSIVE=0 — the pre-fix adapter's belief
