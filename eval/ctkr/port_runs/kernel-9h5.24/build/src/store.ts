@@ -22,7 +22,7 @@ import {
   CmDecisionRegistry,
   type KernelEvent,
   type Hlc,
-} from "../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 import {
   makeKernelRegistry,
   BOUND_CM_DECISIONS,

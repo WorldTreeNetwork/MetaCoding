@@ -12,7 +12,7 @@
 import {
   KindRegistry,
   type KindSpec,
-} from "../../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 /** Kinds shared by the whole wave-2 asset-bundle spine. */
 export const SPINE_ASSET_KINDS: readonly KindSpec[] = [

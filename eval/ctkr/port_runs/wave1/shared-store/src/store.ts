@@ -32,9 +32,9 @@ import {
   type EntityId,
   type Hlc,
   type LifecycleStatus,
-} from "../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 import { makeWave1Registry } from "./kinds.ts";
-import type { KindSpec } from "../../../../../../src/kernel/index.ts";
+import type { KindSpec } from "@metacoding/kernel";
 
 export type Handle = EntityId;
 

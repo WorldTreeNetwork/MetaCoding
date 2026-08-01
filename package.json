@@ -30,6 +30,9 @@
   "engines": {
     "bun": ">=1.1.0"
   },
+  "workspaces": [
+    "src/kernel"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -51,6 +54,7 @@
     "viz": "bun viz/server.ts"
   },
   "devDependencies": {
+    "@metacoding/kernel": "workspace:*",
     "@types/bun": "latest",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

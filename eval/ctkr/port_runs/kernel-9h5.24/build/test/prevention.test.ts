@@ -16,7 +16,7 @@ import {
   UnboundDecisionError,
   type KernelEvent,
   type EntityId,
-} from "../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 // ── 1. Ad-hoc event kinds are rejected (element 1 — closes CP2's latent conflict) ──
 test("ad-hoc event kinds cannot enter the log", () => {

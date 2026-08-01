@@ -11,6 +11,12 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    // The shared kernel is a real package (@metacoding/kernel, src/kernel/
+    // package.json) so port builds consume it by NAME instead of climbing
+    // ../../../../../../ out of whatever tree contains them (MetaCoding-1gt.3).
+    // Runtime resolution comes from the bun workspace member in package.json,
+    // which SYMLINKS src/kernel into node_modules — no copy here to drift, and
+    // unlike a "paths" entry it is not shadowed by the builds' nested tsconfigs.
     "verbatimModuleSyntax": true,
     "noEmit": true,
 

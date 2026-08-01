@@ -34,9 +34,9 @@ import {
   type KernelEvent,
   type EntityId,
   type Hlc,
-} from "../../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 import { makeSpineAssetRegistry, SPINE_ASSET_KINDS } from "./kinds.ts";
-import type { KindSpec } from "../../../../../../../../src/kernel/index.ts";
+import type { KindSpec } from "@metacoding/kernel";
 
 export type Handle = EntityId;
 

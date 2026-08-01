@@ -31,6 +31,7 @@
         "zod": "^3.25.1",
       },
       "devDependencies": {
+        "@metacoding/kernel": "workspace:*",
         "@types/bun": "latest",
         "@types/react": "^19.2.17",
         "@types/react-dom": "^19.2.3",
@@ -39,6 +40,10 @@
       "peerDependencies": {
         "typescript": "^6.0.3",
       },
+    },
+    "src/kernel": {
+      "name": "@metacoding/kernel",
+      "version": "1.3.0",
     },
   },
   "trustedDependencies": [
@@ -108,6 +113,8 @@
     "@ladybugdb/core-linux-x64": ["@ladybugdb/core-linux-x64@0.15.4", "", { "os": "linux", "cpu": "x64" }, "sha512-5STnU+96z7mRg6OiBRJlJ5pYud3MAdGA04cwEqmozOYh/hvMnLFJ08mHsJjrw6XHksNC1bGg43nS/KlS+9YiiA=="],
 
     "@ladybugdb/core-win32-x64": ["@ladybugdb/core-win32-x64@0.15.4", "", { "os": "win32", "cpu": "x64" }, "sha512-dc5oeQASCfiG4XfUQqo/r/eUlLYroC+YeRG/rmBu/HnW9XgMha3IfuzmqPmjOIcF8pUXGxFtBDrwhmIdezmW8w=="],
+
+    "@metacoding/kernel": ["@metacoding/kernel@workspace:src/kernel"],
 
     "@microsoft/applicationinsights-web-snippet": ["@microsoft/applicationinsights-web-snippet@1.0.1", "", {}, "sha512-2IHAOaLauc8qaAitvWS+U931T+ze+7MNWrDHY47IENP5y2UA0vqJDu67kWZDdpCN1fFC77sfgfB+HV7SrKshnQ=="],
 

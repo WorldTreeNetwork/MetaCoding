@@ -38,7 +38,7 @@ import {
   type EntityId,
   type Hlc,
   type KindSpec,
-} from "../../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 export type Handle = EntityId;
 

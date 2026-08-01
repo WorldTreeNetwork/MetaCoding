@@ -32,7 +32,7 @@ import {
   type EntityId,
   type Hlc,
   type KindSpec,
-} from "../../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 import { makeTaxonomyRegistry } from "./kinds.ts";
 import { type VocabularySpec, VOCABULARIES } from "./vocabularies.ts";
 

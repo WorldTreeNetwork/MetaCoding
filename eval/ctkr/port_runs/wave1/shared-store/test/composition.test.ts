@@ -4,7 +4,7 @@
 
 import { test, expect } from "bun:test";
 import { Wave1LogStore } from "../src/store.ts";
-import { isEntityId, replicaOf } from "../../../../../../src/kernel/index.ts";
+import { isEntityId, replicaOf } from "@metacoding/kernel";
 import { makeActivityAdapter } from "../../activity/build/src/activity.ts";
 import { makeObservationAdapter, OBSERVATION_KINDS } from "../../observation/build/src/observation.ts";
 import { makeHarvestLoggingAdapter, HARVEST_KINDS } from "../../harvest/build/src/harvest.ts";

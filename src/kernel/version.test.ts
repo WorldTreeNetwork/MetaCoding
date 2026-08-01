@@ -6,6 +6,7 @@ import {
   kernelFingerprint,
   requireKernel,
 } from "./version.ts";
+import pkg from "./package.json" with { type: "json" };
 
 test("a build pinned to the current kernel runs", () => {
   expect(requireKernel(currentKernel(), "w0a")).toEqual(currentKernel());
@@ -68,4 +69,18 @@ test("the fingerprint covers what changes ANSWERS, and it moved for v1.3", () =>
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   expect(h.toString(16).padStart(8, "0")).not.toBe(kernelFingerprint());
+});
+
+test("the package manifest's version is the kernel's version", () => {
+  // src/kernel is a real package (@metacoding/kernel) so port builds consume it
+  // by name rather than by a relative climb out of the tree that contains them
+  // (MetaCoding-1gt.3). That gives the version TWO homes, and a consumer that
+  // resolves the dependency reads the manifest's, not this file's. They drift
+  // silently unless something says they may not.
+  expect(pkg.version).toBe(KERNEL_VERSION);
+});
+
+test("the package exports the entry point the port workspace imports", () => {
+  expect(pkg.name).toBe("@metacoding/kernel");
+  expect(pkg.exports["."]).toBe("./index.ts");
 });

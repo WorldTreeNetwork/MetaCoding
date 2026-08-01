@@ -21,7 +21,7 @@ import {
 import type {
   KindSpec,
   LifecycleStatus,
-} from "../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 export const OBSERVATION_KINDS: readonly KindSpec[] = [
   { kind: "selection_started", family: "workflow", isLog: false, description: "w1b: pending add-observation asset selection (actor-scoped)" },

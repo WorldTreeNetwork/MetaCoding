@@ -15,7 +15,7 @@
 import {
   KindRegistry,
   type KindSpec,
-} from "../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 /** Kinds shared by the whole wave-1 log family (every feature consumes these). */
 export const WAVE1_CORE_KINDS: readonly KindSpec[] = [

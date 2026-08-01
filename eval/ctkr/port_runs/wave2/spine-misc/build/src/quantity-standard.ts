@@ -33,7 +33,7 @@ import {
   type QuantityInput,
   type QuantityRecord,
 } from "../../../../wave1/shared-store/src/store.ts";
-import type { LifecycleStatus } from "../../../../../../../src/kernel/index.ts";
+import type { LifecycleStatus } from "@metacoding/kernel";
 
 export type AssetHandle = Handle;
 export type StandardLogHandle = Handle;

@@ -11,7 +11,7 @@
 import {
   KindRegistry,
   type KindSpec,
-} from "../../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 /** Kinds shared by the whole spine-taxonomy-b vocabulary family. */
 export const TAXONOMY_CORE_KINDS: readonly KindSpec[] = [

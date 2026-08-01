@@ -7,7 +7,7 @@ import {
   KindRegistry,
   type KindSpec,
   type CmDecision,
-} from "../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 // ---- Closed event-kind taxonomy (kernel element 1) ----
 //

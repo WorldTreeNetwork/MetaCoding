@@ -15,7 +15,7 @@ import {
   type QuantityInput,
   type QuantityRecord,
 } from "../../../shared-store/src/store.ts";
-import type { LifecycleStatus } from "../../../../../../../src/kernel/index.ts";
+import type { LifecycleStatus } from "@metacoding/kernel";
 
 export type InputLogHandle = Handle;
 export type MaterialTypeHandle = string; // taxonomy term name (auto_create: a name IS the term)

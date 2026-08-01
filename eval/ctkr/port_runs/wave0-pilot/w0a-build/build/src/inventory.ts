@@ -55,7 +55,7 @@ import {
   type KindSpec,
   type LifecycleStatus,
   type StatusGate,
-} from "../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 /** The kernel kind under which every inventory adjustment is logged. */
 export const INVENTORY_ADJUSTMENT_KIND = "inventory_adjustment";

@@ -27,7 +27,7 @@ import {
   demoteToObservation,
   type KindSpec,
   type Hlc,
-} from "../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 export const HARVEST_KINDS: readonly KindSpec[] = [
   { kind: "movement_recorded", family: "movement", isLog: false, statusGate: "require-confirmed", description: "a location movement — NOT a log (9h5.24 name; bound taxonomy decision)" },

@@ -12,7 +12,7 @@ import {
   type QuantityInput,
   type LogView,
 } from "../../../shared-store/src/store.ts";
-import { compareHlc } from "../../../../../../../src/kernel/index.ts";
+import { compareHlc } from "@metacoding/kernel";
 
 export type AssetHandle = Handle;
 export type ActivityLogHandle = Handle;

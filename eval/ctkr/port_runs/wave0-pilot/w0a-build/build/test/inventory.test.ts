@@ -5,7 +5,7 @@ import {
   type AssetHandle,
   type AdjustmentKind,
 } from "../src/inventory.ts";
-import { isEntityId } from "../../../../../../../src/kernel/index.ts";
+import { isEntityId } from "@metacoding/kernel";
 
 const MASS = "measure:mass";
 const KG = "units:kg";
@@ -184,7 +184,7 @@ import {
   KindRegistry,
   STATUS_CONTRACT,
   type KernelEvent,
-} from "../../../../../../../src/kernel/index.ts";
+} from "@metacoding/kernel";
 
 test("the status gate comes FROM the kernel contract, not a local constant", () => {
   // If the kernel re-decides this projection's gate, the build must follow.

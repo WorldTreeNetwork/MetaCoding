@@ -13,7 +13,7 @@
 // disagree, which must surface as a declaration problem.
 
 import type { Wave1LogStore, Handle, QuantityInput, LogExtras } from "./store.ts";
-import type { LifecycleStatus } from "../../../../../../src/kernel/index.ts";
+import type { LifecycleStatus } from "@metacoding/kernel";
 
 export interface BridgeConfig {
   port: string;
