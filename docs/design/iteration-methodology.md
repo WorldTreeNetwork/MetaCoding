@@ -160,6 +160,21 @@ only branch that could ever report a problem was broken. A clean run never enter
 that branch, which is precisely how it stayed broken. **It had built a checker
 capable of reporting nothing but success**, and would have shipped it as evidence.
 
+**And verify the mutation actually applied.** On 2026-08-03 a consolidation pass
+ran fifteen mutations and two of them lied. One replacement string had the wrong
+indentation and **silently did not match**, so the suite ran unmodified and
+reported "0 fail" — which reads exactly like *the suite cannot catch this*. That
+is the mirror of a checker that cannot fail: an instrument reporting a real
+result for a test that never happened. The other restored between rounds with
+`git checkout`, which reverted an unrelated uncommitted change and added one
+constant failure to every subsequent count — **hiding a genuine zero-catch inside
+the noise**.
+
+So a mutation run needs two guards of its own: **assert the anchor matched**
+before trusting the result, and **verify the baseline is clean before and after**
+rather than assuming the restore was faithful. A mutation score you cannot show
+applied is a number, not evidence.
+
 So: **mutation-test the checker, not only the code.** Break something on purpose
 and confirm the instrument says so. A green suite, a clean ledger, and a passing
 gate are all indistinguishable from an instrument that cannot fail — and this
