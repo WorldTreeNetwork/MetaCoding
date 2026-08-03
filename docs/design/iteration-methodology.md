@@ -152,6 +152,20 @@ does not advance the revision id (23 → 23) and asking for that id afterwards
 returns the *current* name; on a log the same request returns the *superseded*
 one. Same request shape, two entity types, opposite answers.
 
+**And the same question points at your instruments.** On 2026-08-03 an agent
+built a probe ledger that re-checks each recorded value against the claim its ADR
+makes, then mutated an expectation to confirm the failure path fired — and the
+checker *crashed*: `FAILURES += ...` inside a function rebound a local, so the
+only branch that could ever report a problem was broken. A clean run never enters
+that branch, which is precisely how it stayed broken. **It had built a checker
+capable of reporting nothing but success**, and would have shipped it as evidence.
+
+So: **mutation-test the checker, not only the code.** Break something on purpose
+and confirm the instrument says so. A green suite, a clean ledger, and a passing
+gate are all indistinguishable from an instrument that cannot fail — and this
+repo has now produced all three (a gate test calling a hook that does not exist,
+a probe with no refuting outcome available, a drift check that crashes on drift).
+
 Three questions before an observation is allowed to support a decision:
 
 1. **What result would have refuted this?** If you cannot name one, you have not
