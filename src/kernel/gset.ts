@@ -9,6 +9,13 @@
  * (`w0b-observe`). That is an `LwwRegister<readonly V[]>` — a latest-wins register
  * over an ordered array — not a grow-only set. Nicknames now bind to `LwwRegister`.
  *
+ * SECOND FALSIFICATION, 2026-08-03 (MetaCoding-hy6.12): the farmOS `quick` field
+ * was argued into `GSet` by the same inference — static reading of PHP writers on
+ * a field of the same shape (`'multiple' => TRUE`, no internal flag) — and the
+ * boundary said latest-wins wholesale replace again. `quick` binds to `LwwRegister`
+ * (decision `quick-provenance`). Two for two: for this field shape, source reading
+ * is not evidence. `GSet` remains UNBOUND.
+ *
  * `GSet` is retained, tested, and correct for a genuinely grow-only field, but NO
  * current decision selects it. Do not reach for it without a bound decision naming
  * it — an unbound primitive next to a bound one is exactly the hand-roll bait the

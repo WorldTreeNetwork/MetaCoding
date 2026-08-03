@@ -583,3 +583,44 @@ unvalidated until it has met the oracle.** Source reading and elicitation agreed
 with each other and were wrong three times out of the first three tests. Evidence:
 `eval/ctkr/results/wave1-readiness-2026-07-20.md` §2 and the recorded packs under
 `eval/ctkr/port_runs/wave0-pilot/w0{a,b}-observe/`.
+
+---
+
+# `quick-provenance` — bound 2026-08-03 (MetaCoding-hy6.12), the first per-verb binding written that way from the start
+
+The five `quick/*` builds were gated on one question: can a composite multi-entity
+fold be expressed over the frozen kernel? **Yes — kernel v1.3 is sufficient, no new
+primitive** (`FoldReduce` covers inventory, `EventLog` + HLC cover the fan-out and
+its intra-act ordering, `status.ts` covers the mixed-status emission). What
+remained was this decision. Full derivation and the judge's refutations:
+[`composite-fold-question.md`](./composite-fold-question.md).
+
+| verb | bound to | decided by |
+|---|---|---|
+| **`quick_stamp`** — a quick form stamping an entity IT CREATES | **append-on-create**, exactly one id in the array; 4.0.4 has **no verb that stamps a pre-existing entity** and no caller passes `quick` in, so append and set are **indistinguishable** and the port must not generalise the append | SOURCE-READ (`QuickAssetTrait.php:57`, `QuickLogTrait.php:79`), explicitly fenced as unobserved |
+| **`quick_restate`** — a client `PATCH` at the JSON:API boundary | **`LwwRegister<readonly string[]>`** keyed by the HLC (`lww.ts`) — wholesale replace, clearable to `[]`, order preserved as given. NOT grow-only, NOT a `GSet` | OBSERVED (hy6.22, `fc81c0e`): `["inventory"]` → `["planting"]` leaves **no** `inventory`; `[]` clears; `["b","a","c"]` holds |
+| **attribution shape** | **PARTIAL, and stays partial** — `FieldHooks.php:31-36` injects `quick` onto `asset` and `log` ONLY, so quantities and taxonomy terms from the same act are unstamped and **unstampable**; stamping them is a divergence in the looks-like-an-improvement direction | SOURCE-READ, structural |
+
+`GSet` remains **UNBOUND**. The hy6.12 first pass argued `quick` into it and was
+refuted: this is the *same* inference, on a field of the *same* shape
+(`'multiple' => TRUE`, no internal flag), that unbound `GSet` in `ci2` via
+nicknames. **"Is a `multiple => TRUE` farmOS field grow-only?" has now been
+answered wrongly twice by static source reading and correctly twice by one cheap
+boundary `PATCH`.** For this field shape, source reading is not evidence — which
+is exactly why `quick_stamp` above is recorded as *indistinguishable* rather than
+as an append semantic a build may lean on.
+
+**Registry scope changed with this row.** The instrument resolves exactly ONE
+registry port-wide (`DECISION_REGISTRY_RELPATHS`, fixed, deliberately not
+configurable), whose header had scoped it to the logs+location composed store.
+`quick-provenance` is the first row written there for a different build family.
+Rows are per-INVARIANT and each build declares what it depends on in its own
+`REQUIRED_DECISIONS`; the composed store does not depend on `quick-provenance`
+and does not list it. This is the scope gap `MetaCoding-hy6.14` declined to write
+into unilaterally — it is now open for the three taxonomy bindings too.
+
+**Still open before the five builds** (decisions, not kernel work): cite `w0a-2`
+in the inventory build as a declared divergence for the `l.id` → HLC tie-break
+(and implement the `(measure, units)` partition with its `IS NULL` matching), and
+decide `Planting.php:434`'s Drupal `State` write — replicate outside the ledger,
+or declare a divergence.

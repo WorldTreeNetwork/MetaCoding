@@ -198,11 +198,26 @@ enable line ever moves.
 1. ~~Enable the quick modules~~ **DONE** (`hy6.22`), reproduction re-verified.
 2. ~~Observe `quick` at the boundary~~ **DONE** — it is latest-wins,
    replaceable, clearable, reorderable.
-3. **Bind a CM decision naming `lww` for `quick`.** The observation is recorded;
-   the decision is not yet bound, and `gset.ts` forbids reaching for `GSet`
-   without one — which is now moot, since `GSet` is the wrong answer anyway.
-4. **Record the partial-provenance divergence**: quantities and terms are
-   unstamped and unstampable; the port must not stamp them.
+3. ~~Bind a CM decision naming `lww` for `quick`~~ **DONE 2026-08-03** —
+   `quick-provenance`, `status: "bound"`, in the one registry the instrument
+   resolves (`port_runs/kernel-9h5.24/build/cm-decisions.jsonl`, mirrored by
+   `kernelConfig.ts` `BOUND_CM_DECISIONS`, `prevention.test.ts` asserts equality).
+   It is bound **PER-VERB**, not per-field, per the ci2 lesson:
+   - **`quick_stamp`** — a quick form stamping an entity it itself creates:
+     append-on-create (`QuickAssetTrait.php:57`, `QuickLogTrait.php:79` —
+     `appendItem` on a fresh `::create`), so the array lands with exactly one id.
+     4.0.4 has **no verb that stamps a pre-existing entity** and no caller passes
+     a `quick` value in, so append and set are **indistinguishable here** — the
+     port must NOT generalise the append into a grow-only accumulate. This verb
+     is source-read, not observed, and is fenced as such.
+   - **`quick_restate`** — a client `PATCH` at the JSON:API boundary:
+     `LwwRegister<readonly string[]>` keyed by the HLC (`lww.ts`) — wholesale
+     replace, clearable, order preserved. **OBSERVED** (hy6.22, `fc81c0e`).
+   `GSet` stays UNBOUND and this decision does not reach for it.
+4. ~~Record the partial-provenance divergence~~ **DONE 2026-08-03** — carried by
+   the same `quick-provenance` row, clause (c): `FieldHooks.php:31-36` injects
+   `quick` onto `asset` and `log` only, so quantities and terms are unstamped and
+   unstampable and the port must not stamp them.
 5. **Cite `w0a-2`** in the inventory build for the `l.id` → HLC tie-break.
 6. **Decide `Planting.php:434`'s State write** — replicate or diverge.
 
