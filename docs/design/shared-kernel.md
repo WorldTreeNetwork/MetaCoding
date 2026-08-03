@@ -619,8 +619,33 @@ Rows are per-INVARIANT and each build declares what it depends on in its own
 and does not list it. This is the scope gap `MetaCoding-hy6.14` declined to write
 into unilaterally — it is now open for the three taxonomy bindings too.
 
-**Still open before the five builds** (decisions, not kernel work): cite `w0a-2`
-in the inventory build as a declared divergence for the `l.id` → HLC tie-break
-(and implement the `(measure, units)` partition with its `IS NULL` matching), and
-decide `Planting.php:434`'s Drupal `State` write — replicate outside the ledger,
-or declare a divergence.
+## The other two rows, same day — and why `w0a-2` needed one at all
+
+`w0a-2` had been a real, Duke-confirmed decision since the wave-0 pilot, cited in
+`fold.ts:18/36/111`, in this document, and in every inventory discussion since.
+**It had no registry row.** `load_decisions` resolved nothing for it, so the first
+inventory build to declare its tie-break divergence would have been FAILED outright
+— *"cites `w0a-2`, which no registry resolves — an unverifiable sanction sanctions
+nothing"* — and, since `MetaCoding-8x0`, an unresolvable id scores HARDER than a
+real-but-off-topic one. **Prose is not a citation.** That is the whole `n9o`
+lesson, and `w0a-2` was sitting in the same trap that caught `yieldTotal` /
+`yield_total`, undetected, for two weeks.
+
+| row | bound to | sanctions |
+|---|---|---|
+| **`w0a-2`** — keeps the pilot's decision ID as its invariant name, because `Divergence.decision_id` resolves by EXACT key match and every existing citation already says `w0a-2` | adjustments fold in `(effectiveTime, HLC)`, never on id. Diverges from farmOS's `l.timestamp ASC, l.id ASC` **only** when a tie contains a `reset` — reset ASSIGNS, deltas accumulate, so a tie among pure deltas is commutative and cannot diverge | **`stock_on_hand` only.** A tie-break can change a folded VALUE but not WHICH `(measure, units)` pairs exist, so `stock_pair_count` and `adjustment_count` are order-invariant and deliberately unsanctioned — over-sanctioning silently waives real bugs |
+| **`planting-season-memory`** — `Planting.php:434`'s Drupal `State` write | **replica-local UI preference, outside the ledger**, never merged | **none, and that is correct** — nothing at the boundary asks a question this diverges on, so there is no glossary term to cite. The row declares a port CHOICE so it is not drift; it waives no measured assertion |
+
+The `State` write is read at `Planting.php:63` and written at `:434` — those two
+lines are its entire surface. Replicating it faithfully would be **worse than
+diverging**: Drupal `State` is site-global, so in the source one user's planting
+silently changes every user's default. That is the single-server assumption, not
+an intention, and promoting it into the event log would make every replica's UI
+convenience fight over one merged register. Not covered: the season **terms** are
+real domain data and port normally.
+
+**Not waived by `w0a-2`, and worth saying out loud:** the inventory build must
+still implement farmOS's `(measure, units)` partition *including* the explicit
+`IS NULL` matching (`AssetInventory:277-288`) and the inclusive truncation at the
+latest reset (`:130-137`, `:228-229`). Those are fidelity requirements. A build
+that gets them wrong is wrong, sanction or no sanction.

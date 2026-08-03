@@ -218,8 +218,19 @@ enable line ever moves.
    the same `quick-provenance` row, clause (c): `FieldHooks.php:31-36` injects
    `quick` onto `asset` and `log` only, so quantities and terms are unstamped and
    unstampable and the port must not stamp them.
-5. **Cite `w0a-2`** in the inventory build for the `l.id` → HLC tie-break.
-6. **Decide `Planting.php:434`'s State write** — replicate or diverge.
+5. ~~Cite `w0a-2` in the inventory build~~ **BOUND 2026-08-03** — and the citation
+   was impossible before that: `w0a-2` had **no registry row**, so a declared
+   divergence naming it would have been FAILED (*"cites `w0a-2`, which no registry
+   resolves"*). It now resolves, sanctioning **`stock_on_hand` only** — the
+   tie-break can change a folded value but not which `(measure, units)` pairs
+   exist, so `stock_pair_count` / `adjustment_count` stay unsanctioned. Still a
+   fidelity requirement, NOT waived: the `(measure, units)` partition with its
+   `IS NULL` matching and the inclusive truncation at the latest reset.
+6. ~~Decide `Planting.php:434`'s State write~~ **BOUND 2026-08-03** as
+   `planting-season-memory`: **replica-local UI preference, outside the ledger.**
+   Faithful replication would be worse than divergence — Drupal `State` is
+   site-global, so one user's planting changes everyone's default. No `sanctions`
+   list, correctly: nothing at the boundary asks a question this diverges on.
 
 ## What survived
 
