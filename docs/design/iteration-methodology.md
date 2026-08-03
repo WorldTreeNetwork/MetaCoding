@@ -126,6 +126,54 @@ and a judge must prove which tree it tested before its findings count.
 > by decision. This reframe was decided by Duke, outside the loop — consistent
 > with "no account certifies itself."
 
+## Does your evidence DISCRIMINATE?
+
+A green check and a confirming observation are not the same thing, and the
+second has a failure mode the first does not: **an observation that would look
+identical whether or not the claim were true.** It reads as proof, survives
+review, and gets cited in a bound decision.
+
+Measured on 2026-08-03, in a decision I wrote myself. The claim was "farmOS keeps
+no history for taxonomy terms." The evidence was
+`GET ?resourceVersion=rel:latest` returning **400**. It does — and it returns 400
+on *logs* too, and on everything else, because `rel:latest` is not a valid
+identifier anywhere in that API. The probe could not have come out any other way.
+It was cited as proof of a difference it was structurally incapable of detecting.
+
+Worse, the false generalisation it licensed went the other way from the truth:
+all 10 log types and all 12 asset types keep **real, retrievable** history —
+`?resourceVersion=id:<n>` after a rename returns the superseded value. Only the
+vocabularies keep none. One vocabulary-wide reading had been generalised to
+"farmOS", which is the same over-generalisation the per-projection status rule
+exists to prevent — committed *while writing a rule about it*.
+
+The evidence that actually discriminates was a **contrast**: on a term a PATCH
+does not advance the revision id (23 → 23) and asking for that id afterwards
+returns the *current* name; on a log the same request returns the *superseded*
+one. Same request shape, two entity types, opposite answers.
+
+Three questions before an observation is allowed to support a decision:
+
+1. **What result would have refuted this?** If you cannot name one, you have not
+   run a test. `rel:latest → 400` had no refuting outcome available.
+2. **Would the same probe answer the same way against the opposite world?** Run
+   it against a case where the claim is known false. A contrast beats a
+   confirmation; two entity types answering differently to one request is worth
+   more than ten probes of the one you care about.
+3. **Am I generalising past what I sampled?** "Terms have no history" was
+   measured. "farmOS has no history" was not, and the gap between them was the
+   whole error.
+
+Status codes are especially bad at discriminating, because APIs answer `200` for
+"here is the thing you asked for" *and* for "here is something else wearing that
+name" — a term returns 200 for a revision id it does not honour. **A
+status-code-only probe would have called terms revisioned.** Read the body.
+
+This one was caught by a subagent that had been asked whether its own finding
+broke one of my decisions. It did, and it said so. That is the same principle as
+the section above, pointed at evidence rather than code: **the author is the
+worst-placed party to notice that their proof proves nothing.**
+
 ## The standing reds
 
 Closed:
