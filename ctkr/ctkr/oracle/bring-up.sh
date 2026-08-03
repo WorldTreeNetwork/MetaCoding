@@ -105,6 +105,22 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
 #   farm_quantity_test, and farm_test_method as dependencies — the slice's
 #   `test` quantity type and lab/test_method vocabularies ride in with them.
 
+step "enable remaining log types"
+docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
+  farm_medical farm_transplanting'
+# farm_medical / farm_transplanting: both ship on disk in the farm profile but
+#   were never enabled, so /api/log/medical and /api/log/transplanting 404 and
+#   the medical (MetaCoding-hy6.7) and transplanting (hy6.6) identity ports are
+#   source-read only — which the recipe forbids. Found 2026-08-03 by the hy6.7
+#   agent, which proposed `drush pm:enable` by hand; enabled HERE instead,
+#   because a hand-enabled module vanishes on the next rebuild and the oracle
+#   silently stops matching the manifest that claims to describe it.
+#   Each adds ONE new log bundle plus its own bundle fields (medical: `vet`;
+#   transplanting: its placement fields). Unlike farm_quick — which injected a
+#   base field onto EVERY asset and log and therefore had to be proven an
+#   extension across all 43 sealed packs — neither touches an existing bundle.
+#   Reproduction spot-checked after enabling, 2026-08-03.
+
 step "enable sensor module"
 docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_sensor'
 # farm_sensor: without it POST /api/asset/sensor 404s and the sensor identity
