@@ -129,6 +129,41 @@ export class EventLog<E extends KernelEvent = KernelEvent> {
     return event;
   }
 
+  /**
+   * Append N events as ONE ATOMIC ACT: every event is validated BEFORE any is
+   * committed, so a rejected batch leaves the log exactly as it was.
+   *
+   * WHY THIS EXISTS (decision `composite-act-atomicity`, MetaCoding-hy6.12).
+   * farmOS composite acts are NOT atomic, and the failure surface is interleaved
+   * rather than a clean prefix: `QuickLogTrait` saves the quantity entity
+   * (`QuickQuantityTrait:79`) BEFORE the parent log is validated (`:82`) and saved
+   * (`:88`), `Birth::submitForm` calls `createAsset` inside the child loop so
+   * child 1 is on disk before child 2 is validated, and
+   * `QuickTermTrait::createOrLoadTerm` writes a term during `buildForm` — before
+   * any submit exists to fail. A failed birth leaves orphan quantity rows.
+   *
+   * The port DELIBERATELY DIVERGES: one act commits wholly or not at all. This is
+   * nearly free here — the event log is the only mutation choke point and an
+   * in-memory push cannot fail — while farmOS would need a transaction layer it
+   * does not have (`grep -rni transaction` over the whole tree returns zero hits
+   * in code). Composite builds MUST route through this, never a loop over
+   * {@link append}: a loop validates-and-commits incrementally, which is the exact
+   * partial-write behaviour this replaces.
+   */
+  appendAll(events: readonly E[]): readonly E[] {
+    for (const event of events) {
+      if (!this.registry.has(event.kind)) {
+        throw new Error(
+          `ad-hoc event kind "${event.kind}" rejected — not in the frozen taxonomy ` +
+            `{${this.registry.kinds().join(", ")}}. The whole act of ${events.length} ` +
+            `event(s) was REFUSED; nothing was committed.`,
+        );
+      }
+    }
+    this.events.push(...events);
+    return events;
+  }
+
   all(): readonly E[] {
     return this.events;
   }
