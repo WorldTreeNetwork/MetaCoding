@@ -167,6 +167,7 @@ export type FailureCode =
   | "ZERO_CONTRIBUTION_AT_NEW_COMMIT"
   | "ZERO_CONTRIBUTION_AT_UNKNOWN_COMMIT"
   | "LOW_CORRESPONDENCE"
+  | "BASENAME_ONLY_CORRESPONDENCE"
   | "UNMEASURABLE_CORRESPONDENCE";
 
 export interface GateFailure {
@@ -458,13 +459,42 @@ export async function indexedFilePaths(
  *
  *   1. exact     — repo-relative path equality
  *   2. suffix    — an indexed path ENDS WITH the source path (survives /app/web/)
- *   3. basename  — file names correspond (survives an arbitrary prefix)
+ *   3. basename  — file NAMES correspond (survives an arbitrary prefix)
  *   4. unmeasurable(reason)
  *
  * The FIRST rung that intersects at all wins, and the rung used is recorded.
- * Basename correspondence distinguishes farmOS-in-Docker (every
- * `farm_animal.module` appears in both sets) from a vendored index (no basename
- * corresponds anywhere). `unmeasurable` is a real outcome and NEVER a pass.
+ * `unmeasurable` is a real outcome and NEVER a pass.
+ *
+ * WHAT BASENAME CORRESPONDENCE IS WORTH (bead MetaCoding-5fi, re-opened)
+ * ---------------------------------------------------------------------
+ * The set-intersection fix holds at the exact and suffix rungs. At the BASENAME
+ * rung it reproduced 5fi's literal headline. Measured by a fresh judge: a local
+ * tree of 6 `.go` files (`detectGrammar('.go')` is null, so the tree-sitter lane
+ * contributes nothing — the fosite shape) plus a `.scip` describing
+ * `vendor/github.com/other/project/…`, sharing ONLY basenames, came out
+ * `{ level: 'basename', matched: 6, ratio: 1 }` -> HEALTHY, with ZERO local
+ * files in the graph.
+ *
+ * The old defence was that 5fi's `vendor40` fixture "intersects in ZERO places
+ * at every rung" — but that is a property of that fixture's invented filenames,
+ * not of vendoring. Real vendored trees are COPIES of upstream repos, where
+ * `client.go` / `config.go` / `index.ts` collisions are the norm.
+ *
+ * So: a basename match is evidence that two trees use the same FILE NAMES. It is
+ * not evidence that they are the same tree, and nothing measurable from paths
+ * alone can promote it into one. It therefore does not earn a `ratio` — the
+ * quantity that means "this share of the tree is in the graph" — and it emits
+ * `BASENAME_ONLY_CORRESPONDENCE`, which like `UNMEASURABLE` is never a pass on
+ * its own and must be waived deliberately (recorded OVERRIDDEN, visible at read
+ * time forever).
+ *
+ * The rung is KEPT, and keeping it is the point: it is what makes the case
+ * legible in the record ("the names correspond and nothing else does") instead
+ * of collapsing into `unmeasurable`. Nothing that legitimately needs an
+ * out-of-band build is harmed — a container-prefixed index (farmOS in Docker,
+ * `/app/web/…`) lands on SUFFIX, and any run whose tree-sitter lane indexed the
+ * local files at all lands on EXACT. Only a graph that shares nothing with this
+ * tree but file names is refused.
  */
 export async function measureCorrespondence(
   store: Store,
@@ -493,21 +523,32 @@ export async function measureCorrespondence(
 
   const src = source.files.map(normPath);
 
-  // 1. exact
+  // Rungs 1 and 2 are PATH evidence: the indexed path contains the local path.
+  // The suffix set contains every path in full, so a suffix match is a superset
+  // of an exact match and `pathMatched` is the honest count at either rung —
+  // taking only the first rung's count would UNDER-report a build that indexed
+  // some files locally and some through a container prefix.
   const exact = new Set(indexed);
-  let matched = src.filter((f) => exact.has(f)).length;
-  if (matched > 0) return finish("exact", matched);
-
-  // 2. suffix — an indexed path ends with the source path at a segment boundary
+  const exactMatched = src.filter((f) => exact.has(f)).length;
   const suffixes = new Set<string>();
   for (const p of indexed) for (const s of pathSuffixes(p)) suffixes.add(s);
-  matched = src.filter((f) => suffixes.has(f)).length;
-  if (matched > 0) return finish("suffix", matched);
+  const pathMatched = src.filter((f) => suffixes.has(f)).length;
+  if (pathMatched > 0) return finish(exactMatched > 0 ? "exact" : "suffix", pathMatched);
 
-  // 3. basename
+  // Rung 3 is NAME evidence only, and it does not earn a ratio (MetaCoding-5fi).
   const bases = new Set(indexed.map((p) => basename(p)));
-  matched = src.filter((f) => bases.has(basename(f))).length;
-  if (matched > 0) return finish("basename", matched);
+  const nameMatched = src.filter((f) => bases.has(basename(f))).length;
+  if (nameMatched > 0) {
+    return {
+      ...base, level: "basename", matched: nameMatched, ratio: null,
+      reason:
+        `${nameMatched}/${source.total} local source file(s) share a FILE NAME with ` +
+        `an indexed file, but NOT ONE indexed path contains a local path (not even ` +
+        `as a suffix). Same names are not the same tree: a vendored copy of an ` +
+        `upstream repo collides on client.go / config.go / index.ts by default. ` +
+        `The graph may be of some other tree entirely.`,
+    };
+  }
 
   // 4. unmeasurable
   return {
@@ -707,6 +748,19 @@ export function evaluateIndexOutcome(input: GateInput): GateResult {
         `the graph's correspondence to the local tree could not be established at\n` +
         `    ANY granularity (exact path, path suffix, basename): ${c.reason}\n` +
         `    UNMEASURABLE is never a pass on its own.`,
+    });
+  } else if (c.level === "basename" && c.sourceFiles > 0) {
+    failures.push({
+      code: "BASENAME_ONLY_CORRESPONDENCE",
+      message:
+        `the graph corresponds to this tree by FILE NAME ONLY: ${c.reason}\n` +
+        `    A name match is evidence that two trees use the same file names, not\n` +
+        `    that they are the same tree — and measured from paths, nothing can tell\n` +
+        `    those apart (MetaCoding-5fi: 6 vendored '.go' files scored ratio 1.0 and\n` +
+        `    HEALTHY with zero local files in the graph). A container-prefixed build\n` +
+        `    lands on SUFFIX and is unaffected; this rung is never a pass on its own.\n` +
+        `    If the graph really is this tree, waive it with --allow-empty-index and\n` +
+        `    the waiver is in the record forever.`,
     });
   } else if (c.ratio !== null && c.ratio < minCoverage) {
     failures.push({

@@ -635,7 +635,7 @@ describe("PAIR 6 — a container prefix degrades the granularity; an unrelated t
     expect(evaluateIndexOutcome(baseInput({ ...g, correspondence: alien })).ok).toBe(false);
   });
 
-  test("BASENAME when the directory structure differs but the files are the same", async () => {
+  test("BASENAME is still MEASURED and RECORDED — it just stops being a pass", async () => {
     seedSourceFiles(".ts", 10);
     const source = censusSourceFiles(repoDir);
     // scip-php without the PSR-4 sidecar: namespace-derived paths, real files.
@@ -643,6 +643,72 @@ describe("PAIR 6 — a container prefix degrades the granularity; an unrelated t
     const c = await measureCorrespondence(store, "php-ish", BRANCH, source);
     expect(c.level).toBe("basename");
     expect(c.matched).toBe(10);
+    // The rung is KEPT (this case stays legible in the record as "the names
+    // correspond and nothing else does") but it earns NO ratio: see PAIR 5fi.
+    expect(c.ratio).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // PAIR 5fi — the judge's re-opened counterexample, and what it must NOT break.
+  // -------------------------------------------------------------------------
+  //
+  // MetaCoding-5fi was addressed by set intersection and RE-OPENED by a fresh
+  // judge, because the BASENAME rung reproduced the bead's literal headline: a
+  // local tree of 6 `.go` files (nothing indexes `.go`, so the tree-sitter lane
+  // contributes nothing — the fosite shape) plus a `.scip` describing
+  // `vendor/github.com/other/project/…` sharing ONLY basenames came out
+  // `{ level: 'basename', matched: 6, ratio: 1 }` -> HEALTHY, with zero local
+  // files in the graph. The old defence rested on `vendor40`'s INVENTED
+  // filenames; real vendored trees are copies, and basename collision is the
+  // norm, so that fixture could not discriminate the case the bead is about.
+  //
+  // The two halves are both FOREIGN-PATH graphs of the same 6 file names. The
+  // only difference is whether an indexed path CONTAINS a local path.
+  test("PAIR 5fi — a vendored copy is refused; a container-prefixed build still passes", async () => {
+    seedSourceFiles(".go", 6, "src", "package main\n");
+    const source = censusSourceFiles(repoDir);
+    expect(source.total).toBe(6);
+    const names = source.files.map((f) => f.split("/").pop()!);
+
+    // (a) THE JUDGE'S FIXTURE: a different tree that shares only basenames.
+    await loadPaths("vendored", names.map((n) => `vendor/github.com/other/project/internal/${n}`));
+    const vendored = await measureCorrespondence(store, "vendored", BRANCH, source);
+    expect(vendored.level).toBe("basename");
+    expect(vendored.matched).toBe(6);   // the names DO all correspond...
+    expect(vendored.ratio).toBeNull();  // ...and that earns no coverage credit.
+
+    // (b) THE CASE THE LADDER EXISTS FOR: the SAME file names, but each indexed
+    // path contains the local path under a container prefix.
+    await loadPaths("docker", source.files.map((f) => `/app/web/${f}`));
+    const docker = await measureCorrespondence(store, "docker", BRANCH, source);
+    expect(docker.level).toBe("suffix");
+    expect(docker.ratio).toBe(1);
+
+    // OPPOSITE VERDICTS from one gate over one tree.
+    const g = { source, scipRequested: true, lanes: [{ lane: "scip:load-scip", ok: true, files: 6 }] };
+    const refused = evaluateIndexOutcome(baseInput({ ...g, correspondence: vendored }));
+    expect(refused.ok).toBe(false);
+    expect(refused.failures.map((f) => f.code)).toEqual(["BASENAME_ONLY_CORRESPONDENCE"]);
+    expect(refused.failures[0]!.message).toContain("FILE NAME ONLY");
+    expect(evaluateIndexOutcome(baseInput({ ...g, correspondence: docker })).ok).toBe(true);
+  });
+
+  test("a tree-sitter lane that indexed the local files keeps the graph on EXACT", async () => {
+    // Why refusing basename does not break farmOS: every session runs the
+    // tree-sitter lane over the local tree first, so a --load-scip run whose
+    // documents are container-prefixed still has local relative paths in the
+    // store, and the two rungs are counted TOGETHER rather than the first one
+    // winning and under-reporting.
+    seedSourceFiles(".ts", 10);
+    const source = censusSourceFiles(repoDir);
+    await loadPaths("mixed", [
+      ...source.files.slice(0, 3),                       // local, exact
+      ...source.files.slice(3).map((f) => `/app/web/${f}`), // container-prefixed
+    ]);
+    const mixed = await measureCorrespondence(store, "mixed", BRANCH, source);
+    expect(mixed.level).toBe("exact");
+    expect(mixed.matched).toBe(10);   // NOT 3 — the suffix rung is not discarded
+    expect(mixed.ratio).toBe(1);
   });
 
   test("UNMEASURABLE never counts as a pass ON ITS OWN", () => {
