@@ -50,7 +50,10 @@ export interface WalkStats {
   durationMs: number;
 }
 
-const DEFAULT_EXCLUDE = [
+/** Directory names never descended by the walker. Exported so the index
+ *  productivity gate (src/cli/index-gate.ts, bead MetaCoding-0sd) counts its
+ *  coverage denominator over exactly the tree a lane could have indexed. */
+export const DEFAULT_EXCLUDE_DIRS = [
   "node_modules",
   ".git",
   "dist",
@@ -102,7 +105,7 @@ export async function indexDirectory(
   const t0 = performance.now();
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
-  const exclude = new Set([...DEFAULT_EXCLUDE, ...(opts.excludeDirs ?? [])]);
+  const exclude = new Set([...DEFAULT_EXCLUDE_DIRS, ...(opts.excludeDirs ?? [])]);
 
   const files: ScannedFile[] = [];
   walkFs(rootPath, rootPath, exclude, files);

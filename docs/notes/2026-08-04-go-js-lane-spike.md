@@ -253,6 +253,15 @@ error explaining that a tree-sitter-only graph "is almost not worth building." T
 fire here, because a binary *was* resolvable — it just had nothing to do. **The guard needs to be
 on the outcome, not the availability.**
 
+> **Fixed 2026-08-04 (MetaCoding-0sd).** `src/cli/index-gate.ts` now measures the store after
+> every `index` run and refuses one that lost a lane, scanned no files, produced no symbols,
+> produced no relational edges while SCIP was requested, or covered less than `--min-coverage`
+> (default 10%) of the repo's source files. The command above now exits **1** with
+> `[LANE_FAILED] / [NO_FILES_SCANNED] / [NO_RELATIONAL_EDGES]` and the line
+> `0/262 source files covered`. Regression evidence: `src/cli/index-gate.test.ts`, which asserts
+> non-zero **edge counts by type** out of a real store, not an exit status. The `--scip false`
+> tree-sitter-only run in §6 (0 files, 0 symbols) is refused by the same gate.
+
 ---
 
 ## 5. The JS lane, in detail

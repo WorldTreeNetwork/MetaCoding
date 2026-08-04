@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.2.0 (2026-07-22)
+## Unreleased
+
+### Index / serve reliability
+- **`metacoding index` fails loudly on an unproductive run (MetaCoding-0sd).** A run
+  used to exit 0 while writing a completely empty graph — `index <ory/fosite> --scip`
+  picked scip-typescript (fosite is Go but ships `package.json`), the indexer died with
+  "no files got indexed", the failure was caught and logged, and the run reported
+  success. The new gate (`src/cli/index-gate.ts`) measures the STORE after the run and
+  refuses the run when a lane died, when no file was scanned, when no symbols landed,
+  when SCIP was requested but no relational edges exist, or when less than
+  `--min-coverage` (default 10%) of the repo's source files were covered. `index-all`
+  now exits non-zero when any repo fails. Escape hatch: `--allow-empty-index`.
 
 Six weeks of work: PHP support across the whole pipeline, a large expansion of the CTKR
 categorical-knowledge toolset (subsystems, roles, operads, functor search, port

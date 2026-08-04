@@ -20,6 +20,15 @@ import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
 import { gatherIndexState, formatIndexState } from "../index-state";
 import { runDoctor } from "./doctor";
+import {
+  censusSourceFiles,
+  evaluateIndexOutcome,
+  formatGateFailure,
+  storeCensus,
+  DEFAULT_MIN_COVERAGE,
+  type GateResult,
+  type LaneOutcome,
+} from "./index-gate.ts";
 
 /**
  * Run `git rev-parse HEAD` against `repoPath`.
@@ -69,7 +78,9 @@ function usage(): never {
 Usage:
   metacoding index <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--scip] [--per-commit-identity]
                                [--load-scip <index.scip> [--scip-language ts|py|php] [--scip-psr4 <sidecar.json>]]
+                               [--allow-empty-index] [--min-coverage <0..1>]
   metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip] [--per-commit-identity]
+                               [--allow-empty-index] [--min-coverage <0..1>]
   metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--per-commit-identity]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
   metacoding status [path]     [--data-dir <dir>] [--workspace <path>] [--json]
@@ -94,6 +105,17 @@ Flags:
                 fold repo_commit_sha into Symbol.id so multiple commits
                 coexist in one DB (default off; overwrite semantics).
                 External SCIP refs are never sha-scoped.
+  --allow-empty-index
+                bypass the index productivity gate. By default a run that
+                scanned no files, produced no symbols, produced no relational
+                edges while SCIP was requested, covered less than
+                --min-coverage of the repo's source files, or lost a lane to
+                an error, EXITS NON-ZERO instead of reporting success
+                (bead MetaCoding-0sd). Passing this records the degradation
+                on stderr and in the JSON summary instead of failing.
+  --min-coverage <0..1>
+                minimum share of the repo's source files a run must cover
+                (default 0.1).
 
 Defaults:
   --data-dir    ./.metacoding if it exists (legacy), else
@@ -141,17 +163,47 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
         ) as Record<string, string>)
       : undefined;
   const wantScip = loadScipPath ? false : resolveScipWanted(args.flags["scip"]);
+  const { allowEmptyIndex, minCoverage } = parseGateFlags(args);
 
   const store = await Store.open(dataDir);
+  let gateFailure: IndexGateError | null = null;
   try {
     const r = await indexOneRepo(store, targetAbs, {
       repo, branch, wantScip, repo_commit_sha, indexed_at, perCommitIdentity,
-      loadScipPath, scipLanguage, phpPsr4Map,
+      loadScipPath, scipLanguage, phpPsr4Map, allowEmptyIndex, minCoverage,
     });
     console.log(JSON.stringify({ dataDir, repo, branch, ...r }, null, 2));
+  } catch (e) {
+    if (!(e instanceof IndexGateError)) throw e;
+    // The graph is still on disk — the gate is a verdict on the run, not a
+    // rollback. Print the JSON summary so the numbers are on the record, then
+    // fail loudly (bead MetaCoding-0sd).
+    console.log(JSON.stringify({ dataDir, repo, branch, ...e.partial, gateFailed: true }, null, 2));
+    gateFailure = e;
   } finally {
     await store.close();
   }
+  if (gateFailure) {
+    console.error(gateFailure.message);
+    process.exit(1);
+  }
+}
+
+/** `--allow-empty-index` / `--min-coverage <0..1>` (bead MetaCoding-0sd). */
+function parseGateFlags(args: ParsedArgs): { allowEmptyIndex: boolean; minCoverage: number } {
+  const allowEmptyIndex =
+    "allow-empty-index" in args.flags && args.flags["allow-empty-index"] !== "false";
+  const raw = args.flags["min-coverage"];
+  let minCoverage = DEFAULT_MIN_COVERAGE;
+  if (raw !== undefined) {
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < 0 || v > 1) {
+      console.error(`metacoding: --min-coverage must be a number in [0,1] (got '${raw}')`);
+      process.exit(2);
+    }
+    minCoverage = v;
+  }
+  return { allowEmptyIndex, minCoverage };
 }
 
 async function cmdIndexAll(args: ParsedArgs): Promise<void> {
@@ -162,6 +214,7 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
   const branch = args.flags["branch"] ?? "main";
   const wantScip = resolveScipWanted(args.flags["scip"]);
   const perCommitIdentity = args.flags["per-commit-identity"] === "true";
+  const { allowEmptyIndex, minCoverage } = parseGateFlags(args);
 
   if (!existsSync(parentAbs)) {
     console.error(`metacoding: ${parentAbs} does not exist`);
@@ -192,6 +245,8 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
           repo_commit_sha,
           indexed_at,
           perCommitIdentity,
+          allowEmptyIndex,
+          minCoverage,
         });
         results.push({
           repo,
@@ -206,19 +261,33 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
           `${Math.round(performance.now() - t0)}ms`,
         );
       } catch (e) {
+        const gated = e instanceof IndexGateError;
         results.push({
           repo,
           branch: subBranch,
           ok: false,
+          gateFailed: gated || undefined,
+          ...(gated ? (e as IndexGateError).partial : {}),
           error: (e as Error).message,
         });
-        console.error(`[index-all] ${repo}: FAILED — ${(e as Error).message.slice(0, 200)}`);
+        console.error(
+          gated
+            ? `[index-all] ${repo}: FAILED (index gate)\n${(e as Error).message}`
+            : `[index-all] ${repo}: FAILED — ${(e as Error).message.slice(0, 200)}`,
+        );
       }
     }
   } finally {
     await store.close();
   }
   console.log(JSON.stringify({ dataDir, repos: results }, null, 2));
+  // A per-repo failure used to leave index-all exiting 0 — the same
+  // "reports success over an empty result" shape as MetaCoding-0sd, one level up.
+  const failed = results.filter((r) => r["ok"] === false).map((r) => r["repo"]);
+  if (failed.length > 0) {
+    console.error(`metacoding: index-all FAILED for ${failed.length} repo(s): ${failed.join(", ")}`);
+    process.exit(1);
+  }
 }
 
 interface IndexOneOpts {
@@ -246,6 +315,11 @@ interface IndexOneOpts {
    *  real file paths from scip-php's namespace-derived relative_path so PHP
    *  symbols reconcile with the tree-sitter lane. See loader `phpPsr4Map`. */
   phpPsr4Map?: Record<string, string>;
+  /** Bypass the productivity gate, recording the degradation on stderr and in
+   *  the JSON summary. bead MetaCoding-0sd. */
+  allowEmptyIndex?: boolean;
+  /** Minimum share of the repo's source files the run must cover (default 0.1). */
+  minCoverage?: number;
 }
 
 /** Normalize a user-supplied scip-language token (ts/typescript/py/python/php)
@@ -303,6 +377,17 @@ export async function ingestPrebuiltScip(
 interface IndexOneResult {
   treeSitter: Awaited<ReturnType<typeof indexDirectory>>;
   scip?: Record<string, unknown>;
+  /** Per-lane outcome + the post-run store census (bead MetaCoding-0sd). */
+  gate?: Record<string, unknown>;
+}
+
+/** Thrown when the productivity gate refuses a run. Carries the JSON summary so
+ *  the caller can still print the numbers before exiting non-zero. */
+export class IndexGateError extends Error {
+  constructor(message: string, readonly partial: IndexOneResult, readonly result: GateResult) {
+    super(message);
+    this.name = "IndexGateError";
+  }
 }
 
 async function indexOneRepo(
@@ -310,6 +395,7 @@ async function indexOneRepo(
   targetAbs: string,
   opts: IndexOneOpts,
 ): Promise<IndexOneResult> {
+  const lanes: LaneOutcome[] = [];
   const tsStats = await indexDirectory(store, targetAbs, {
     branch: opts.branch,
     repo: opts.repo,
@@ -317,6 +403,7 @@ async function indexOneRepo(
     indexed_at: opts.indexed_at,
     perCommitIdentity: opts.perCommitIdentity,
   });
+  lanes.push({ lane: "tree-sitter", ok: true, files: tsStats.filesScanned });
   const out: IndexOneResult = { treeSitter: tsStats };
 
   if (opts.loadScipPath) {
@@ -331,6 +418,7 @@ async function indexOneRepo(
       indexed_at: opts.indexed_at,
       perCommitIdentity: opts.perCommitIdentity,
     });
+    lanes.push({ lane: "scip:load-scip", ok: true, files: stats.documents });
     out.scip = { source: "load-scip", scipPath: opts.loadScipPath, ...stats };
   } else if (opts.wantScip) {
     const scipLangs = detectScipLanguages(targetAbs);
@@ -358,11 +446,57 @@ async function indexOneRepo(
         accum.externalRefsSkipped += stats.externalRefsSkipped;
         accum.externalBoundaryEdges += stats.externalBoundaryEdges;
         accum.indexerDurationMs += durationMs;
+        lanes.push({ lane: `scip:${lang}`, ok: true, files: stats.documents });
       } catch (e) {
-        console.error(`scip-${lang} failed: ${(e as Error).message.slice(0, 200)}`);
+        // NOT swallowed any more (bead MetaCoding-0sd). This `catch` used to
+        // print one stderr line and let the run report success, which is how
+        // `metacoding index <ory/fosite> --scip` exited 0 with an empty graph:
+        // scip-typescript died with "no files got indexed" and nobody was told
+        // in a way that mattered. The lane outcome is now evidence the gate
+        // reads. We still continue the loop so EVERY lane's fate is reported,
+        // not just the first one to die.
+        const msg = (e as Error).message.slice(0, 400);
+        console.error(`scip-${lang} failed: ${msg}`);
+        lanes.push({ lane: `scip:${lang}`, ok: false, error: msg, files: 0 });
       }
     }
     out.scip = accum;
+  }
+
+  // THE GATE. See src/cli/index-gate.ts for the property and the fake-it
+  // analysis. Measured out of the STORE, not out of the accumulators above.
+  const scipRequested = Boolean(opts.wantScip || opts.loadScipPath);
+  const census = await storeCensus(store, opts.repo, opts.branch);
+  const gate = evaluateIndexOutcome({
+    repo: opts.repo,
+    targetPath: targetAbs,
+    lanes,
+    source: censusSourceFiles(targetAbs),
+    store: census,
+    scipRequested,
+    minCoverage: opts.minCoverage,
+  });
+  out.gate = {
+    ok: gate.ok,
+    enforced: !opts.allowEmptyIndex,
+    lanes,
+    filesCovered: gate.filesCovered,
+    sourceFiles: gate.sourceFiles,
+    coverage: gate.coverage,
+    symbols: gate.symbols,
+    relationalEdges: gate.relationalEdges,
+    edgesByKind: gate.edgesByKind,
+    failures: gate.failures,
+  };
+  if (!gate.ok && !opts.allowEmptyIndex) {
+    throw new IndexGateError(formatGateFailure(opts.repo, targetAbs, gate), out, gate);
+  }
+  if (!gate.ok) {
+    console.error(
+      `metacoding: index gate would have FAILED for '${opts.repo}' but ` +
+        `--allow-empty-index was passed:\n` +
+        gate.failures.map((f) => `  [${f.code}] ${f.message}`).join("\n"),
+    );
   }
   return out;
 }
