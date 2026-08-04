@@ -13,8 +13,13 @@
 //
 //   * `indexDirectory`, `loadScip` and `runScip` are no longer re-exported from
 //     `src/extractor` / `src/scip`; this file imports them from their private
-//     modules and nothing else in `src/` may (enforced by src/ingest/seam.test.ts,
-//     which FAILS THE SUITE when another module in src/ imports them).
+//     modules, and they require an IngestTicket only a session can mint.
+//     NOT A CONSTRUCTION — see MetaCoding-qv0: `Store.upsertSymbol` and
+//     `Store.addEdge` are public on the exported `src/store` barrel, take no
+//     ticket and call no gate, so a module can still grow a sealed-looking
+//     slice while its record reads the old numbers (measured: 12 -> 28 symbols
+//     under a record reporting fitness 12). The ticket guards the layer above
+//     the writes. Superseded by docs/design/graph-as-cache.md.
 //   * every ingest therefore opens a session, which writes a RUNNING record on
 //     entry and finalizes a verdict on exit.
 //
@@ -125,8 +130,8 @@ export function normalizeScipLang(token: string): "ts" | "py" | "php" {
  * INTERNAL to the session. It is exported only so src/cli/load-scip.test.ts can
  * pin this wiring against `loadScip` directly — the defect that test exists for
  * was the CLI path and the measurement harness DIVERGING. It is not an ingest
- * entry point: src/ingest/seam.test.ts fails the suite if any non-test module in
- * src/ other than this one calls it.
+ * entry point: it requires an IngestTicket, which only a session mints.
+ * That is a guard, not a construction — see MetaCoding-qv0.
  */
 export async function ingestPrebuiltScip(
   store: Store,

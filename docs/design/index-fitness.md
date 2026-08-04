@@ -1,5 +1,29 @@
 # Index fitness: what a graph must establish before it may answer
 
+> **SUPERSEDED 2026-08-04 by [graph-as-cache.md](./graph-as-cache.md).**
+>
+> Kept deliberately, and not to be deleted: its refutation history is the most
+> valuable content in this repo on the subject. Three fixes, three fresh judges,
+> three refutations — each fix directionally right and one layer short — is what
+> established that the entry has no boundary, which is the successor's root
+> finding. Read this document as evidence, not as instruction.
+>
+> **Two claims in the text below are FALSE and are corrected here (`zpi`):**
+> * fake-it #3 is marked "Refuted and re-closed (MetaCoding-9ed)". It is **not
+>   closed**: `Store.upsertSymbol`/`addEdge` are public on the exported barrel,
+>   take no ticket and call no gate (`qv0`, measured 12 → 28 symbols under a
+>   record reading fitness 12).
+> * the claim that "basename correspondence distinguishes farmOS-in-Docker from
+>   a vendored-dependency index (no basename corresponds)" is both superseded by
+>   `eeb2bf8` and **false on its premise** — real vendored trees preserve
+>   upstream layout, so every local path is a path *suffix* of its vendored twin
+>   and matches one rung higher, earning `ratio: 1.0` (`5fi`, re-opened).
+>
+> A fourth refutation arrived without anyone attacking the gate: a correct,
+> 100%-corresponding graph of a **relationship-free codebase** is persisted
+> REFUSED, because `NO_RELATIONAL_EDGES` is a count used as a proxy for
+> capability. Reproduced independently at `d8bee31`.
+
 **Status:** IMPLEMENTED 2026-08-04 (root 2 then root 1, evidence alongside each).
 Not yet judged — a fresh reader closes the beads, not the builder.
 

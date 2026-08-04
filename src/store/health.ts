@@ -36,9 +36,13 @@
 //
 // HOW WOULD I FAKE THIS?
 //   * "Write around the session": any direct Store.upsertSymbol leaves a stale
-//     HEALTHY. That is why src/ingest/session.ts is the only exported ingest
-//     entry point, and why src/ingest/seam.test.ts fails the suite if another
-//     module in src/ imports the raw primitives.
+//     HEALTHY. THIS IS OPEN, NOT SOLVED (MetaCoding-qv0). session.ts is the only
+//     ticketed ingest entry, but `Store.upsertSymbol` / `Store.addEdge` are
+//     public on the exported `src/store` barrel and take no ticket — measured,
+//     16 bare upserts grew a slice 12 -> 28 while its record still read
+//     fitness 12. Three rounds of guarding a door to a shared mutable store
+//     each found a lower door; docs/design/graph-as-cache.md removes the door
+//     instead (sealed immutable entries, key recomputed by the reader).
 //   * "A RUNNING marker that cries wolf": a crash during finalization leaves
 //     RUNNING on a good graph and users learn to ignore it. The record therefore
 //     carries pid + heartbeat so a reader can tell "running now" from
