@@ -104,6 +104,14 @@ section and let every coverage query filter on them.
 
 ### Tier 1: citation mining *(do this first — highest value per unit effort in the epic)*
 
+> **Measured 2026-08-04 (MetaCoding-d1l.6) — the claims in this subsection are partly wrong.**
+> Section citations run 6.6 / 4.1 / **1.6** per KLOC in fosite / zitadel / node-oidc-provider,
+> and reach only **5.6% / 8.0% / 0.3%** of exported symbols within 10 lines. Tier 1 is cheap,
+> precise and worth doing — as a *seed set* (~115 distinct sections) and as the **calibration
+> oracle** of §2 — but it is **not** "a large mapping for free" and cannot be the coverage
+> backbone. `node-oidc-provider`, named below as citing constantly, is the sparsest of the
+> three. See [`../notes/2026-08-04-rfc-citation-density-spike.md`](../notes/2026-08-04-rfc-citation-density-spike.md).
+
 **`fosite` and `node-oidc-provider` cite RFC sections in their comments constantly.** So do
 most serious protocol implementations — it is how their authors keep themselves honest.
 
@@ -196,7 +204,11 @@ even if SCIP-Go disappoints, which limits the blast radius.
 publishes XML). OIDC Core is HTML with anchors, and less regular. Start with RFCs; treat OIDC
 Core as its own ingestion task rather than assuming one parser serves both.
 
-**Citation quality is unmeasured.** The claim that fosite and node-oidc-provider cite
+**Citation quality is unmeasured.** *(Resolved 2026-08-04 — measured in
+[`../notes/2026-08-04-rfc-citation-density-spike.md`](../notes/2026-08-04-rfc-citation-density-spike.md);
+density is sparse enough that tier 1 must be demoted from backbone to seed+oracle, and the epic
+re-scoped accordingly. The original text is kept below for the record.)*
+The claim that fosite and node-oidc-provider cite
 extensively is from reading their descriptions and reputation, **not from measuring their
 comment density**. If citations turn out to be sparse, tier 1's value collapses and the epic
 leans much harder on tiers 2–3. **Measure this in a spike before building the extractor** — it
