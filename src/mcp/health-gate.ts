@@ -75,10 +75,42 @@ export type GraphAnswer<T> =
 /**
  * Which (repo, branch) slices this store holds, and what the persisted health
  * record says about each. A slice with symbols but no record is UNKNOWN.
+ *
+ * BOUNDARY NODES ARE NOT SLICES (bead MetaCoding-scc)
+ * --------------------------------------------------
+ * Both lanes create name-keyed EXTERNAL BOUNDARY nodes for targets defined
+ * outside the repo (`external::dataclass`, `external::ContentEntityBase`, …):
+ * `language = 'external'`, no file, no position, and `branch = ''` because they
+ * belong to no branch. A session writes its health record for (repo, <the git
+ * branch>) and never for (repo, ''), so enumerating slices by
+ * `DISTINCT s.repo, s.branch` invented a permanently UNKNOWN slice and
+ * `established` was permanently FALSE — a perfectly healthy store refused every
+ * empty query and every aggregate. Measured on both production stores before
+ * the fix: MetaCoding@main 18117 symbols + MetaCoding@'' 6, farmos@3fe0ce7
+ * 4446 + farmos@'' 354.
+ *
+ * `fitness.ts` already reasoned about boundary nodes for `measureStoreFitness`
+ * ("external boundary nodes only ever appear as targets"); the reasoning was
+ * never carried across to ENUMERATION, which asks a different question — not
+ * "whose symbols count" but "what is a slice that needs a verdict of its own".
+ * A boundary node is not a slice of indexed code and cannot have a fitness
+ * verdict.
+ *
+ * WHY THIS PREDICATE. `s.file = ''` alone is the convenient one; it would also
+ * silence any future real symbol that happens to carry no file, which is
+ * exactly the kind of quiet slice-disappearance this gate exists to prevent.
+ * `s.source = 'tree_sitter'` is wrong outright — the SCIP loader creates the
+ * same boundary nodes with `source = 'scip'` (src/scip/loader.ts), and the
+ * tree-sitter lane's REAL symbols carry that source too. The explicit marker
+ * both lanes set is `language = 'external'`, so the predicate is the
+ * CONJUNCTION of the marker and the absence of a file: a symbol that names a
+ * real file is enumerated as a slice no matter what else it says about itself.
  */
 export async function summarizeHealth(store: Store): Promise<HealthSummary> {
   const rows = await store.query<{ repo: string | null; branch: string | null }>(
-    `MATCH (s:Symbol) RETURN DISTINCT s.repo AS repo, s.branch AS branch`,
+    `MATCH (s:Symbol)
+     WHERE s.language <> 'external' OR s.file <> ''
+     RETURN DISTINCT s.repo AS repo, s.branch AS branch`,
   );
   const slices: SliceHealth[] = [];
   for (const r of rows) {

@@ -13,7 +13,7 @@
 // ever return the same type again, the property is gone.
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,7 @@ import { loadScip } from "../scip/loader.ts";
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 import { graphCallers, graphCypher, graphDiff, graphNeighbors } from "./tools.ts";
 import { summarizeHealth } from "./health-gate.ts";
+import { runIndexSession } from "../ingest/session.ts";
 
 const REPO = "gated";
 const BRANCH = "main";
@@ -205,6 +206,97 @@ describe("summarizeHealth", () => {
     // in a shared corpus cannot vouch for it.
     expect(h.unestablished.map((s) => s.repo)).toContain("second");
     expect(h.unestablished.map((s) => s.repo)).not.toContain(REPO);
+  });
+
+  // -------------------------------------------------------------------------
+  // PAIR scc — an EXTERNAL BOUNDARY NODE is not a slice; a real symbol is.
+  // -------------------------------------------------------------------------
+  //
+  // MetaCoding-scc, measured by a fresh judge on both production stores: a
+  // clean HEALTHY session still left `established` FALSE, because the lanes
+  // create `external::<name>` boundary nodes carrying `branch = ''`, and no
+  // session ever writes a record for (repo, ''). Every empty graph query and
+  // every aggregate refused against a store that was fine.
+  //
+  // The two halves differ ONLY in what the branch-'' rows ARE. Both halves have
+  // a (repo, '') slice in the graph and a HEALTHY record for the real branch. If
+  // the predicate ever degenerates into "drop everything on branch ''" — the
+  // convenient fix — half B goes green and the pair dies.
+  describe("PAIR scc — boundary nodes are not slices", () => {
+    /** The judge's fixture: out-of-repo decorators and bases -> boundary nodes. */
+    function seedPythonFixture(dir: string): void {
+      mkdirSync(join(dir, "pkg"), { recursive: true });
+      writeFileSync(join(dir, "pkg", "a.py"),
+        "from dataclasses import dataclass\n" +
+        "from other.pkg import Base\n\n" +
+        "@dataclass\n" +
+        "class Point(Base):\n" +
+        "    x: int = 0\n\n" +
+        "    @property\n" +
+        "    def doubled(self):\n" +
+        "        return self.x * 2\n", "utf-8");
+      writeFileSync(join(dir, "pkg", "b.py"),
+        "from other.pkg import Mixin\n\n" +
+        "class Widget(Mixin):\n" +
+        "    @classmethod\n" +
+        "    def make(cls):\n" +
+        "        return cls()\n", "utf-8");
+    }
+
+    async function branchRows(): Promise<{ branch: string; language: string; file: string }[]> {
+      return store.query<{ branch: string; language: string; file: string }>(
+        `MATCH (s:Symbol) WHERE s.repo = 'fixture'
+         RETURN DISTINCT s.branch AS branch, s.language AS language, s.file AS file`,
+      );
+    }
+
+    test("half A: a clean session over a tree WITH boundary nodes is ESTABLISHED", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "scc-repo-"));
+      try {
+        seedPythonFixture(repoDir);
+        const session = await runIndexSession(store, dataDir, {
+          repo: "fixture", branch: "main", targetPath: repoDir,
+          commitSha: "aaaaaaa", runStamp: "2026-08-04T13:00:00.000Z",
+          wantScip: false,
+        });
+        expect(session.health.status).toBe("HEALTHY");
+
+        // THE FIXTURE'S OWN VALIDITY CHECK: it must actually have produced the
+        // branch-'' external rows, or this test proves nothing.
+        const rows = await branchRows();
+        const boundary = rows.filter((r) => r.branch === "" );
+        expect(boundary.length).toBeGreaterThan(0);
+        expect(boundary.every((r) => r.language === "external" && r.file === "")).toBe(true);
+
+        const h = await summarizeHealth(store);
+        expect(h.slices.map((s) => `${s.repo}@${s.branch}`)).toContain("fixture@main");
+        // The invented slice is gone...
+        expect(h.slices.map((s) => `${s.repo}@${s.branch}`)).not.toContain("fixture@");
+        // ...and the store the judge measured as permanently refusing now answers.
+        expect(h.unestablished.map((s) => s.repo)).not.toContain("fixture");
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    test("half B: REAL symbols on branch '' are still a slice, and still refuse", async () => {
+      // Same store shape as half A — a HEALTHY record for the real branch and
+      // rows carrying branch '' — except the branch-'' rows name real FILES.
+      // A slice of indexed code always needs a verdict of its own.
+      const p = join(dataDir, "unbranched.scip");
+      await Bun.write(p, productiveScip());
+      await loadScip(store, p, { branch: "", repo: "fixture", language: "ts", indexed_at: STAMP });
+      setHealth(record({ repo: "fixture", branch: "main", status: "HEALTHY" }));
+
+      const rows = await branchRows();
+      const unbranched = rows.filter((r) => r.branch === "");
+      expect(unbranched.some((r) => r.language !== "external" && r.file !== "")).toBe(true);
+
+      const h = await summarizeHealth(store);
+      expect(h.slices.map((s) => `${s.repo}@${s.branch}`)).toContain("fixture@");
+      expect(h.unestablished.map((s) => `${s.repo}@${s.branch}`)).toContain("fixture@");
+      expect(h.established).toBe(false);
+    });
   });
 
   test("a RUNNING record whose pid is gone is reported ABANDONED", async () => {
