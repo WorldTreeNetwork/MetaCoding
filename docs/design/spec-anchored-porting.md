@@ -3,7 +3,10 @@
 **Status:** Design. Companion to [`port-loop-plan.md`](./port-loop-plan.md) and
 [`ct-intention-extraction.md`](./ct-intention-extraction.md).
 **First target:** OIDC/OAuth → `identikey-oidc` (Rust), tracked in `identikey-core` beads.
-**Date:** 2026-07-28
+**Date:** 2026-07-28 · **Re-scoped:** 2026-08-04 after MetaCoding-d1l.6 and d1l.7
+(see [`../notes/2026-08-04-rfc-citation-density-spike.md`](../notes/2026-08-04-rfc-citation-density-spike.md)
+and [`../notes/2026-08-04-go-js-lane-spike.md`](../notes/2026-08-04-go-js-lane-spike.md)) —
+§5 is the section that changed shape; §9 records what was falsified.
 
 ---
 
@@ -92,17 +95,53 @@ CREATE REL TABLE CITES_SPEC      FROM Symbol      TO SpecSection (raw STRING);
 CREATE REL TABLE SPEC_REFERENCES FROM SpecSection TO SpecSection (kind STRING);
 ```
 
-`source` on `IMPLEMENTS_SPEC` records provenance — `citation | annotation | lm | manual` —
-so the epistemology charter's confidence discipline applies unchanged: mined citations are
-high-confidence evidence, LM proposals are hypotheses until confirmed.
+`source` on `IMPLEMENTS_SPEC` records provenance — `citation | annotation | propagated | lm |
+manual` — so the epistemology charter's confidence discipline applies unchanged: mined
+citations are high-confidence evidence, LM proposals are hypotheses until confirmed.
+
+> **`propagated` added 2026-08-04** for §5.4's seed propagation. A propagated edge is neither a
+> citation (nobody wrote it) nor an LM proposal (no model proposed it) — it is the seed's
+> authority attenuated by graph distance, and it must record the seed edge it descended from
+> and the hop count, or its confidence is unauditable.
+>
+> **`TESTS_SPEC.source` is not Symbol-derived.** Per §8, its bindings come from the OIDF
+> conformance suite's naming, not from the reference repos' tests; the `FROM` side may not be a
+> `Symbol` in this graph at all. Check that before building the table.
 
 **`requirement_level` is what makes coverage meaningful.** "78% of sections covered" is noise;
 **"3 MUST-level sections unimplemented"** is a release gate. Extract RFC 2119 keywords per
 section and let every coverage query filter on them.
 
-## 5. Binding code to spec — three tiers
+## 5. Binding code to spec — a seed, then propagation
 
-### Tier 1: citation mining *(do this first — highest value per unit effort in the epic)*
+> **Revised 2026-08-04 after MetaCoding-d1l.6 and d1l.7.** This section originally read as
+> *three tiers, mine the citations first, and most of the mapping is free*. That ordering was
+> load-bearing and the first half of it was measured false. The corrected shape is below; the
+> original tier text is kept beneath it, annotated, for the record.
+
+**The corrected shape.** Tier 1 produces a small, high-precision **seed** (~115 distinct
+`(spec, section)` pairs across the whole three-repo corpus, clustered in ~58 protocol-flow
+files). Coverage of the **target** comes from tier 2, which is unaffected by any measurement
+here because the developer writes it. Coverage of the **reference repos** — which is what
+`spec_consensus` / `spec_divergence` need — comes from **propagating the seed through the
+graph** (§5.4) and/or from tier 3, and that is the epic's remaining unknown.
+
+The ordering that follows from this:
+
+| | what it binds | cost | status |
+|---|---|---|---|
+| **Tier 1** citation mining | the seed, in the references | hours (script exists) | measured: 5.6 / 8.0 / 0.3 % of exported symbols |
+| **Tier 2** annotation in the target | `identikey-oidc`, exactly | ~free, written in the moment | unaffected — ship `spec_coverage` on this |
+| **Tier 4** seed propagation | the references, from tier 1 | cheap, graph-native | proposed; unmeasured |
+| **Tier 3** LM proposal | whatever remains | unknown $/KLOC | **unmeasured, and now load-bearing** |
+
+Tier 3 is listed last deliberately. Under the original design it was a mop-up for what tiers
+1–2 missed; with tier 1 demoted it became the only route to dense reference-repo coverage, i.e.
+a much larger and riskier scope than the word "remainder" implies. **Measure it (d1l.15) before
+estimating anything that depends on it (d1l.12).** That is the same discipline d1l.6 applied to
+tier 1, one tier over.
+
+### Tier 1: citation mining *(the seed and the oracle — not the backbone)*
 
 > **Measured 2026-08-04 (MetaCoding-d1l.6) — the claims in this subsection are partly wrong.**
 > Section citations run 6.6 / 4.1 / **1.6** per KLOC in fosite / zitadel / node-oidc-provider,
@@ -128,6 +167,19 @@ adjudication. It is the cheapest ground truth in the entire program.
 Patterns to cover: `rfc\d+#section-[\d.]+`, `RFC ?\d+,? [Ss]ection [\d.]+`, `§[\d.]+`,
 `openid-connect-core-1_0.html#...`, `@see` / `@spec` tags, and Go doc-comment conventions.
 
+> **Pattern list, corrected against the corpus (d1l.6).** Four families the list above misses,
+> all of which changed the numbers: connector words (`RFC 8693 in section 2.1`);
+> `openid.net/specs/<anything>.html#anchor` (FAPI and `openid-financial-api-*` do not match
+> `openid-*-1_0`); textual `OpenID Connect Core 1.0, section 3.1.3.6` — zitadel's dominant
+> form, which alone took its OIDC-Core section count from 4 to 16; and `draft-ietf-*-NN#`.
+> **None of the three repos use `@see`/`@spec`** — that pattern belongs to tier 2 only.
+> Attribution must also reach *indented* exported interface methods and struct fields: fosite's
+> densest file (`oauth2.go`, 28 citations) is one interface block, invisible to `^func`.
+>
+> Two specs the epic never listed are cited anyway and should be ingested: **RFC 6819**
+> (OAuth threat model — fosite cites 7 sections) and **RFC 3986** (URI comparison, 4 sections;
+> redirect-URI comparison is a real correctness hazard in a port).
+
 ### Tier 2: annotation in the target
 
 `identikey-oidc` writes its own bindings as it goes:
@@ -140,10 +192,35 @@ pub fn exchange_authorization_code(...) -> Result<TokenResponse> { ... }
 Coverage becomes authored rather than inferred, and the gate is exact. Cheap because it is
 written at the moment the developer already has the section open.
 
-### Tier 3: LM proposal for the remainder
+### Tier 4: seed propagation through the graph *(added 2026-08-04, MetaCoding-d1l.17)*
 
-Only for what tiers 1–2 miss. Proposals land as `IMPLEMENTS_SPEC` with `source='lm'` and a
-confidence score, never silently promoted. Standard charter discipline.
+Citations reach **19–21% of Go *files*** but only 6–8% of *symbols*. File-level binding is 3×
+better than symbol-level, and the graph already holds the rest of the structure. A cited
+symbol's **callees, implementers and same-file neighbours** are strong candidates for the same
+section, and propagating from a high-precision seed is exactly what a typed graph is for.
+d1l.6's judgement is that this is a better spend than LM-proposing cold; d1l.15 measures the
+two arms against each other.
+
+Propagated edges land as `IMPLEMENTS_SPEC` with `source='propagated'`, carrying the seed edge
+they descended from and the hop count. They are neither citations (nobody wrote them) nor LM
+proposals (no model proposed them) — they are the seed's authority attenuated by distance, and
+conflating them with either destroys the provenance discipline §4 depends on.
+
+### Tier 3: LM proposal — no longer "the remainder"
+
+Originally scoped as mop-up for what tiers 1–2 miss. With tier 1 measured at 5.6/8.0/0.3% and
+tier 2 confined to the target repo, **tier 3 is the only route to dense binding in the
+reference repos**, which is a materially larger and riskier job than the original framing. Its
+cost and precision at corpus scale are **unmeasured** — the same failure mode d1l.6 corrected
+for tier 1. Measure first (d1l.15, with a pre-registered threshold), estimate second.
+
+Proposals land as `IMPLEMENTS_SPEC` with `source='lm'` and a confidence score, never silently
+promoted. Standard charter discipline.
+
+**Hold out the oracle.** §2's calibration study scores a harvest against the sections the
+references' own comments cite. If propagation or LM proposal is *seeded* from those same
+citations and then scored against them, both numbers are circular. Split the citation set
+before any binding pass runs.
 
 ## 6. MCP surface
 
@@ -159,6 +236,13 @@ New tools, composable with the existing graph surface:
 
 `spec_coverage` is the one the agent will call every session. It is the answer to "what's left",
 and unlike a task list it cannot drift from reality.
+
+> **Which of these are actually reachable (2026-08-04).** `spec_sections` and `spec_coverage`
+> read the target's own annotations (tier 2) and are untouched by either spike — build them
+> first, they are the only near-term deliverables whose value rests on nothing unmeasured.
+> `spec_implementations`, `spec_consensus` and `spec_divergence` all need *dense bindings in the
+> reference repos*, which is exactly what tier 1 does not supply; they are gated on d1l.15's
+> verdict, and their honest v1 is scoped to the ~58 citation-bearing files.
 
 ## 7. The CTKR payoff — and why divergence beats convergence
 
@@ -178,6 +262,20 @@ reading the spec alone or from reading any single implementation. **This is the 
 justifies indexing three implementations instead of one** — and it is not available in the
 farmOS shape at all, because N=2 from one community cannot distinguish ambiguity from habit.
 
+> **Three ways a divergence metric will lie, measured 2026-08-04 (d1l.7).**
+> (i) `IMPLEMENTS` density is **586 in fosite vs 24 in node-oidc-provider** — that reads Go
+> structural typing against JS prototypes, not spec disagreement. (ii) Symbol counts are not
+> comparable either: **88% of node-oidc-provider's 12,617 symbols are inferred `type_alias`
+> noise** from data literals; normalise to `function|method|class` before any ratio.
+> (iii) Qualified-name *shape* differs by lane — Go is package-FQN
+> (`github.com/ory/fosite.Fosite.WriteAccessError`, and `filePathOf()` returns null for 100% of
+> Go definitions) while JS/TS/PHP are file-shaped (`lib/helpers/errors.js::InvalidToken`). Key
+> on structure, never on string form.
+>
+> And the third implementation is a weaker vote than this section assumes: node-oidc-provider
+> carries section citations in **4 of 235 files**, dominated by OpenID4VCI rather than the core
+> RFCs targeted here. Where the data supports N=2 with a JS cross-check, say that.
+
 ## 8. Conformance-suite linkage
 
 The OpenID Foundation conformance suite is the external referee for `identikey-oidc`. Binding
@@ -193,12 +291,54 @@ conformance test fails
 That is a debugging path no other tool in the stack provides, and it turns a red CI run into a
 navigable query instead of a search problem.
 
+> **Where `TESTS_SPEC` edges come from — corrected 2026-08-04 (d1l.6).** Not from mining the
+> reference implementations' test suites: **14 section citations across 65,000 lines of test
+> code in all three repos combined**, and *zero* in node-oidc-provider's 34k. There is no cheap
+> test-side harvest anywhere in this corpus. Bindings must come from the conformance suite's own
+> naming — its test and test-plan identifiers and published module descriptions — which is
+> external data acquisition, not graph mining, and a different kind of task from the one this
+> section implies. It is deferred (d1l.13, P3) until `identikey-oidc` is actually running the
+> suite; the debugging path above is still the best one in the design, it is just no longer cheap.
+
 ## 9. Prerequisites and risks
 
-**Go lane must work end-to-end.** Two of three references are Go. `scip-go` exists and the SCIP
+**Go lane must work end-to-end.** *(Measured 2026-08-04 —
+[`../notes/2026-08-04-go-js-lane-spike.md`](../notes/2026-08-04-go-js-lane-spike.md), d1l.7.
+**Both halves of the paragraph below were wrong.** Original kept for the record.)*
+Two of three references are Go. `scip-go` exists and the SCIP
 loader is lane-agnostic, but this has not been exercised — **verify before committing to the
 epic**, because it gates everything downstream. Tree-sitter fallback covers citation mining
 even if SCIP-Go disappoints, which limits the blast radius.
+
+What was actually found:
+
+- **There is no Go lane.** `ScipLanguage = typescript | python | php`; `INDEXERS` has no Go
+  entry; `detectScipLanguages()` can never return Go; `--scip-language` rejects `go`. Every Go
+  number in the spike was produced manually, out of band, ingested via
+  `--load-scip --scip-language ts` — a deliberate lie, because no honest value exists.
+  Production cannot reproduce any of it today. (MetaCoding-d1l.16, P1.)
+- **`metacoding index <fosite> --scip` exits 0 with a completely empty graph.** fosite ships
+  `package.json` + `tsconfig.json`, so `scip-typescript` is selected, fails with "no files got
+  indexed", the failure is caught and logged, and the run reports success. `resolveScipWanted`
+  guards indexer *availability*; availability was never the risk. This is hy6.16 reproduced in
+  a new repo. (MetaCoding-0sd, P1.) **The only honest assertion is non-zero edge counts by
+  type, queried out of the store — never process exit status.**
+- **There is no tree-sitter fallback for `.go`/`.js`/`.mjs`/`.cjs` at all.** `detectGrammar()`
+  returns null for every one of them: symbols 0, edges 0, and **FTS tokens 0** (the tree-sitter
+  walker is the only writer of the `tokens` table). Lanes 3 *and* 4 are dark for the entire
+  reference corpus. The grammars are bundled; the dispatch and extractors are missing.
+  (MetaCoding-279.) **The blast-radius argument above is therefore void** — citation mining
+  must own its own file walk, as `scripts/spike-citation-density.ts` already does.
+- **What works, and is a windfall:** `scip-go` computes **Go interface satisfaction** — 776
+  implementations in fosite landing as 586 real `IMPLEMENTS` edges at both type and method
+  level, from an 8.9s indexer run. Go is structurally typed, so nothing in the source declares
+  these and no syntactic pass can recover them. That is precisely the substrate §7 and the
+  CTKR role-equivalence work need. Reference counts for fosite @`a5f0b09b`: CALLS 3274,
+  REFERENCES 7065, IMPLEMENTS 586, READS_FIELD 3936. Use them as the regression baseline.
+- **Known holes to carry forward:** 42,126 Go external refs are dropped with no boundary node
+  (PHP has Pass-2b; Go gets none), so stdlib / `net/http` / `crypto/*` usage is invisible;
+  budget ~3–4 min of store-load *per repo* (`loadScip` is the cost, not the indexers); and
+  `scip-go` has moved to `github.com/scip-code/scip-go`.
 
 **Spec source formats vary.** RFCs are well-structured and machine-readable (`rfc-editor.org`
 publishes XML). OIDC Core is HTML with anchors, and less regular. Start with RFCs; treat OIDC
@@ -213,6 +353,22 @@ extensively is from reading their descriptions and reputation, **not from measur
 comment density**. If citations turn out to be sparse, tier 1's value collapses and the epic
 leans much harder on tiers 2–3. **Measure this in a spike before building the extractor** — it
 is a half-hour check that determines the shape of the whole epic.
+
+**The load-bearing unknown is now tier 3.** *(New 2026-08-04.)* Tier 1 was the claim this
+design rested on, it was measured, and it moved. The weight it was carrying did not disappear —
+it transferred to LM proposal (and, cheaper, to seed propagation), neither of which has a
+number attached. Cost per KLOC and precision against held-out citations must be measured
+(d1l.15) **before** the consensus/divergence tools are estimated. If that measurement comes
+back badly, the correct response is not a bigger LM budget: it is to ship `spec_divergence`
+scoped to the ~58 citation-bearing files where the protocol logic actually lives, and to stop
+claiming corpus-wide spec coverage of the reference implementations.
+
+**What this design is worth, stated honestly.** It claimed a large spec↔code mapping for free
+and does not have one. What it does have, after both spikes: a genuine external oracle for the
+intention-extraction program (§2 — which needs *authority*, not density, and survives the
+demotion intact), a divergence capability available nowhere else, free Go interface-satisfaction
+edges the design did not know existed, and a target-side coverage gate (`spec_coverage`) that
+nothing measured here touches. That is a smaller epic and a sharper one.
 
 **Scope discipline.** This is a lane and a schema addition, not a new subsystem. It must not
 absorb the port loop, and the port loop must not absorb it. Per the DreamBall anti-vision: if
