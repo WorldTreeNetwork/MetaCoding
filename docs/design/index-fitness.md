@@ -9,6 +9,7 @@ Where it lives:
 |---|---|
 | the persisted record, RUNNING marker, pid/heartbeat | `src/store/health.ts` (`index-health.sqlite`) |
 | the index session — the ONLY exported ingest entry | `src/ingest/session.ts` |
+| the write capability that makes that true | `src/ingest/ticket.ts` (`MetaCoding-9ed`) |
 | the measurements (contribution / fitness / correspondence) | `src/ingest/fitness.ts` |
 | read-time typing + aggregating refusal | `src/mcp/health-gate.ts` |
 | `status` / `describe_api` health lines | `src/index-state.ts`, `src/mcp/tools.ts` |
@@ -236,6 +237,16 @@ disables the floor.
 3. **Writing around the session** — any direct `Store.upsertSymbol` leaves a stale
    `HEALTHY`. Why the session must be the *only* exported ingest entry: otherwise
    the fix is a guard, and a guard is a patch the next reader walks around.
+   **Refuted and re-closed (`MetaCoding-9ed`).** The first attempt closed this
+   with a text scanner over `import` lines; a fresh judge got past it in nine
+   shapes and grew a HEALTHY store from 24 symbols to 52 under a record that
+   still read `fitness 24`. It is now closed by a capability instead
+   (`src/ingest/ticket.ts`): every ingest primitive requires an `IngestTicket`,
+   and a ticket cannot write into a slice whose record currently reads
+   established. Writing into an `UNKNOWN` / `RUNNING` / `REFUSED` slice stays
+   possible and cannot manufacture a stale `HEALTHY`. **Still open at one level
+   up: forging the record itself** — nothing stops a module from writing
+   `status: "HEALTHY"` with invented numbers.
 4. **`UNMEASURABLE` as the new escape hatch** — the weakest joint. The four-level
    ladder exists so it is the *fourth* answer, not the first.
 5. **A RUNNING marker that cries wolf** — a crash during finalization leaves RUNNING
