@@ -102,6 +102,7 @@ function buildScipBytes(occurrences: OccSpec[], symInfos: SymInfoSpec[] = []): U
 // Store level rather than mocking the file system.
 // ---------------------------------------------------------------------------
 import { loadScip, type LoadScipStats } from "./loader.ts";
+import { issueIngestTicket } from "../ingest/ticket.ts";
 import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -117,7 +118,11 @@ async function withTmpScip(bytes: Uint8Array, fn: (path: string) => Promise<unkn
   }
 }
 
+// The ingest seam (bead MetaCoding-9ed): loadScip requires a write capability
+// issued by an index session. These stores are doubles with no dataDir, so no
+// persisted HEALTHY record exists that this write could make stale.
 const OPTS = {
+  ticket: issueIngestTicket({ repo: "test-repo", branch: "main", runStamp: "loader-test" }),
   branch: "main",
   repo: "test-repo",
   language: "ts" as const,
@@ -483,7 +488,10 @@ function buildPhpScipBytes(relPath: string, occurrences: OccSpec[]): Uint8Array 
   return new scip.Index({ documents: [doc] }).serialize();
 }
 
-const PHP_OPTS = { branch: "main", repo: "test-repo", language: "php" as const };
+const PHP_OPTS = {
+  ticket: issueIngestTicket({ repo: "test-repo", branch: "main", runStamp: "loader-test" }),
+  branch: "main", repo: "test-repo", language: "php" as const,
+};
 const P = "scip-php composer fixture/app 1.0.0";
 const DEF = scip.SymbolRole.Definition;
 

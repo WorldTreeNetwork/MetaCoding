@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 import { normalizeScipLang, ingestPrebuiltScip } from "../ingest/session.ts";
+import { issueIngestTicket } from "../ingest/ticket.ts";
 import { symbolId } from "../extractor/identity.ts";
 import type { EdgeKind } from "../store/types.ts";
 
@@ -85,12 +86,18 @@ describe("normalizeScipLang", () => {
   });
 });
 
+// The ingest seam (bead MetaCoding-9ed): ingestPrebuiltScip carries the
+// session's write capability through to loadScip. These stub stores have no
+// dataDir, so no established record exists that this write could make stale.
+const tk = () => issueIngestTicket({ repo: "farmos", branch: "main", runStamp: "load-scip-test" });
+
 describe("ingestPrebuiltScip — CLI --load-scip path", () => {
   test("php index yields the farmOS→Drupal boundary REFERENCES + CALLS edges", async () => {
     const { edges, symbols, store } = makeStubStore();
     const scipPath = writeTmpScip(farmSiteScipBytes());
 
     const stats = await ingestPrebuiltScip(store, scipPath, {
+      ticket: tk(),
       repo: "farmos",
       branch: "main",
       scipLanguage: "php",
@@ -108,7 +115,7 @@ describe("ingestPrebuiltScip — CLI --load-scip path", () => {
   test("defaults language to php when scipLanguage is omitted", async () => {
     const { edges, store } = makeStubStore();
     const scipPath = writeTmpScip(farmSiteScipBytes());
-    const stats = await ingestPrebuiltScip(store, scipPath, { repo: "farmos", branch: "main" });
+    const stats = await ingestPrebuiltScip(store, scipPath, { ticket: tk(), repo: "farmos", branch: "main" });
     expect(stats.externalBoundaryEdges).toBe(1);
     expect(edges.some((e) => e.kind === "CALLS")).toBe(true);
   });
@@ -117,6 +124,7 @@ describe("ingestPrebuiltScip — CLI --load-scip path", () => {
     const { symbols, store } = makeStubStore();
     const scipPath = writeTmpScip(farmSiteScipBytes());
     await ingestPrebuiltScip(store, scipPath, {
+      ticket: tk(),
       repo: "farmos",
       branch: "main",
       scipLanguage: "php",

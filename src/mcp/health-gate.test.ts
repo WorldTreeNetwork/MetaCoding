@@ -20,6 +20,12 @@ import { join } from "node:path";
 import { Store } from "../store";
 import { IndexHealthStore, type IndexHealthRecord } from "../store/health.ts";
 import { loadScip } from "../scip/loader.ts";
+// The ingest seam (bead MetaCoding-9ed): loadScip requires a write capability.
+// Minting one is side-effect free — it writes no record, so these fixtures still
+// read UNKNOWN until setHealth() puts a record beside the graph.
+import { issueIngestTicket } from "../ingest/ticket.ts";
+const tk = (repo: string, branch: string) =>
+  issueIngestTicket({ repo, branch, runStamp: "health-gate-test" });
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 import { graphCallers, graphCypher, graphDiff, graphNeighbors } from "./tools.ts";
 import { summarizeHealth } from "./health-gate.ts";
@@ -83,7 +89,7 @@ beforeEach(async () => {
   store = await Store.open(dataDir);
   const p = join(dataDir, "fixture.scip");
   await Bun.write(p, productiveScip());
-  await loadScip(store, p, { branch: BRANCH, repo: REPO, language: "ts", indexed_at: STAMP });
+  await loadScip(store, p, { ticket: tk(REPO, BRANCH), branch: BRANCH, repo: REPO, language: "ts", indexed_at: STAMP });
 });
 
 afterEach(async () => {
@@ -196,7 +202,7 @@ describe("summarizeHealth", () => {
   test("a store holding TWO repos reports each slice separately", async () => {
     const p = join(dataDir, "second.scip");
     await Bun.write(p, productiveScip());
-    await loadScip(store, p, { branch: BRANCH, repo: "second", language: "ts", indexed_at: STAMP });
+    await loadScip(store, p, { ticket: tk("second", BRANCH), branch: BRANCH, repo: "second", language: "ts", indexed_at: STAMP });
     setHealth(record({ status: "HEALTHY" })); // only `gated` has a record
 
     const h = await summarizeHealth(store);
@@ -285,7 +291,7 @@ describe("summarizeHealth", () => {
       // A slice of indexed code always needs a verdict of its own.
       const p = join(dataDir, "unbranched.scip");
       await Bun.write(p, productiveScip());
-      await loadScip(store, p, { branch: "", repo: "fixture", language: "ts", indexed_at: STAMP });
+      await loadScip(store, p, { ticket: tk("fixture", ""), branch: "", repo: "fixture", language: "ts", indexed_at: STAMP });
       setHealth(record({ repo: "fixture", branch: "main", status: "HEALTHY" }));
 
       const rows = await branchRows();

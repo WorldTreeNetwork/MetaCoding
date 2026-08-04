@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { Store } from "../store";
 import { indexDirectory, indexFile } from "./walker";
+import { issueIngestTicket } from "../ingest/ticket.ts";
 
 let dataDir: string;
 let repoDir: string;
@@ -50,11 +51,13 @@ async function constructsCount(repo: string, branch: string): Promise<number> {
 test("watch-mode indexFile resolves a cross-file CONSTRUCTS via scoped hydrate", async () => {
   const repo = "zq2";
   const branch = "main";
+  // The ingest seam (MetaCoding-9ed): these primitives require a session ticket.
+  const ticket = issueIngestTicket({ repo, branch, runStamp: "walker-test" });
 
   // foo.ts defines the class; user.ts (added later, single-file) constructs it.
   write("foo.ts", "export class Foo { hello() { return 1; } }\n");
   // Seed the store with foo.ts so its Foo symbol is on disk for the hydrate.
-  await indexDirectory(store, repoDir, { repo, branch });
+  await indexDirectory(store, repoDir, { repo, branch, ticket });
   expect(await constructsCount(repo, branch)).toBe(0);
 
   // Now add user.ts and index it SINGLE-FILE (the watch-mode path). Its
@@ -66,6 +69,7 @@ test("watch-mode indexFile resolves a cross-file CONSTRUCTS via scoped hydrate",
   const r = await indexFile(store, repoDir, join(repoDir, "user.ts"), {
     repo,
     branch,
+    ticket,
   });
   expect(r.skipped).toBe(false);
 
@@ -77,6 +81,8 @@ test("watch-mode indexFile resolves a cross-file CONSTRUCTS via scoped hydrate",
 test("indexFile with no behavior-edge candidates skips the hydrate query cleanly", async () => {
   const repo = "zq2";
   const branch = "main";
+  // The ingest seam (MetaCoding-9ed): these primitives require a session ticket.
+  const ticket = issueIngestTicket({ repo, branch, runStamp: "walker-test" });
 
   // A file with no constructs/writes/returns-type — empty candidate set means
   // the scoped hydrate is skipped entirely. Must still index without error.
@@ -84,6 +90,7 @@ test("indexFile with no behavior-edge candidates skips the hydrate query cleanly
   const r = await indexFile(store, repoDir, join(repoDir, "plain.ts"), {
     repo,
     branch,
+    ticket,
   });
   expect(r.skipped).toBe(false);
   expect(await constructsCount(repo, branch)).toBe(0);
@@ -92,6 +99,8 @@ test("indexFile with no behavior-edge candidates skips the hydrate query cleanly
 test("scoped hydrate matches indexDirectory for the same cross-file edge", async () => {
   const repo = "zq2";
   const branch = "main";
+  // The ingest seam (MetaCoding-9ed): these primitives require a session ticket.
+  const ticket = issueIngestTicket({ repo, branch, runStamp: "walker-test" });
 
   write("foo.ts", "export class Foo { hello() { return 1; } }\n");
   write(
@@ -100,7 +109,7 @@ test("scoped hydrate matches indexDirectory for the same cross-file edge", async
   );
 
   // Full directory pass resolves the cross-file CONSTRUCTS in-memory.
-  await indexDirectory(store, repoDir, { repo, branch });
+  await indexDirectory(store, repoDir, { repo, branch, ticket });
   const full = await constructsCount(repo, branch);
   expect(full).toBe(1);
 
@@ -110,7 +119,7 @@ test("scoped hydrate matches indexDirectory for the same cross-file edge", async
     "user.ts",
     "import { Foo } from './foo';\nexport function make2() { return new Foo(); }\n",
   );
-  await indexFile(store, repoDir, join(repoDir, "user.ts"), { repo, branch });
+  await indexFile(store, repoDir, join(repoDir, "user.ts"), { repo, branch, ticket });
   expect(await constructsCount(repo, branch)).toBe(1);
 });
 
@@ -137,6 +146,8 @@ async function fieldEdgeProvenance(
 test("PHP $this->field writes/reads persist as heuristic-provenance field edges", async () => {
   const repo = "vju";
   const branch = "main";
+  // The ingest seam (MetaCoding-9ed): these primitives require a session ticket.
+  const ticket = issueIngestTicket({ repo, branch, runStamp: "walker-test" });
   write(
     "Widget.php",
     `<?php
@@ -150,7 +161,7 @@ class Widget {
 }
 `,
   );
-  await indexDirectory(store, repoDir, { repo, branch });
+  await indexDirectory(store, repoDir, { repo, branch, ticket });
 
   const writes = await fieldEdgeProvenance("WRITES_FIELD", repo);
   const reads = await fieldEdgeProvenance("READS_FIELD", repo);
@@ -164,6 +175,8 @@ class Widget {
 test("hidden directories are never swept — a .claude/worktrees copy cannot pollute the graph (MetaCoding-wg7)", async () => {
   const repo = "wg7-repo";
   const branch = "main";
+  // The ingest seam (MetaCoding-9ed): these primitives require a session ticket.
+  const ticket = issueIngestTicket({ repo, branch, runStamp: "walker-test" });
   // The live defect: agent worktrees held LITERAL COPIES of src files, so the
   // same symbol indexed twice and role-equivalence twins were dominated by
   // cos-1.0 worktree duplicates. The property is broader than one denylist
@@ -172,7 +185,7 @@ test("hidden directories are never swept — a .claude/worktrees copy cannot pol
   write("src/real.ts", body);
   write(".claude/worktrees/agent-abc/src/real.ts", body);
   write(".some-future-tool/cache/real.ts", body);
-  await indexDirectory(store, repoDir, { repo, branch });
+  await indexDirectory(store, repoDir, { repo, branch, ticket });
   const rows = await store.query<{ file: string }>(
     `MATCH (s:Symbol)
      WHERE s.repo = $repo AND s.short_name = "wgSevenProbe"

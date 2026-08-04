@@ -58,6 +58,7 @@ import {
   formatGateFailure,
   type GateResult,
 } from "./fitness.ts";
+import { issueIngestTicket, revokeIngestTicket, type IngestTicket } from "./ticket.ts";
 
 export { formatGateFailure, censusSourceFiles, DEFAULT_MIN_COVERAGE } from "./fitness.ts";
 
@@ -131,6 +132,8 @@ export async function ingestPrebuiltScip(
   store: Store,
   scipPath: string,
   opts: {
+    /** The session's write capability — src/ingest/ticket.ts. */
+    ticket: IngestTicket;
     repo: string;
     branch: string;
     scipLanguage?: ScipLanguage;
@@ -145,6 +148,7 @@ export async function ingestPrebuiltScip(
   }
   const language = normalizeScipLang(opts.scipLanguage ?? "php");
   return loadScip(store, scipPath, {
+    ticket: opts.ticket,
     branch: opts.branch,
     repo: opts.repo,
     language,
@@ -178,6 +182,7 @@ export async function runIndexSession(
   const health = IndexHealthStore.open(dataDir);
   const heartbeatMs = 5_000;
   let timer: ReturnType<typeof setInterval> | null = null;
+  let ticket: IngestTicket | null = null;
   try {
     const prev = health.read(intent.repo, intent.branch);
     const prevCommitSha = previousEstablishedCommit(prev);
@@ -210,10 +215,22 @@ export async function runIndexSession(
     }, heartbeatMs);
     (timer as unknown as { unref?: () => void }).unref?.();
 
+    // The write capability. Minted AFTER the RUNNING record is persisted, and
+    // revoked at finalize: for the whole window in which writes are possible,
+    // the slice reads RUNNING, so no reader can mistake it for established.
+    // Nothing in src/ can write to the graph without one (bead MetaCoding-9ed,
+    // src/ingest/ticket.ts).
+    ticket = issueIngestTicket({
+      repo: intent.repo,
+      branch: intent.branch,
+      runStamp: intent.runStamp,
+    });
+
     // --- THE LANES ----------------------------------------------------------
     const lanes: LaneRecord[] = [];
     const identities: IndexIdentity[] = [];
     const walkOpts = {
+      ticket,
       branch: intent.branch,
       repo: intent.repo,
       repo_commit_sha: intent.commitSha,
@@ -234,7 +251,7 @@ export async function runIndexSession(
       // large while the graph holds yesterday's facts. Recording the file's
       // identity makes that visible to a reader. NOT closed by this.
       identities.push(await hashIndexFile(intent.loadScipPath));
-      const stats = await ingestPrebuiltScip(store, intent.loadScipPath, intent);
+      const stats = await ingestPrebuiltScip(store, intent.loadScipPath, { ...intent, ticket });
       lanes.push({ lane: "scip:load-scip", ok: true, files: stats.documents });
       scipSummary = { source: "load-scip", scipPath: intent.loadScipPath, ...stats };
     } else if (intent.wantScip) {
@@ -254,6 +271,7 @@ export async function runIndexSession(
           });
           identities.push(await hashIndexFile(scipPath));
           const stats = await loadScip(store, scipPath, {
+            ticket,
             branch: intent.branch,
             repo: intent.repo,
             language: lang === "typescript" ? "ts" : "py",
@@ -350,11 +368,19 @@ export async function runIndexSession(
       override,
     };
     if (timer) { clearInterval(timer); timer = null; }
+    // Revoke BEFORE the verdict is persisted: a reference to this ticket kept
+    // past the end of the session must not be able to grow the store the record
+    // is about. After this line the ticket fails `assertMayIngest`.
+    revokeIngestTicket(ticket);
+    ticket = null;
     health.write(record);
 
     return { treeSitter: tsStats, scip: scipSummary, health: record, gate };
   } finally {
     if (timer) clearInterval(timer);
+    // A lane that threw leaves the record RUNNING (deliberately) — but it must
+    // not leave a live write capability behind.
+    if (ticket) revokeIngestTicket(ticket);
     health.close();
   }
 }
@@ -378,7 +404,7 @@ export async function runWatchSession(
   store: Store,
   dataDir: string,
   intent: IndexIntent,
-  watchOpts: Omit<WatchOpts, "repo" | "branch" | "indexed_at" | "repo_commit_sha">,
+  watchOpts: Omit<WatchOpts, "ticket" | "repo" | "branch" | "indexed_at" | "repo_commit_sha">,
 ): Promise<{ session: IndexSessionResult; handle: WatchHandle | null }> {
   const session = await runIndexSession(store, dataDir, intent);
   if (!isFitnessEstablished(session.health.status)) {
@@ -393,8 +419,20 @@ export async function runWatchSession(
   } finally {
     health.close();
   }
+  // A WATCH-MODE capability. The session's own ticket was revoked at finalize;
+  // this one is admitted against the now-established record only because that
+  // record carries `watching: true` with the SAME run id (src/ingest/ticket.ts).
+  // The design names incremental writes as not re-judged — this makes the state
+  // that licenses them a persisted, readable fact rather than an assumption.
+  const watchTicket = issueIngestTicket({
+    repo: intent.repo,
+    branch: intent.branch,
+    runStamp: intent.runStamp,
+    mode: "watch",
+  });
   const handle = await watchTree(store, intent.targetPath, {
     ...watchOpts,
+    ticket: watchTicket,
     branch: intent.branch,
     repo: intent.repo,
     repo_commit_sha: intent.commitSha,

@@ -23,6 +23,7 @@ import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 import type { Store } from "../store";
 import type { Edge, EdgeKind, EdgeProvenance, Symbol } from "../store/types";
 import { symbolId } from "../extractor/identity";
+import { assertMayIngest, type IngestTicket } from "../ingest/ticket.ts";
 import {
   parseScipSymbol,
   qualifiedNameOf,
@@ -34,6 +35,11 @@ import {
 } from "./symbol";
 
 export interface LoadScipOpts {
+  /**
+   * THE INGEST SEAM (bead MetaCoding-9ed). `loadScip` writes symbols and edges,
+   * so it requires a capability issued by an index session — src/ingest/ticket.ts.
+   */
+  ticket: IngestTicket;
   branch: string;
   repo: string;
   /** Maps the SCIP scheme/file-extension to one of our `language` codes. */
@@ -80,6 +86,11 @@ export async function loadScip(
   opts: LoadScipOpts,
 ): Promise<LoadScipStats> {
   const t0 = performance.now();
+  assertMayIngest(
+    opts?.ticket,
+    { repo: opts?.repo, branch: opts?.branch, dataDir: store?.dataDir },
+    "loadScip",
+  );
   const bytes = readFileSync(scipPath);
   const idx = scip.Index.deserialize(bytes);
 

@@ -29,6 +29,11 @@ import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 
 import { Store } from "../store";
 import { loadScip } from "../scip/loader.ts";
+// The ingest seam (bead MetaCoding-9ed): loadScip requires a write capability.
+// These stores carry no health record, so nothing established can go stale.
+import { issueIngestTicket } from "./ticket.ts";
+const tk = (repo: string, branch: string, runStamp = "fitness-test") =>
+  issueIngestTicket({ repo, branch, runStamp });
 import {
   DEFAULT_MIN_COVERAGE,
   censusSourceFiles,
@@ -188,7 +193,7 @@ describe("PAIR 2 — a populated repo B cannot vouch for an empty repo A", () =>
   // holds many repos by construction.
   test("SAME store, SAME measurement, two repos, OPPOSITE verdicts", async () => {
     await loadScip(store, writeScip(productiveScip(), "b.scip"), {
-      branch: BRANCH, repo: "B", language: "ts", indexed_at: RUN_A,
+      ticket: tk("B", BRANCH), branch: BRANCH, repo: "B", language: "ts", indexed_at: RUN_A,
     });
 
     const fitB = await measureStoreFitness(store, "B", BRANCH);
@@ -216,7 +221,7 @@ describe("PAIR 2 — a populated repo B cannot vouch for an empty repo A", () =>
 
   test("branch scoping too: a populated sibling BRANCH cannot vouch either", async () => {
     await loadScip(store, writeScip(productiveScip(), "m.scip"), {
-      branch: "main", repo: "R", language: "ts", indexed_at: RUN_A,
+      ticket: tk("R", "main"), branch: "main", repo: "R", language: "ts", indexed_at: RUN_A,
     });
     const onMain = await measureStoreFitness(store, "R", "main");
     const onFeature = await measureStoreFitness(store, "R", "feature");
@@ -322,7 +327,7 @@ describe("PAIR 4 — zero contribution is fine at the SAME commit and fatal at a
     // the per-run measure can tell them apart, and it does — this is the
     // quantity the old gate did not have (it substituted the repo-wide census).
     await loadScip(store, writeScip(productiveScip(), "runA.scip"), {
-      branch: BRANCH, repo: "R", language: "ts", indexed_at: RUN_A,
+      ticket: tk("R", BRANCH), branch: BRANCH, repo: "R", language: "ts", indexed_at: RUN_A,
     });
 
     const fitness = await measureStoreFitness(store, "R", BRANCH);
@@ -530,7 +535,7 @@ describe("PAIR 5 — 40 vendored documents vs 40 real ones over the SAME tree", 
 
     // (a) the vendored index — real definitions, real edges, wrong tree.
     await loadScip(store, writeScip(vendor40Scip(), "vendor40.scip"), {
-      branch: BRANCH, repo: "vendored", language: "ts", indexed_at: RUN_A,
+      ticket: tk("vendored", BRANCH), branch: BRANCH, repo: "vendored", language: "ts", indexed_at: RUN_A,
     });
     const vendored = await measureCorrespondence(store, "vendored", BRANCH, source);
 
@@ -563,7 +568,7 @@ describe("PAIR 5 — 40 vendored documents vs 40 real ones over the SAME tree", 
       ),
     }).serialize();
     await loadScip(store, writeScip(realDocs, "real40.scip"), {
-      branch: BRANCH, repo: "real", language: "ts", indexed_at: RUN_A,
+      ticket: tk("real", BRANCH), branch: BRANCH, repo: "real", language: "ts", indexed_at: RUN_A,
     });
     const real = await measureCorrespondence(store, "real", BRANCH, source);
 
@@ -605,7 +610,7 @@ describe("PAIR 6 — a container prefix degrades the granularity; an unrelated t
       }),
     );
     await loadScip(store, writeScip(new scip.Index({ documents: docs }).serialize(), `${repo}.scip`), {
-      branch: BRANCH, repo, language: "ts", indexed_at: RUN_A,
+      ticket: tk(repo, BRANCH), branch: BRANCH, repo, language: "ts", indexed_at: RUN_A,
     });
   }
 

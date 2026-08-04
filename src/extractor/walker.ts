@@ -23,10 +23,18 @@ import { makeParser, type TsParser } from "./parser";
 import { extractTypeScript, type ExtractOpts as TsExtractOpts } from "./typescript";
 import { extractPython, type ExtractPyOpts } from "./python";
 import { extractPhp, type ExtractPhpOpts } from "./php";
+import { assertMayIngest, type IngestTicket } from "../ingest/ticket.ts";
 
 type Grammar = "typescript" | "tsx" | "python" | "php";
 
 export interface WalkOpts {
+  /**
+   * THE INGEST SEAM (bead MetaCoding-9ed). Every function in this file WRITES to
+   * the Store, so every one of them requires a capability issued by an index
+   * session — see src/ingest/ticket.ts. Required, and nominal: there is no
+   * import shape that reaches these functions without one.
+   */
+  ticket: IngestTicket;
   branch?: string;
   repo?: string;
   excludeDirs?: string[];
@@ -100,11 +108,12 @@ async function getParsers(): Promise<ParserCache> {
 export async function indexDirectory(
   store: Store,
   rootPath: string,
-  opts: WalkOpts = {},
+  opts: WalkOpts,
 ): Promise<WalkStats> {
   const t0 = performance.now();
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
+  assertMayIngest(opts?.ticket, { repo, branch, dataDir: store?.dataDir }, "indexDirectory");
   const exclude = new Set([...DEFAULT_EXCLUDE_DIRS, ...(opts.excludeDirs ?? [])]);
 
   const files: ScannedFile[] = [];
@@ -157,10 +166,14 @@ export async function indexFile(
   store: Store,
   rootPath: string,
   filePath: string,
-  opts: WalkOpts = {},
+  opts: WalkOpts,
 ): Promise<{ skipped: boolean; symbols: number; edges: number; tokens: number }> {
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
+  // indexFile writes symbols, edges AND tokens. It was exported from the
+  // extractor barrel and absent from the old guard list entirely — the judge's
+  // bypass G needed no evasion at all (bead MetaCoding-9ed).
+  assertMayIngest(opts?.ticket, { repo, branch, dataDir: store?.dataDir }, "indexFile");
   const abs = isAbsolute(filePath) ? filePath : resolve(rootPath, filePath);
   const grammar = detectGrammar(abs);
   if (!grammar) return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
@@ -197,10 +210,13 @@ export async function removeFile(
   store: Store,
   rootPath: string,
   filePath: string,
-  opts: WalkOpts = {},
+  opts: WalkOpts,
 ): Promise<void> {
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
+  // Deleting a file's symbols mutates the graph the verdict describes just as
+  // surely as adding them.
+  assertMayIngest(opts?.ticket, { repo, branch, dataDir: store?.dataDir }, "removeFile");
   const abs = isAbsolute(filePath) ? filePath : resolve(rootPath, filePath);
   const rel = relative(rootPath, abs);
   await store.deleteFileData(repo, rel, branch);

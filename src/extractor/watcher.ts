@@ -63,9 +63,12 @@ const DEFAULT_IGNORED = [
 export async function watch(
   store: Store,
   rootPath: string,
-  opts: WatchOpts = {},
+  opts: WatchOpts,
 ): Promise<WatchHandle> {
   const root = resolve(rootPath);
+  // WatchOpts extends WalkOpts, so `watch` cannot be called without an ingest
+  // ticket either — the judge's bypass H ('watch' was not in the guard list at
+  // all) is a type error now, and every incremental write below re-checks.
 
   // Initial pass — fast on a warm cache because of the ast_hash skip path.
   // Skipped when an index session already performed (and JUDGED) it.
