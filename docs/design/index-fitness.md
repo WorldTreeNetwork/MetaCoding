@@ -1,6 +1,31 @@
 # Index fitness: what a graph must establish before it may answer
 
-**Status:** proposed, 2026-08-04. Not implemented.
+**Status:** IMPLEMENTED 2026-08-04 (root 2 then root 1, evidence alongside each).
+Not yet judged — a fresh reader closes the beads, not the builder.
+
+Where it lives:
+
+| piece | file |
+|---|---|
+| the persisted record, RUNNING marker, pid/heartbeat | `src/store/health.ts` (`index-health.sqlite`) |
+| the index session — the ONLY exported ingest entry | `src/ingest/session.ts` |
+| the measurements (contribution / fitness / correspondence) | `src/ingest/fitness.ts` |
+| read-time typing + aggregating refusal | `src/mcp/health-gate.ts` |
+| `status` / `describe_api` health lines | `src/index-state.ts`, `src/mcp/tools.ts` |
+| the ten contrast pairs | `src/ingest/fitness.test.ts`, `src/ingest/session.test.ts`, `src/mcp/health-gate.test.ts`, `src/ingest/seam.test.ts` |
+
+Two things this build does NOT claim:
+
+* **Open red #2 is still open.** Re-ingesting yesterday's `.scip` at a new commit
+  re-stamps every symbol, so `contribution` passes with a large number while the
+  graph holds yesterday's facts. `index_identities` (path + sha256 + size) makes
+  it visible to a reader. Citation, not prevention.
+* **`watch`'s incremental writes after the initial pass are not re-gated.** The
+  initial full pass runs inside a session and produces the same verdict as
+  `index`; per-file updates afterwards do not re-run the measurement, and the
+  record carries `watching: true` plus the owning pid so a reader can see it.
+
+**Status of the original design:** proposed, 2026-08-04.
 **Origin:** `MetaCoding-0sd` (refuted fix) → fresh-architect redesign.
 **Beads:** `0sd`, `4kg`, `5fi`, `e6z`, `ae5`, `hy6.16`.
 
