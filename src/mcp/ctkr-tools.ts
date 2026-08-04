@@ -55,6 +55,163 @@ function resolveCtkrDataDir(): string {
 }
 
 // ---------------------------------------------------------------------------
+// THE FITNESS GATE — bead MetaCoding-0mu
+//
+// docs/design/index-fitness.md lists the AGGREGATING consumers that must refuse
+// by default, and names two of these tools explicitly: "CTKR motif mining,
+// role-equivalence". src/mcp/health-gate.ts calls that "the direct fix for the
+// historical harm". Until this file changed, these eleven tools had no health
+// channel at all — no gateAggregate, no summarizeHealth, no FITNESS anywhere.
+//
+// That is not a cosmetic gap. MetaCoding-hy6.16 — the loss the whole design
+// exists to prevent — WAS a CTKR-shaped failure: 41 role-partition rows
+// re-scored over a graph holding CALLS = 0 and REFERENCES = 0, an empty result
+// mistaken for a real one. `ctkr.role_equivalent` is that same tool class over
+// that same condition. The one consumer the design exists to protect was the
+// one consumer left unprotected.
+//
+// WHAT FITNESS MEANS FOR A DERIVED ARTIFACT
+// =========================================
+// These tools do not query the graph; they read parquet/jsonl artifacts built
+// FROM it by the `ctkr` batch runners. That indirection removes nothing — an
+// artifact INHERITS the unfitness of its input, one level removed and less
+// visible, since nothing in the artifact records the health of the graph it
+// came from. Two questions therefore have to be answered from the data dir:
+//
+//   1. IS THE GRAPH BESIDE THESE ARTIFACTS ESTABLISHED? The artifacts live in
+//      `<dataDir>/ctkr/` and the health records in `<dataDir>/index-health.sqlite`
+//      (src/store/health.ts). No records at all => UNKNOWN => refuse. Any slice
+//      REFUSED / RUNNING / UNKNOWN => refuse. This is the same reading
+//      summarizeHealth applies to the graph tools, done without a Store handle.
+//
+//   2. WAS THE ARTIFACT BUILT AFTER THAT VERDICT? `manifest.generated_at` says
+//      when the artifacts were built. If a health record finalized AFTER it,
+//      the artifacts describe an EARLIER graph whose fitness at build time was
+//      never recorded — the current HEALTHY does not vouch for them. That is
+//      reported as an unestablished slice of its own, so it refuses by default
+//      and can still be acknowledged explicitly.
+//
+// WHAT IS STILL MISSING, NAMED NOT HIDDEN: the manifest does not record the
+// health records (run_id + status per repo) it was built against, so "built
+// after the verdict" is the strongest inheritance test available from here. The
+// real fix is for the batch runners to stamp the health record into
+// manifest.json; with that, a consumer could see the graph's fitness without
+// re-deriving it, and a rebuild of the graph would invalidate the artifact by
+// run_id rather than by timestamp ordering.
+
+import { existsSync } from "node:fs";
+
+import {
+  gateAggregate,
+  FITNESS_ERROR,
+  type HealthSummary,
+  type SliceHealth,
+} from "./health-gate.ts";
+import {
+  isAbandonedRun,
+  isFitnessEstablished,
+  readAllIndexHealth,
+} from "../store/health.ts";
+
+/** The artifact generation stamp, or null when no manifest exists. */
+async function manifestGeneratedAt(dataDir: string): Promise<string | null> {
+  const p = join(dataDir, "ctkr", "manifest.json");
+  if (!existsSync(p)) return null;
+  try {
+    const mf = JSON.parse(await Bun.file(p).text()) as Partial<ArtifactManifest>;
+    return typeof mf.generated_at === "string" ? mf.generated_at : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The health of the graph these artifacts were derived from, read from the
+ * data dir without a Store handle (the CTKR tools never open one).
+ *
+ * Mirrors `summarizeHealth`'s posture deliberately: absent record => UNKNOWN,
+ * never HEALTHY, and a store with nothing recorded is unestablished rather than
+ * vacuously fine — "nothing" is exactly what hy6.16 mistook for a real answer.
+ */
+export async function ctkrArtifactHealth(dataDir: string): Promise<HealthSummary> {
+  const records = readAllIndexHealth(dataDir);
+  const slices: SliceHealth[] = records.map((rec) => {
+    const slice: SliceHealth = { repo: rec.repo, branch: rec.branch, status: rec.status };
+    if (rec.status === "RUNNING" && isAbandonedRun(rec)) slice.abandoned = true;
+    return slice;
+  });
+  if (slices.length === 0) {
+    slices.push({
+      repo: `(no index-health record beside ${dataDir})`,
+      branch: "",
+      status: "UNKNOWN",
+    });
+  }
+
+  // The derived-artifact question: were these artifacts built from the graph
+  // as it now stands, or from an earlier one nobody judged?
+  const builtAt = await manifestGeneratedAt(dataDir);
+  const newestFinalize = records
+    .map((r) => r.finished_at)
+    .filter((t): t is string => typeof t === "string")
+    .sort()
+    .at(-1);
+  if (builtAt === null) {
+    slices.push({
+      repo: "(ctkr artifacts: no manifest.json)",
+      branch: "(derived)",
+      status: "UNKNOWN",
+    });
+  } else if (newestFinalize && newestFinalize > builtAt) {
+    slices.push({
+      repo:
+        `(ctkr artifacts generated ${builtAt}, but the graph's fitness was ` +
+        `finalized later at ${newestFinalize} — the artifacts describe an ` +
+        `earlier graph whose fitness at build time was never recorded)`,
+      branch: "(derived)",
+      status: "UNKNOWN",
+    });
+  }
+
+  const unestablished = slices.filter((s) => !isFitnessEstablished(s.status));
+  return { slices, unestablished, established: unestablished.length === 0 };
+}
+
+/** The refusal / result envelope every CTKR tool now returns. */
+export type CtkrAnswer<T> =
+  | { ok: true; result: T; health: HealthSummary; caveat?: string }
+  | { ok: false; error: typeof FITNESS_ERROR; message: string; health: HealthSummary };
+
+/**
+ * Gate a CTKR tool as an AGGREGATING consumer, in the shape `graph_diff` already
+ * uses (src/mcp/tools.ts): refuse by default on REFUSED / RUNNING / UNKNOWN,
+ * empty or not, and proceed only on an explicit acknowledgment.
+ *
+ * The refusal branch has NO `result` property, so a caller that reaches straight
+ * for `answer.result.rows` crashes instead of aggregating a zero — the typed
+ * refusal is the whole mechanism (see health-gate.ts's header).
+ *
+ * NOTE the compute callback is only invoked on the proceed path: a refused tool
+ * never opens the artifacts at all, so a refusal cannot be confused with an
+ * artifact-read failure.
+ */
+export async function gateCtkrAggregate<T>(
+  toolName: string,
+  acknowledged: boolean | undefined,
+  compute: () => Promise<T>,
+): Promise<CtkrAnswer<T>> {
+  const dataDir = resolveCtkrDataDir();
+  const health = await ctkrArtifactHealth(dataDir);
+  if (!health.established && !acknowledged) {
+    return gateAggregate(() => undefined as T, health, false, toolName) as {
+      ok: false; error: typeof FITNESS_ERROR; message: string; health: HealthSummary;
+    };
+  }
+  const result = await compute();
+  return gateAggregate(() => result, health, true, toolName);
+}
+
+// ---------------------------------------------------------------------------
 // Output shapes
 // ---------------------------------------------------------------------------
 
@@ -245,7 +402,18 @@ export interface CompositionRulesResult {
 
 const EDGE_KIND_SCHEMA = z.enum(EDGE_KIND_VALUES);
 
+/**
+ * The aggregating consumer's explicit "yes, I know, proceed" — the same
+ * parameter `graph_diff` takes (src/mcp/tools.ts), so the MCP surface reads the
+ * same way whichever aggregate you are calling. Absent or false, a tool whose
+ * graph fitness is not established REFUSES (bead MetaCoding-0mu).
+ */
+const ACK_SCHEMA = {
+  acknowledge_unestablished_fitness: z.boolean().optional(),
+};
+
 const MOTIF_SEARCH_SCHEMA = {
+  ...ACK_SCHEMA,
   min_support: z.number().int().min(1).optional(),
   edge_kinds: z.array(EDGE_KIND_SCHEMA).optional(),
   repo_coverage_min: z.number().int().min(1).optional(),
@@ -254,6 +422,7 @@ const MOTIF_SEARCH_SCHEMA = {
 };
 
 const NEAREST_SYMBOLS_SCHEMA = {
+  ...ACK_SCHEMA,
   symbol_id: z.string().optional(),
   qualified_name: z.string().optional(),
   k: z.number().int().min(1).max(500).optional(),
@@ -262,6 +431,7 @@ const NEAREST_SYMBOLS_SCHEMA = {
 };
 
 const PATTERN_SEARCH_SCHEMA = {
+  ...ACK_SCHEMA,
   label: z.string().optional(),
   source_kind: z.string().optional(),
   min_confidence: z.number().min(0).max(1).optional(),
@@ -270,12 +440,14 @@ const PATTERN_SEARCH_SCHEMA = {
 };
 
 const SHAPE_DISTANCE_SCHEMA = {
+  ...ACK_SCHEMA,
   repo_a: z.string().min(1),
   repo_b: z.string().optional(),
   k_nearest: z.number().int().min(1).max(200).optional(),
 };
 
 const CENTRALITY_QUERY_SCHEMA = {
+  ...ACK_SCHEMA,
   repo: z.string().optional(),
   kind: z.string().optional(),
   top_k: z.number().int().min(1).max(10000).optional(),
@@ -283,6 +455,7 @@ const CENTRALITY_QUERY_SCHEMA = {
 };
 
 const ROLE_EQUIVALENT_SCHEMA = {
+  ...ACK_SCHEMA,
   symbol_id: z.string().optional(),
   qualified_name: z.string().optional(),
   k: z.number().int().min(1).max(500).optional(),
@@ -291,6 +464,7 @@ const ROLE_EQUIVALENT_SCHEMA = {
 };
 
 const SUBSYSTEMS_SCHEMA = {
+  ...ACK_SCHEMA,
   repo: z.string().optional(),
   resolution: z.number().optional(),
   min_persistence: z.number().min(0).max(1).optional(),
@@ -298,6 +472,7 @@ const SUBSYSTEMS_SCHEMA = {
 };
 
 const INTERFACE_OF_SCHEMA = {
+  ...ACK_SCHEMA,
   subsystem: z.string().min(1),
   repo: z.string().optional(),
   direction: z.enum(["provides", "consumes"]).optional(),
@@ -306,6 +481,7 @@ const INTERFACE_OF_SCHEMA = {
 };
 
 const COMPOSITION_RULES_SCHEMA = {
+  ...ACK_SCHEMA,
   subsystem: z.string().optional(),
   repo: z.string().optional(),
   view: z.enum(["orbit", "similarity"]).optional(),
@@ -328,12 +504,14 @@ const CARD_SECTIONS = [
 ] as const;
 
 const SUBSYSTEM_CARD_SCHEMA = {
+  ...ACK_SCHEMA,
   subsystem: z.string().min(1),
   repo: z.string().optional(),
   sections: z.array(z.enum(CARD_SECTIONS)).optional(),
 };
 
 const FUNCTOR_BETWEEN_SCHEMA = {
+  ...ACK_SCHEMA,
   repo_a: z.string().min(1),
   repo_b: z.string().min(1),
   direction: z.enum(["a_to_b", "b_to_a", "both"]).optional(),
@@ -1424,6 +1602,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         min_support: { type: "integer", minimum: 1, description: "Minimum occurrence count." },
         edge_kinds: {
           type: "array",
@@ -1445,6 +1636,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         symbol_id: { type: "string", description: "16-char hash. Provide this or qualified_name." },
         qualified_name: { type: "string", description: "Provide this or symbol_id." },
         k: { type: "integer", minimum: 1, maximum: 500, default: 10 },
@@ -1462,6 +1666,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         label: { type: "string", description: "Label substring filter." },
         source_kind: { type: "string", enum: ["motif", "role-cluster", "analogy"] },
         min_confidence: { type: "number", minimum: 0, maximum: 1 },
@@ -1480,6 +1697,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       type: "object",
       required: ["repo_a"],
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         repo_a: { type: "string" },
         repo_b: { type: "string", description: "Single-pair mode." },
         k_nearest: { type: "integer", minimum: 1, maximum: 200, description: "Top-k mode." },
@@ -1497,6 +1727,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         symbol_id: { type: "string", description: "16-char hash. Provide this or qualified_name." },
         qualified_name: { type: "string", description: "Provide this or symbol_id." },
         k: { type: "integer", minimum: 1, maximum: 500, default: 10 },
@@ -1515,6 +1758,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       type: "object",
       required: ["metric"],
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         metric: { type: "string", enum: ["pagerank", "betweenness", "eigenvector"] },
         repo: { type: "string" },
         kind: { type: "string", description: "Accepted but not applied in v1." },
@@ -1537,6 +1793,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         repo: { type: "string", description: "Restrict to one repo." },
         resolution: {
           type: "number",
@@ -1576,6 +1845,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       type: "object",
       required: ["subsystem"],
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         subsystem: { type: "string", description: "subsystem_id (from ctkr.subsystems)." },
         repo: { type: "string", description: "Restrict to one repo." },
         direction: {
@@ -1611,6 +1893,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
     input_schema: {
       type: "object",
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         subsystem: {
           type: "string",
           description: "subsystem_id (from ctkr.subsystems) — the scoped operad.",
@@ -1660,6 +1955,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       type: "object",
       required: ["subsystem"],
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         subsystem: {
           type: "string",
           description: "subsystem_id (from ctkr.subsystems) to fetch the card for.",
@@ -1695,6 +2003,19 @@ export const CTKR_TOOL_DESCRIPTIONS: ToolDescription[] = [
       type: "object",
       required: ["repo_a", "repo_b"],
       properties: {
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          default: false,
+          description:
+            "AGGREGATING consumer gate (bead MetaCoding-0mu). This tool reads artifacts " +
+            "DERIVED from the graph, so it inherits the graph's fitness. When the graph " +
+            "beside those artifacts has no established fitness (REFUSED / RUNNING / " +
+            "UNKNOWN), or the artifacts predate the verdict, the tool returns " +
+            "{ ok:false, error:'INDEX_FITNESS_UNESTABLISHED' } with NO result property " +
+            "rather than numbers that silently absorb a zero — MetaCoding-hy6.16 was " +
+            "exactly this shape of aggregate. Set true to proceed anyway; the answer then " +
+            "carries a caveat recording that you were told.",
+        },
         repo_a: { type: "string", description: "Source repo (domain C_A)." },
         repo_b: { type: "string", description: "Target repo (codomain C_B)." },
         direction: {
@@ -1769,14 +2090,18 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: MOTIF_SEARCH_SCHEMA,
     },
     async (args) => {
-      const rows = await motifSearch({
-        min_support: args.min_support,
-        edge_kinds: args.edge_kinds as EdgeKind[] | undefined,
-        repo_coverage_min: args.repo_coverage_min,
-        label: args.label,
-        limit: args.limit,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.motif_search", args.acknowledge_unestablished_fitness, () =>
+        motifSearch({
+            min_support: args.min_support,
+            edge_kinds: args.edge_kinds as EdgeKind[] | undefined,
+            repo_coverage_min: args.repo_coverage_min,
+            label: args.label,
+            limit: args.limit,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1793,14 +2118,18 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: NEAREST_SYMBOLS_SCHEMA,
     },
     async (args) => {
-      const rows = await nearestSymbols({
-        symbol_id: args.symbol_id,
-        qualified_name: args.qualified_name,
-        k: args.k,
-        cross_repo_only: args.cross_repo_only,
-        embedding_kind: args.embedding_kind,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.nearest_symbols", args.acknowledge_unestablished_fitness, () =>
+        nearestSymbols({
+            symbol_id: args.symbol_id,
+            qualified_name: args.qualified_name,
+            k: args.k,
+            cross_repo_only: args.cross_repo_only,
+            embedding_kind: args.embedding_kind,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1815,14 +2144,18 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: PATTERN_SEARCH_SCHEMA,
     },
     async (args) => {
-      const rows = await patternSearch({
-        label: args.label,
-        source_kind: args.source_kind,
-        min_confidence: args.min_confidence,
-        instances_in_repo: args.instances_in_repo,
-        limit: args.limit,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.pattern_search", args.acknowledge_unestablished_fitness, () =>
+        patternSearch({
+            label: args.label,
+            source_kind: args.source_kind,
+            min_confidence: args.min_confidence,
+            instances_in_repo: args.instances_in_repo,
+            limit: args.limit,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1839,12 +2172,16 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: SHAPE_DISTANCE_SCHEMA,
     },
     async (args) => {
-      const result = await shapeDistance({
-        repo_a: args.repo_a,
-        repo_b: args.repo_b,
-        k_nearest: args.k_nearest,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.shape_distance", args.acknowledge_unestablished_fitness, () =>
+        shapeDistance({
+            repo_a: args.repo_a,
+            repo_b: args.repo_b,
+            k_nearest: args.k_nearest,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1866,14 +2203,18 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: ROLE_EQUIVALENT_SCHEMA,
     },
     async (args) => {
-      const rows = await roleEquivalent({
-        symbol_id: args.symbol_id,
-        qualified_name: args.qualified_name,
-        k: args.k,
-        scope: args.scope,
-        cross_repo_only: args.cross_repo_only,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.role_equivalent", args.acknowledge_unestablished_fitness, () =>
+        roleEquivalent({
+            symbol_id: args.symbol_id,
+            qualified_name: args.qualified_name,
+            k: args.k,
+            scope: args.scope,
+            cross_repo_only: args.cross_repo_only,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1889,13 +2230,17 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: CENTRALITY_QUERY_SCHEMA,
     },
     async (args) => {
-      const rows = await centralityQuery({
-        repo: args.repo,
-        kind: args.kind,
-        top_k: args.top_k,
-        metric: args.metric,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.centrality_query", args.acknowledge_unestablished_fitness, () =>
+        centralityQuery({
+            repo: args.repo,
+            kind: args.kind,
+            top_k: args.top_k,
+            metric: args.metric,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1918,13 +2263,17 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: SUBSYSTEMS_SCHEMA,
     },
     async (args) => {
-      const result = await subsystemsQuery({
-        repo: args.repo,
-        resolution: args.resolution,
-        min_persistence: args.min_persistence,
-        boundary_sample: args.boundary_sample,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.subsystems", args.acknowledge_unestablished_fitness, () =>
+        subsystemsQuery({
+            repo: args.repo,
+            resolution: args.resolution,
+            min_persistence: args.min_persistence,
+            boundary_sample: args.boundary_sample,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1954,14 +2303,18 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: INTERFACE_OF_SCHEMA,
     },
     async (args) => {
-      const result = await interfaceOf({
-        subsystem: args.subsystem,
-        repo: args.repo,
-        direction: args.direction,
-        boundary_shapes_only: args.boundary_shapes_only,
-        limit: args.limit,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.interface_of", args.acknowledge_unestablished_fitness, () =>
+        interfaceOf({
+            subsystem: args.subsystem,
+            repo: args.repo,
+            direction: args.direction,
+            boundary_shapes_only: args.boundary_shapes_only,
+            limit: args.limit,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -1997,16 +2350,20 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: COMPOSITION_RULES_SCHEMA,
     },
     async (args) => {
-      const result = await compositionRules({
-        subsystem: args.subsystem,
-        repo: args.repo,
-        view: args.view,
-        op_kind: args.op_kind,
-        min_support: args.min_support,
-        boundary_only: args.boundary_only,
-        limit: args.limit,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.composition_rules", args.acknowledge_unestablished_fitness, () =>
+        compositionRules({
+            subsystem: args.subsystem,
+            repo: args.repo,
+            view: args.view,
+            op_kind: args.op_kind,
+            min_support: args.min_support,
+            boundary_only: args.boundary_only,
+            limit: args.limit,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -2029,12 +2386,16 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: SUBSYSTEM_CARD_SCHEMA,
     },
     async (args) => {
-      const result = await subsystemCard({
-        subsystem: args.subsystem,
-        repo: args.repo,
-        sections: args.sections,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.subsystem_card", args.acknowledge_unestablished_fitness, () =>
+        subsystemCard({
+            subsystem: args.subsystem,
+            repo: args.repo,
+            sections: args.sections,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 
@@ -2067,20 +2428,24 @@ export function registerCtkrTools(server: McpServer): void {
       inputSchema: FUNCTOR_BETWEEN_SCHEMA,
     },
     async (args) => {
-      const result = await functorBetween({
-        repo_a: args.repo_a,
-        repo_b: args.repo_b,
-        direction: args.direction,
-        min_coverage: args.min_coverage,
-        min_fidelity: args.min_fidelity,
-        min_pair_fidelity: args.min_pair_fidelity,
-        min_margin: args.min_margin,
-        limit: args.limit,
-        members_a: args.members_a,
-        members_b: args.members_b,
-        exclude_identity: args.exclude_identity,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      // AGGREGATING consumer (bead MetaCoding-0mu): refuses by default when the
+      // graph these artifacts derive from has no established fitness.
+      const answer = await gateCtkrAggregate("ctkr.functor_between", args.acknowledge_unestablished_fitness, () =>
+        functorBetween({
+            repo_a: args.repo_a,
+            repo_b: args.repo_b,
+            direction: args.direction,
+            min_coverage: args.min_coverage,
+            min_fidelity: args.min_fidelity,
+            min_pair_fidelity: args.min_pair_fidelity,
+            min_margin: args.min_margin,
+            limit: args.limit,
+            members_a: args.members_a,
+            members_b: args.members_b,
+            exclude_identity: args.exclude_identity,
+        }),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(answer, null, 2) }] };
     },
   );
 }
