@@ -52,6 +52,7 @@ import {
   evaluateIndexOutcome,
   hashIndexFile,
   measureCorrespondence,
+  measureGraphFreshness,
   measureRunContribution,
   measureStoreFitness,
   formatGateFailure,
@@ -289,6 +290,14 @@ export async function runIndexSession(
     const correspondence = await measureCorrespondence(
       store, intent.repo, intent.branch, source,
     );
+    // Does the graph still BE the tree? (bead MetaCoding-c03) The tree-sitter
+    // lane skips files whose content hash is unchanged and therefore re-stamps
+    // NOTHING on a commit that touched no indexed source file, so contribution
+    // reads 0 on a graph that is correct and complete. Only this measurement can
+    // tell that apart from a lane that silently stopped working.
+    const freshness = await measureGraphFreshness(
+      store, intent.repo, intent.branch, intent.targetPath,
+    );
 
     const gateInput = {
       repo: intent.repo,
@@ -298,6 +307,7 @@ export async function runIndexSession(
       contribution,
       fitness,
       correspondence,
+      freshness,
       scipRequested,
       commitSha: intent.commitSha,
       prevCommitSha,
@@ -335,6 +345,7 @@ export async function runIndexSession(
       contribution,
       fitness,
       correspondence,
+      freshness,
       index_identities: identities,
       override,
     };

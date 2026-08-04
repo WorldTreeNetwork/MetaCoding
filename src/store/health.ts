@@ -108,6 +108,20 @@ export interface CorrespondenceBlock {
   reason?: string;
 }
 
+/**
+ * Whether the graph still holds the bytes that are on disk (bead
+ * MetaCoding-c03). Measured over the store's own file rows, never over a lane
+ * accumulator. `absent` (a stored path with no counterpart on disk — container
+ * prefixes, deletions) is reported and NOT counted as staleness.
+ */
+export interface FreshnessBlock {
+  checked: number;
+  fresh: number;
+  stale: number;
+  absent: number;
+  staleExamples: string[];
+}
+
 /** Identity of an ingested pre-built index file — citation for open red #2. */
 export interface IndexIdentity {
   path: string;
@@ -159,6 +173,11 @@ export interface IndexHealthRecord {
    */
   fitness: CensusBlock | null;
   correspondence: CorrespondenceBlock | null;
+  /**
+   * Whether the graph was shown to still BE the tree at finalize time. Absent
+   * on records written before MetaCoding-c03, and absent MEANS UNVERIFIED.
+   */
+  freshness?: FreshnessBlock | null;
   index_identities: IndexIdentity[];
   /** Set when an operator flag waived a failure. Visible at read time forever. */
   override: { flag: string; value: string } | null;

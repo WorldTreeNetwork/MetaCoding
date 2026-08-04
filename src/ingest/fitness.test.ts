@@ -35,11 +35,13 @@ import {
   evaluateIndexOutcome,
   hashIndexFile,
   measureCorrespondence,
+  measureGraphFreshness,
   measureRunContribution,
   measureStoreFitness,
   type GateInput,
   type SourceCensus,
 } from "./fitness.ts";
+import { runIndexSession } from "./session.ts";
 
 const BRANCH = "main";
 const RUN_A = "2026-08-04T10:00:00.000Z";
@@ -355,6 +357,160 @@ describe("PAIR 4 — zero contribution is fine at the SAME commit and fatal at a
       lanes: [{ lane: "scip:load-scip", ok: true, files: 40 }],
       contribution: { symbols: 12, relationalEdges: 3, edgesByKind: {}, scipSymbols: 1 },
     })).ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAIR c03 — a docs-only commit vs a graph that has actually drifted.
+// ---------------------------------------------------------------------------
+
+describe("PAIR c03 — zero contribution at a new commit: skipped-unchanged vs drifted", () => {
+  // MetaCoding-c03, measured by a fresh judge with a RE-RUN OF THE LANE (not a
+  // query against a store, which is how the false claim survived): the walker
+  // skips a file whose content hash matches the stored ast_hash, and a skipped
+  // file never calls upsertSymbol, so a commit that touched only README.md
+  // re-stamped NOTHING — contribution 0, commitAdvanced true,
+  // REFUSED [ZERO_CONTRIBUTION_AT_NEW_COMMIT] — on a graph that was correct and
+  // complete. The control (one real edit) split the stamps 20/4, which is what
+  // proved the zero was the SKIP and not a measurement artifact.
+  //
+  // The two halves below share EVERYTHING — same store, same lane, same run-1
+  // graph, same zero contribution, same commit advance — and differ only in
+  // whether the .ts files on disk still match the graph.
+  const RUN_1 = "2026-08-04T09:00:00.000Z";
+
+  async function runOne(stamp: string, commit: string) {
+    return runIndexSession(store, dataDir, {
+      repo: "R", branch: BRANCH, targetPath: repoDir,
+      commitSha: commit, runStamp: stamp, wantScip: false,
+    });
+  }
+
+  /** DISTINCT indexed_at buckets — the judge's own instrument. */
+  async function stampBuckets(): Promise<Record<string, number>> {
+    const rows = await store.query<{ t: unknown; c: number | bigint }>(
+      `MATCH (s:Symbol) WHERE s.repo = 'R' AND s.branch = $b AND s.file <> ''
+       RETURN s.indexed_at AS t, count(s) AS c`,
+      { b: BRANCH },
+    );
+    const out: Record<string, number> = {};
+    for (const r of rows) out[String(r.t)] = (out[String(r.t)] ?? 0) + Number(r.c);
+    return out;
+  }
+
+  test("half A: a docs-only commit re-stamps NOTHING and is HEALTHY anyway", async () => {
+    seedSourceFiles(".ts", 6, "src", "export function f() { return 1; }\n");
+    const first = await runOne(RUN_1, "aaaaaaa");
+    expect(first.health.status).toBe("HEALTHY");
+    expect(first.gate.contribution.symbols).toBeGreaterThan(0);
+
+    // A commit that touches NO indexed source file. This is the most common
+    // real invocation there is: docs, CI config, lockfiles, images.
+    writeFileSync(join(repoDir, "README.md"), "# docs only\n", "utf-8");
+    const second = await runOne(RUN_B, "bbbbbbb");
+
+    // THE MEASUREMENT THAT WAS MISSING: run 2 really did re-stamp nothing.
+    expect(second.gate.contribution.symbols).toBe(0);
+    expect(second.gate.commitAdvanced).toBe(true);
+    const buckets = await stampBuckets();
+    expect(Object.keys(buckets)).toHaveLength(1);   // ONE bucket: run 1's.
+    expect(Object.values(buckets)[0]).toBe(first.gate.contribution.symbols);
+
+    // ...and the verdict is HEALTHY, because the graph was shown to still BE
+    // the tree. Before c03 this was REFUSED [ZERO_CONTRIBUTION_AT_NEW_COMMIT].
+    expect(second.gate.verifiedCurrent).toBe(true);
+    expect(second.health.freshness!.checked).toBeGreaterThan(0);
+    expect(second.health.freshness!.stale).toBe(0);
+    expect(second.health.status).toBe("HEALTHY");
+    expect(second.gate.failures).toEqual([]);
+  });
+
+  test("half B: the SAME zero contribution over a DRIFTED tree is refused", async () => {
+    seedSourceFiles(".ts", 6, "src", "export function f() { return 1; }\n");
+    await runOne(RUN_1, "aaaaaaa");
+
+    // The real-world harm the rule exists for: the tree moved on and the lane
+    // did not write it. Two source files change; nothing re-indexes them.
+    writeFileSync(join(repoDir, "src", "f0.ts"), "export function f0() { return 99; }\n", "utf-8");
+    writeFileSync(join(repoDir, "src", "f1.ts"), "export function f1() { return 99; }\n", "utf-8");
+
+    const source = censusSourceFiles(repoDir);
+    const freshness = await measureGraphFreshness(store, "R", BRANCH, repoDir);
+    expect(freshness.stale).toBe(2);
+    expect(freshness.fresh).toBe(4);
+
+    const drifted = evaluateIndexOutcome(baseInput({
+      source, freshness, scipRequested: false,
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+      commitSha: "bbbbbbb", prevCommitSha: "aaaaaaa",
+    }));
+    expect(drifted.verifiedCurrent).toBe(false);
+    expect(drifted.ok).toBe(false);
+    expect(drifted.failures.map((f) => f.code)).toEqual(["ZERO_CONTRIBUTION_AT_NEW_COMMIT"]);
+    // The refusal must NAME the drift, or an operator cannot act on it.
+    expect(drifted.failures[0]!.message).toContain("src/f0.ts");
+
+    // CONTRAST from the same store and the same tree: re-index the two files,
+    // and the identical zero-contribution shape passes.
+    await runOne(RUN_B, "bbbbbbb");
+    const after = await measureGraphFreshness(store, "R", BRANCH, repoDir);
+    expect(after.stale).toBe(0);
+    expect(evaluateIndexOutcome(baseInput({
+      source, freshness: after, scipRequested: false,
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+      commitSha: "ccccccc", prevCommitSha: "bbbbbbb",
+    })).ok).toBe(true);
+  });
+
+  test("freshness cannot vouch for a store that verified NOTHING", async () => {
+    // The escape hatch, closed: `checked === 0` is not `stale === 0`. A store
+    // whose file rows all point somewhere that is not this tree (container
+    // paths, an alien index) has verified nothing and stays refused.
+    const empty = { checked: 0, fresh: 0, stale: 0, absent: 12, staleExamples: [] };
+    const r = evaluateIndexOutcome(baseInput({
+      freshness: empty, scipRequested: false,
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+      commitSha: "bbbbbbb", prevCommitSha: "aaaaaaa",
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]!.message).toContain("NOT ONE");
+    // ...and one verified file is still not enough on its own to make anything
+    // ELSE pass: freshness only ever disarms this one rule.
+    const verified = { checked: 6, fresh: 6, stale: 0, absent: 0, staleExamples: [] };
+    const stillBroken = evaluateIndexOutcome(baseInput({
+      freshness: verified,
+      fitness: { symbols: 0, relationalEdges: 0, edgesByKind: {} },
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+    }));
+    expect(stillBroken.ok).toBe(false);
+    expect(stillBroken.failures.map((f) => f.code)).toContain("NO_SYMBOLS");
+  });
+
+  test("an UNNAMEABLE commit degrades SAFE, not permissive", async () => {
+    // `commitSha = null` meant the commit rule COULD NOT FIRE, so the case we
+    // know least about got the most lenient reading. It now asks the same
+    // question the advancing case asks.
+    const barren = {
+      scipRequested: false,
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+      commitSha: null,
+      prevCommitSha: "aaaaaaa",
+    };
+    const unverified = evaluateIndexOutcome(baseInput(barren));
+    expect(unverified.commitUncertain).toBe(true);
+    expect(unverified.ok).toBe(false);
+    expect(unverified.failures.map((f) => f.code)).toEqual(["ZERO_CONTRIBUTION_AT_UNKNOWN_COMMIT"]);
+
+    // OPPOSITE half: the same unnameable commit over a tree the graph matches.
+    // A no-op re-index of an unchanged non-git tree must not false-alarm.
+    const verified = evaluateIndexOutcome(baseInput({
+      ...barren,
+      freshness: { checked: 6, fresh: 6, stale: 0, absent: 0, staleExamples: [] },
+    }));
+    expect(verified.ok).toBe(true);
+
+    // And `commitSha = ""` keeps counting as advancement — the safe side.
+    expect(evaluateIndexOutcome(baseInput({ ...barren, commitSha: "" })).ok).toBe(false);
   });
 });
 

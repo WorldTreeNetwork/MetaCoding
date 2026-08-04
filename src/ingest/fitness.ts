@@ -32,22 +32,55 @@
 //                             files actually correspond to, and at what
 //                             granularity that could be established.
 //
+//   measureGraphFreshness    — whether the files the STORE holds still match the
+//                              bytes on disk. This is the only quantity that can
+//                              say "the graph IS the tree at this commit", and
+//                              contribution cannot be substituted for it.
+//
 // Per-run attribution needs NO schema change and NO migration: `Symbol.indexed_at`
 // is set from one constant per session, threaded through both lanes, and is not
-// COALESCE-protected, so it is always overwritten. Verified directly against a
-// live ladybugdb store before this was written:
+// COALESCE-protected, so it is always overwritten *by any lane that writes the
+// symbol*. Verified directly against a live ladybugdb store:
 //   `MATCH (s:Symbol) WHERE s.indexed_at = timestamp($t)` selects exactly the
 //   symbols stamped by run $t, composes with `s.source = 'scip'`, and edges
 //   attribute through their SOURCE symbol
 //   (`MATCH (a)-[r:CALLS]->() WHERE a.indexed_at = timestamp($t)`).
 //
+// CORRECTION (bead MetaCoding-c03). This module used to say `indexed_at` "is
+// always overwritten", and rule (4) used to say the SCIP measure "never
+// false-alarms on a no-op re-index, because an idempotent MERGE still re-stamps
+// indexed_at". THE STORE HALF IS TRUE AND THE LANE HALF IS FALSE: the walker
+// stamps each file Symbol's `ast_hash` with the content hash "so the next pass
+// can skip when content is unchanged" (src/extractor/walker.ts), and A SKIPPED
+// FILE NEVER CALLS upsertSymbol AT ALL. Measured by a fresh judge: run 1 over 6
+// .ts files stamps 24 symbols; run 2 at a NEW commit that touched only README.md
+// re-stamps NOTHING (contribution 0, every symbol still carrying run 1's stamp)
+// and was REFUSED [ZERO_CONTRIBUTION_AT_NEW_COMMIT] on a graph that was correct
+// and complete; run 3 with one real edit splits the stamps 20/4, which is what
+// proves run 2's zero was the SKIP and not a measurement artifact. The old
+// verification quoted above probed the STORE, not a RE-RUN of the lane — an
+// observation that could not have come out any other way.
+//
+// The `--scip` path masked it (the loader re-ingests every document), so the
+// break is on the tree-sitter-only path: `metacoding index <path>` without
+// --scip, on any commit that touches no indexed source file (docs, CI config,
+// lockfiles, images, or any language no lane indexes).
+//
 // HOW WOULD I FAKE THIS? (asked before shipping)
 //   1. "Coast on a previous good run" -> measureRunContribution is scoped to
 //      this session's stamp, so a run that wrote nothing reads 0 regardless of
 //      how full the store is. Zero is only a FAILURE when the commit advanced
-//      (ZERO_CONTRIBUTION_AT_NEW_COMMIT) — a no-op re-index at the same commit
-//      into an already-fit store is defensible, and a rule that false-alarms on
-//      the most common invocation is a rule people disable.
+//      (ZERO_CONTRIBUTION_AT_NEW_COMMIT) AND the graph could not be shown to
+//      still BE the tree (measureGraphFreshness) — a no-op re-index at the same
+//      commit into an already-fit store is defensible, and a rule that
+//      false-alarms on the most common invocation is a rule people disable.
+//   1b. "Use freshness as the new escape hatch" -> it can only ever DISARM a
+//      rule that was going to fire anyway; nothing passes because of it that a
+//      productive run would not already have passed. It is never a substitute
+//      for contribution, it is computed over the STORE's own file rows rather
+//      than any lane accumulator, and a store that verified NOTHING (checked 0)
+//      does not qualify. A single fresh file cannot vouch for the tree: every
+//      stored file that exists on disk must match, or the run stays refused.
 //   2. "Point 40 vendored documents at a 10-file Go repo" -> correspondence is
 //      a set intersection over Symbol.file against the local tree. 5fi's
 //      vendor40 fixture intersects in ZERO places at every rung of the ladder
@@ -70,17 +103,19 @@
 //     read HEALTHY. Presence is cheap to measure; quality needs an oracle.
 
 import { createHash } from "node:crypto";
-import { createReadStream, readdirSync, statSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
 import type { Store } from "../store";
 import { EDGE_KIND_VALUES, type EdgeKind } from "../store/types.ts";
 import { DEFAULT_EXCLUDE_DIRS } from "../extractor/walker.ts";
+import { fileContentHash } from "../extractor/identity.ts";
 import type {
   CensusBlock,
   ContributionBlock,
   CorrespondenceBlock,
   CorrespondenceLevel,
+  FreshnessBlock,
   IndexIdentity,
   LaneRecord,
 } from "../store/health.ts";
@@ -130,6 +165,7 @@ export type FailureCode =
   | "NO_SCIP_SYMBOLS_THIS_RUN"
   | "NO_RELATIONAL_EDGES"
   | "ZERO_CONTRIBUTION_AT_NEW_COMMIT"
+  | "ZERO_CONTRIBUTION_AT_UNKNOWN_COMMIT"
   | "LOW_CORRESPONDENCE"
   | "UNMEASURABLE_CORRESPONDENCE";
 
@@ -148,6 +184,12 @@ export interface GateInput {
   /** What the STORE holds for (repo, branch), by whichever run put it there. */
   fitness: CensusBlock;
   correspondence: CorrespondenceBlock;
+  /**
+   * Whether the graph can be shown to still BE the tree. ABSENT MEANS
+   * UNVERIFIED, never "fine": an input that cannot say is treated exactly like
+   * one that says no.
+   */
+  freshness?: FreshnessBlock;
   /** True when this run was supposed to produce a SCIP graph (--scip or --load-scip). */
   scipRequested: boolean;
   /** The commit this run claims. */
@@ -162,6 +204,13 @@ export interface GateResult {
   failures: GateFailure[];
   /** True when this run claims a different commit than the last finalized record. */
   commitAdvanced: boolean;
+  /**
+   * True when a previous record named a commit and THIS run cannot name one, so
+   * advancement can be neither established nor ruled out. Degrades SAFE.
+   */
+  commitUncertain: boolean;
+  /** True when the graph was shown to still be the tree (see FreshnessBlock). */
+  verifiedCurrent: boolean;
   contribution: RunContribution;
   fitness: CensusBlock;
   correspondence: CorrespondenceBlock;
@@ -281,6 +330,83 @@ export async function measureRunContribution(
     params,
   );
   return { ...block, scipSymbols: Number(scipRows[0]?.c ?? 0) };
+}
+
+/**
+ * GRAPH FRESHNESS — does the store still hold the bytes that are on disk?
+ *
+ * The subject of this claim is NEITHER the run NOR the store's size: it is the
+ * agreement between the graph and the tree. It exists because contribution
+ * cannot answer it (MetaCoding-c03): the walker skips a file whose content hash
+ * matches the stored `ast_hash`, and a skipped file is never re-written, so a
+ * commit that touched no indexed source file contributes ZERO to a graph that is
+ * completely correct.
+ *
+ * Measured from the STORE's own file rows, never from a lane accumulator — the
+ * lane's `filesSkipped` counts an unparseable file as skipped too, and root 1's
+ * whole lesson is that the nearest available number is not the subject.
+ *
+ * `absent` (a stored file that is not on disk) is REPORTED and not counted as
+ * stale: SCIP documents carry container-prefixed paths that will never resolve
+ * locally, and treating those as staleness would refuse farmOS forever. A
+ * deleted-but-still-indexed file therefore shows up here as a number a reader
+ * can see, not as a verdict.
+ */
+export type { FreshnessBlock };
+
+export async function measureGraphFreshness(
+  store: Store,
+  repo: string,
+  branch: string,
+  rootPath: string,
+): Promise<FreshnessBlock> {
+  const rows = await store.query<{ f: string | null; h: string | null }>(
+    `MATCH (s:Symbol)
+     WHERE s.kind = 'file' AND s.repo = $repo AND s.branch = $branch
+     RETURN DISTINCT s.file AS f, s.ast_hash AS h`,
+    { repo, branch },
+  );
+  // Per-commit-identity mode gives one file row PER COMMIT, so a path can carry
+  // several hashes; the file is fresh if ANY stored row matches what is on disk.
+  const byFile = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (typeof r.f !== "string" || r.f.length === 0) continue;
+    if (typeof r.h !== "string" || r.h.length === 0) continue;
+    const key = normPath(r.f);
+    let set = byFile.get(key);
+    if (!set) { set = new Set(); byFile.set(key, set); }
+    set.add(r.h);
+  }
+
+  let checked = 0, fresh = 0, stale = 0, absent = 0;
+  const staleExamples: string[] = [];
+  for (const [rel, hashes] of byFile) {
+    const abs = join(rootPath, rel);
+    let content: string;
+    try {
+      if (!statSync(abs).isFile()) { absent++; continue; }
+      content = readFileSync(abs, "utf-8");
+    } catch {
+      absent++;
+      continue;
+    }
+    checked++;
+    if (hashes.has(fileContentHash(content))) fresh++;
+    else {
+      stale++;
+      if (staleExamples.length < 5) staleExamples.push(rel);
+    }
+  }
+  return { checked, fresh, stale, absent, staleExamples };
+}
+
+/**
+ * True when the graph can be shown to still BE the tree: something was compared
+ * and nothing had drifted. A store that verified nothing does NOT qualify — an
+ * unverifiable graph is not a verified one.
+ */
+export function isGraphVerifiedCurrent(f: FreshnessBlock | undefined): boolean {
+  return f !== undefined && f.checked > 0 && f.stale === 0;
 }
 
 /** POSIX-normalize a path for set comparison: strip "./", collapse "\\" to "/". */
@@ -431,6 +557,15 @@ export function evaluateIndexOutcome(input: GateInput): GateResult {
     input.commitSha !== null &&
     input.prevCommitSha !== null &&
     input.commitSha !== input.prevCommitSha;
+  // A run with NO commit sha at all cannot be compared against the previous
+  // record's, so the commit rule COULD NOT FIRE and the degradation was
+  // PERMISSIVE: the one case where we know least got the most lenient reading.
+  // It degrades SAFE instead — "may have advanced" — and the same escape
+  // applies, so a legitimate no-op re-index of an unchanged non-git tree still
+  // passes on the strength of the graph matching the tree.
+  // (`commitSha = ""` already counted as advancement, which is the safe side.)
+  const commitUncertain = input.commitSha === null && input.prevCommitSha !== null;
+  const verifiedCurrent = isGraphVerifiedCurrent(input.freshness);
 
   // (1) A lane that died fails the run, even when a sibling lane succeeded.
   for (const lane of input.lanes) {
@@ -471,8 +606,18 @@ export function evaluateIndexOutcome(input: GateInput): GateResult {
   // (4) Did THIS RUN's SCIP lanes put anything in the STORE? Subject: this run.
   //     The old gate counted DOCUMENTS here, and an empty document is a
   //     document (MetaCoding-4kg). This counts store-visible symbols stamped
-  //     with this run's id whose source is 'scip'. It never false-alarms on a
-  //     no-op re-index, because an idempotent MERGE still re-stamps indexed_at.
+  //     with this run's id whose source is 'scip'.
+  //
+  //     THE CORRECTED CLAIM (MetaCoding-c03). This used to say it "never
+  //     false-alarms on a no-op re-index, because an idempotent MERGE still
+  //     re-stamps indexed_at". Re-stamping is a property of the STORE's write
+  //     path, not of a run: a lane that SKIPS a file never calls upsertSymbol,
+  //     so nothing is merged and nothing is re-stamped. What makes this
+  //     particular rule safe is narrower and worth saying exactly: the SCIP
+  //     loader has no skip-unchanged path — it re-ingests every document of the
+  //     index it is given — so a run that requested SCIP and stamped no SCIP
+  //     symbol really did fail to produce one. The tree-sitter lane DOES skip,
+  //     which is what broke rule (6) below until freshness was measured.
   if (input.scipRequested && input.contribution.scipSymbols === 0) {
     failures.push({
       code: "NO_SCIP_SYMBOLS_THIS_RUN",
@@ -506,15 +651,51 @@ export function evaluateIndexOutcome(input: GateInput): GateResult {
   //     rule people disable. What is NOT defensible is claiming to ADVANCE to a
   //     new commit while contributing nothing: fitness was established at W, the
   //     run says X, and everything downstream believes it is looking at X.
-  if (commitAdvanced && input.contribution.symbols === 0) {
-    failures.push({
-      code: "ZERO_CONTRIBUTION_AT_NEW_COMMIT",
-      message:
-        `this run claims commit ${short(input.commitSha)} but the last established\n` +
-        `    record claims ${short(input.prevCommitSha)}, and the run wrote 0 symbols.\n` +
-        `    The store still holds the graph of ${short(input.prevCommitSha)} while every\n` +
-        `    reader would now believe it holds ${short(input.commitSha)}.`,
-    });
+  //
+  //     WHAT ZERO CONTRIBUTION DOES *NOT* MEAN (MetaCoding-c03): the walker
+  //     SKIPS a file whose content hash still matches the stored one, and a
+  //     skipped file is never re-written, so a docs-only commit contributes zero
+  //     to a graph that is correct and complete. Measured: run 2 at a new commit
+  //     touching only README.md re-stamped nothing and was REFUSED. The fix is
+  //     not to relax the rule but to ask the RIGHT question — is the graph still
+  //     the tree? — of the quantity that can answer it. Freshness only ever
+  //     DISARMS this rule; it can never make anything else pass.
+  if (
+    (commitAdvanced || commitUncertain) &&
+    input.contribution.symbols === 0 &&
+    !verifiedCurrent
+  ) {
+    const f = input.freshness;
+    const why = f === undefined
+      ? `and freshness was not measured, so the graph cannot be shown to be this tree`
+      : f.checked === 0
+        ? `and NOT ONE of the files the store holds could be compared against the ` +
+          `tree (${f.absent} stored file(s) are not on disk), so the graph cannot ` +
+          `be shown to be this tree`
+        : `and ${f.stale}/${f.checked} of the files the store holds have CHANGED on ` +
+          `disk since the graph was built (${f.staleExamples.join(", ")}${
+            f.stale > f.staleExamples.length ? ", …" : ""})`;
+    failures.push(
+      commitAdvanced
+        ? {
+            code: "ZERO_CONTRIBUTION_AT_NEW_COMMIT",
+            message:
+              `this run claims commit ${short(input.commitSha)} but the last established\n` +
+              `    record claims ${short(input.prevCommitSha)}, and the run wrote 0 symbols\n` +
+              `    ${why}.\n` +
+              `    The store still holds the graph of ${short(input.prevCommitSha)} while every\n` +
+              `    reader would now believe it holds ${short(input.commitSha)}.`,
+          }
+        : {
+            code: "ZERO_CONTRIBUTION_AT_UNKNOWN_COMMIT",
+            message:
+              `this run names NO commit while the last established record claims\n` +
+              `    ${short(input.prevCommitSha)}, and the run wrote 0 symbols ${why}.\n` +
+              `    Whether the tree advanced can be neither established nor ruled out, so\n` +
+              `    this degrades to the SAFE reading rather than the permissive one: an\n` +
+              `    unnameable commit is not a licence to assume the graph is current.`,
+          },
+    );
   }
 
   // (7) CORRESPONDENCE, not coverage: a set intersection over Symbol.file.
@@ -544,6 +725,8 @@ export function evaluateIndexOutcome(input: GateInput): GateResult {
     ok: failures.length === 0,
     failures,
     commitAdvanced,
+    commitUncertain,
+    verifiedCurrent,
     contribution: input.contribution,
     fitness: input.fitness,
     correspondence: c,
