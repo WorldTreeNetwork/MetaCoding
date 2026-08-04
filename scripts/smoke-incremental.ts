@@ -14,7 +14,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:f
 import { join, resolve } from "node:path";
 
 import { Store } from "../src/store";
-import { indexDirectory, watch } from "../src/extractor";
+// Smoke scripts reach past the ingest seam on purpose: they exercise the raw
+// primitives. Product code must go through src/ingest/session.ts (index-fitness).
+import { indexDirectory } from "../src/extractor/walker.ts";
+import { watch } from "../src/extractor/watcher.ts";
 
 const FIX = resolve("./tmp-incr-fixture");
 const DATA = resolve("./tmp-incr-data");

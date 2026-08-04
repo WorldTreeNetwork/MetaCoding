@@ -9,11 +9,12 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { Store } from "../src/store";
-import { indexDirectory } from "../src/extractor";
+// Smoke script: reaches past the ingest seam on purpose (raw primitive).
+import { indexDirectory } from "../src/extractor/walker.ts";
 import {
-  graphNeighbors,
-  codeSearch,
-  graphCypher,
+  graphNeighborRows,
+  codeSearchRows,
+  graphCypherRows,
   describeApi,
 } from "../src/mcp/tools";
 
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
     const storeId = storeRows[0]?.id;
     if (!storeId) throw new Error("Store class not found in index");
 
-    const neighbors = await graphNeighbors(store, { symbol: storeId, direction: "out" });
+    const neighbors = await graphNeighborRows(store, { symbol: storeId, direction: "out" });
     const neighborMethods = neighbors
       .filter((n) => n.symbol.kind === "method")
       .map((n) => n.symbol.short_name)
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
 
     // 3. graph_neighbors also works via qualified_name (resolveSymbol path).
     // File paths are relative to the indexed root ("src"), so Store's qn is "store/index.ts::Store".
-    const byQn = await graphNeighbors(store, {
+    const byQn = await graphNeighborRows(store, {
       symbol: "store/index.ts::Store",
       direction: "out",
       limit: 50,
@@ -91,17 +92,17 @@ async function main(): Promise<void> {
     if (byQn.length === 0) throw new Error("qualified_name resolution failed");
 
     // 4. code_search returns hits.
-    const hits = codeSearch(store, { query: "Store", limit: 20 });
+    const hits = codeSearchRows(store, { query: "Store", limit: 20 });
     if (hits.length === 0) throw new Error("code_search returned 0 hits for 'Store'");
 
     // 5. code_search with kind filter returns only that kind.
-    const idHits = codeSearch(store, { query: "Store", kind: "identifier", limit: 50 });
+    const idHits = codeSearchRows(store, { query: "Store", kind: "identifier", limit: 50 });
     if (!idHits.every((h) => h.kind === "identifier")) {
       throw new Error("code_search kind filter leaked non-identifier rows");
     }
 
     // 6. graph_cypher escape hatch works.
-    const cypherRows = await graphCypher(store, {
+    const cypherRows = await graphCypherRows(store, {
       cypher: `MATCH (s:Symbol) WHERE s.kind = 'class' RETURN s.short_name AS name ORDER BY name`,
     });
     if (cypherRows.length === 0) throw new Error("graph_cypher returned no classes");

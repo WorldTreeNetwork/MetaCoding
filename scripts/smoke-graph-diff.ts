@@ -13,8 +13,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { Store } from "../src/store";
-import { indexDirectory } from "../src/extractor";
-import { graphDiff } from "../src/mcp/tools";
+// Smoke script: reaches past the ingest seam on purpose (raw primitive).
+import { indexDirectory } from "../src/extractor/walker.ts";
+// Smoke scripts use the RAW rows, not the fitness-gated tool surface.
+import { graphDiffRows } from "../src/mcp/tools";
 
 const TMP_REPO = "./tmp-graph-diff-smoke-repo";
 const TMP_DATA = "./tmp-graph-diff-smoke-data";
@@ -102,7 +104,7 @@ async function main(): Promise<void> {
     perCommitIdentity: true,
   });
 
-  const diff = await graphDiff(store, {
+  const diff = await graphDiffRows(store, {
     repo: REPO_NAME,
     from_sha: shaA,
     to_sha: shaB,

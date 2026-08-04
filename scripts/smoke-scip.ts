@@ -14,9 +14,12 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { Store } from "../src/store";
-import { indexDirectory } from "../src/extractor";
-import { runScipTypescript, loadScip } from "../src/scip";
-import { graphCallers } from "../src/mcp/tools";
+// Smoke script: reaches past the ingest seam on purpose (raw primitive).
+import { indexDirectory } from "../src/extractor/walker.ts";
+import { runScipTypescript } from "../src/scip";
+import { loadScip } from "../src/scip/loader.ts";
+// Smoke scripts use the RAW rows, not the fitness-gated tool surface.
+import { graphNeighborRows } from "../src/mcp/tools";
 
 const DATA_DIR = "./tmp-scip-smoke";
 const SCIP_OUT = "./tmp-scip-smoke.scip";
@@ -82,7 +85,9 @@ async function main(): Promise<void> {
 
     // 4. graph_callers wakes up. Pick a method we know is referenced
     // across files — Store.upsertSymbol is called from the extractor.
-    const callers = await graphCallers(store, {
+    const callers = await graphNeighborRows(store, {
+      direction: "in",
+      edge_kinds: ["CALLS", "REFERENCES"],
       symbol: "src/store/index.ts::Store::upsertSymbol",
       limit: 20,
     });

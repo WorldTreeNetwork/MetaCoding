@@ -12,7 +12,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { Store } from "../src/store";
-import { indexDirectory } from "../src/extractor";
+// Smoke script: reaches past the ingest seam on purpose (raw primitive).
+import { indexDirectory } from "../src/extractor/walker.ts";
 
 const ROOT = resolve("./tmp-multirepo-fix");
 const A = join(ROOT, "alpha");

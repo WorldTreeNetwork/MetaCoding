@@ -31,6 +31,14 @@ export interface WatchOpts extends WalkOpts {
    * sha rather than the start-time sha.
    */
   refreshRepoCommitSha?: () => Promise<string | null>;
+  /**
+   * Skip the initial full pass. Set by `runWatchSession` (src/ingest/session.ts),
+   * which has ALREADY run that pass inside a gated index session — so `watch`
+   * inherits the fitness gate instead of bypassing it (docs/design/index-fitness.md).
+   * Re-walking here would double the work and, worse, would write symbols under a
+   * second run stamp that no session ever judged.
+   */
+  skipInitialIndex?: boolean;
 }
 
 export interface WatchHandle {
@@ -60,7 +68,8 @@ export async function watch(
   const root = resolve(rootPath);
 
   // Initial pass — fast on a warm cache because of the ast_hash skip path.
-  await indexDirectory(store, root, opts);
+  // Skipped when an index session already performed (and JUDGED) it.
+  if (!opts.skipInitialIndex) await indexDirectory(store, root, opts);
 
   // Serialize file events through this queue so two saves in quick
   // succession don't race the same Store wrapper.

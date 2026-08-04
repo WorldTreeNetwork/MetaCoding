@@ -12,23 +12,26 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 import { Store } from "../store";
-import { indexDirectory, watch } from "../extractor";
 import { serveMcp } from "../mcp/server";
-import { runScip, loadScip, resolveScipBin, type ScipLanguage } from "../scip";
+import { resolveScipBin, type ScipLanguage } from "../scip";
 import { currentGitBranch } from "./branch";
 import { resolveDataDir } from "./data-dir";
 import { runExport } from "./export";
 import { gatherIndexState, formatIndexState } from "../index-state";
 import { runDoctor } from "./doctor";
 import {
-  censusSourceFiles,
-  evaluateIndexOutcome,
+  clearWatchMarker,
   formatGateFailure,
-  storeCensus,
+  normalizeScipLang,
+  runIndexSession,
+  runWatchSession,
   DEFAULT_MIN_COVERAGE,
-  type GateResult,
-  type LaneOutcome,
-} from "./index-gate.ts";
+  type IndexIntent,
+  type IndexSessionResult,
+} from "../ingest/session.ts";
+import { isFitnessEstablished } from "../store/health.ts";
+
+export { normalizeScipLang };
 
 /**
  * Run `git rev-parse HEAD` against `repoPath`.
@@ -82,6 +85,7 @@ Usage:
   metacoding index-all <parent>[--data-dir <dir>] [--branch <name>] [--scip] [--per-commit-identity]
                                [--allow-empty-index] [--min-coverage <0..1>]
   metacoding watch <path>      [--data-dir <dir>] [--repo <name>] [--branch <name>] [--per-commit-identity]
+                               [--scip] [--load-scip <index.scip>] [--allow-empty-index] [--min-coverage <0..1>]
   metacoding serve             [--data-dir <dir>] [--workspace <path>]
   metacoding status [path]     [--data-dir <dir>] [--workspace <path>] [--json]
   metacoding query <cypher>    [--data-dir <dir>]
@@ -105,17 +109,27 @@ Flags:
                 fold repo_commit_sha into Symbol.id so multiple commits
                 coexist in one DB (default off; overwrite semantics).
                 External SCIP refs are never sha-scoped.
-  --allow-empty-index
-                bypass the index productivity gate. By default a run that
-                scanned no files, produced no symbols, produced no relational
-                edges while SCIP was requested, covered less than
-                --min-coverage of the repo's source files, or lost a lane to
-                an error, EXITS NON-ZERO instead of reporting success
-                (bead MetaCoding-0sd). Passing this records the degradation
-                on stderr and in the JSON summary instead of failing.
+  --allow-empty-index [true|false]
+                waive the index fitness gate. By default a run whose graph is
+                unusable — no lane read a file, no symbols in the store, no
+                relational edges while SCIP was requested, no store-visible
+                SCIP symbol from THIS run, zero contribution while claiming a
+                NEW commit, or correspondence to the local tree below
+                --min-coverage — is recorded as REFUSED and exits non-zero
+                (docs/design/index-fitness.md). Passing this records the run as
+                OVERRIDDEN, with the flag and value, in index-health.sqlite —
+                where every reader sees it, forever. Takes no value or exactly
+                true|false; anything else is an error rather than a guess.
   --min-coverage <0..1>
-                minimum share of the repo's source files a run must cover
-                (default 0.1).
+                minimum share of the repo's source files that must correspond
+                to a file in the graph (default 0.1). Correspondence is a set
+                intersection over Symbol.file, measured at the first of four
+                granularities that intersects at all: exact path, path suffix
+                (survives a container prefix), basename, else UNMEASURABLE —
+                and the granularity used is part of the record. A value below
+                the default is itself an override: the run is re-evaluated at
+                the default and recorded as OVERRIDDEN if the floor was what
+                changed the answer.
 
 Defaults:
   --data-dir    ./.metacoding if it exists (legacy), else
@@ -130,10 +144,75 @@ Defaults:
 index-all walks every direct subdirectory of <parent> and runs 'index'
 for each, tagging --repo with the subdirectory's name.
 
+watch runs the SAME gated index session as 'index' for its initial pass —
+it refuses on the same terms and records the same verdict — then watches for
+incremental changes. It does not start watching a graph the gate refused.
+
 status reports whether the workspace is indexed, the symbol count and
-per-repo breakdown, and staleness relative to HEAD (indexed commit vs
-current commit, dirty-file count). Use --json for machine-readable output.`);
+per-repo breakdown, staleness relative to HEAD (indexed commit vs current
+commit, dirty-file count), and the PERSISTED INDEX FITNESS per repo
+(HEALTHY / OVERRIDDEN / REFUSED / RUNNING / UNKNOWN). A symbol count cannot
+tell a finished run from a killed one; only the fitness record can. Use
+--json for machine-readable output.`);
   process.exit(2);
+}
+
+/**
+ * Build the session intent from CLI flags. Shared by `index`, `index-all` and
+ * `watch` so all three inherit exactly the same gate — the seam is in the
+ * session, not in any one command (docs/design/index-fitness.md).
+ */
+async function intentFromArgs(
+  args: ParsedArgs,
+  targetAbs: string,
+  overrides: { repo?: string; branch?: string } = {},
+): Promise<IndexIntent> {
+  const branch = overrides.branch ?? args.flags["branch"] ?? currentGitBranch(targetAbs);
+  const repo = overrides.repo ?? args.flags["repo"] ?? basename(targetAbs);
+  // Pre-built external index ingest (out-of-band Docker full-site build). When
+  // --load-scip is given we skip the in-process indexer, so we must NOT run
+  // resolveScipWanted (which exits when no scip binary is on PATH).
+  const loadScipPath = args.flags["load-scip"] ? resolve(args.flags["load-scip"]) : undefined;
+  const phpPsr4Map =
+    loadScipPath && args.flags["scip-psr4"]
+      ? (JSON.parse(readFileSync(resolve(args.flags["scip-psr4"]), "utf-8")) as Record<string, string>)
+      : undefined;
+  const gateFlags = parseGateFlags(args);
+  return {
+    repo,
+    branch,
+    targetPath: targetAbs,
+    commitSha: await getRepoCommitSha(targetAbs),
+    runStamp: new Date().toISOString(),
+    perCommitIdentity: args.flags["per-commit-identity"] === "true",
+    wantScip: loadScipPath ? false : resolveScipWanted(args.flags["scip"]),
+    loadScipPath,
+    scipLanguage: loadScipPath
+      ? ((args.flags["scip-language"] ?? "php") as ScipLanguage)
+      : undefined,
+    phpPsr4Map,
+    allowEmptyIndex: gateFlags.allowEmptyIndex,
+    minCoverage: gateFlags.minCoverage,
+    overrides: gateFlags.overrides,
+  };
+}
+
+/** Render a session result as the JSON summary, and map the VERDICT to stdout. */
+function printSessionSummary(dataDir: string, r: IndexSessionResult): void {
+  console.log(
+    JSON.stringify(
+      {
+        dataDir,
+        repo: r.health.repo,
+        branch: r.health.branch,
+        treeSitter: r.treeSitter,
+        scip: r.scip,
+        health: r.health,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function cmdIndex(args: ParsedArgs): Promise<void> {
@@ -141,69 +220,82 @@ async function cmdIndex(args: ParsedArgs): Promise<void> {
   if (!target) usage();
   const targetAbs = resolve(target);
   const dataDir = await resolveDataDir(targetAbs, args.flags["data-dir"]);
-  const branch = args.flags["branch"] ?? currentGitBranch(targetAbs);
-  const repo = args.flags["repo"] ?? basename(targetAbs);
-  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
-  const repo_commit_sha = await getRepoCommitSha(targetAbs);
-  const indexed_at = new Date().toISOString();
-
-  // Pre-built external index ingest (out-of-band Docker full-site build). When
-  // --load-scip is given we skip the in-process indexer, so we must NOT run
-  // resolveScipWanted (which exits when no scip binary is on PATH).
-  const loadScipPath = args.flags["load-scip"]
-    ? resolve(args.flags["load-scip"])
-    : undefined;
-  const scipLanguage = loadScipPath
-    ? (args.flags["scip-language"] ?? "php") as ScipLanguage
-    : undefined;
-  const phpPsr4Map =
-    loadScipPath && args.flags["scip-psr4"]
-      ? (JSON.parse(
-          readFileSync(resolve(args.flags["scip-psr4"]), "utf-8"),
-        ) as Record<string, string>)
-      : undefined;
-  const wantScip = loadScipPath ? false : resolveScipWanted(args.flags["scip"]);
-  const { allowEmptyIndex, minCoverage } = parseGateFlags(args);
+  const intent = await intentFromArgs(args, targetAbs);
 
   const store = await Store.open(dataDir);
-  let gateFailure: IndexGateError | null = null;
+  let result: IndexSessionResult;
   try {
-    const r = await indexOneRepo(store, targetAbs, {
-      repo, branch, wantScip, repo_commit_sha, indexed_at, perCommitIdentity,
-      loadScipPath, scipLanguage, phpPsr4Map, allowEmptyIndex, minCoverage,
-    });
-    console.log(JSON.stringify({ dataDir, repo, branch, ...r }, null, 2));
-  } catch (e) {
-    if (!(e instanceof IndexGateError)) throw e;
-    // The graph is still on disk — the gate is a verdict on the run, not a
-    // rollback. Print the JSON summary so the numbers are on the record, then
-    // fail loudly (bead MetaCoding-0sd).
-    console.log(JSON.stringify({ dataDir, repo, branch, ...e.partial, gateFailed: true }, null, 2));
-    gateFailure = e;
+    result = await runIndexSession(store, dataDir, intent);
   } finally {
     await store.close();
   }
-  if (gateFailure) {
-    console.error(gateFailure.message);
+  printSessionSummary(dataDir, result);
+
+  // The CLI's whole remaining job: map the PERSISTED VERDICT to an exit code.
+  // The exit code is a VIEW of the fact, not the fact — the fact is in
+  // index-health.sqlite beside the graph, where every reader can see it.
+  if (result.health.status === "REFUSED") {
+    console.error(formatGateFailure(intent.repo, targetAbs, result.gate));
     process.exit(1);
+  }
+  if (result.health.status === "OVERRIDDEN") {
+    console.error(
+      `metacoding: index gate would have REFUSED '${intent.repo}' but ` +
+        `${result.health.override?.flag}=${result.health.override?.value} was passed. ` +
+        `Recorded as OVERRIDDEN in index-health.sqlite — every reader will see it:\n` +
+        result.health.failures.map((f) => `  [${f.code}] ${f.message}`).join("\n"),
+    );
   }
 }
 
-/** `--allow-empty-index` / `--min-coverage <0..1>` (bead MetaCoding-0sd). */
-function parseGateFlags(args: ParsedArgs): { allowEmptyIndex: boolean; minCoverage: number } {
-  const allowEmptyIndex =
-    "allow-empty-index" in args.flags && args.flags["allow-empty-index"] !== "false";
+/**
+ * `--allow-empty-index` / `--min-coverage <0..1>`, parsed STRICTLY.
+ *
+ * The judge measured two accident modes in the previous parser, and both are
+ * closed here:
+ *   * ANY value other than the literal "false" ENABLED --allow-empty-index, so
+ *     `--allow-empty-index 0`, `no`, and `off` all turned the gate OFF. Now only
+ *     an explicit true/false (or the bare flag) is accepted; anything else exits 2.
+ *   * `--min-coverage 0` was accepted and SILENTLY disabled the floor. It is
+ *     still accepted — an operator may genuinely want it — but it is recorded as
+ *     an OVERRIDE, and the session evaluates the run a second time at the strict
+ *     default so a lowered floor cannot pass as HEALTHY.
+ */
+function parseGateFlags(args: ParsedArgs): {
+  allowEmptyIndex: boolean;
+  minCoverage: number;
+  overrides: { flag: string; value: string }[];
+} {
+  const overrides: { flag: string; value: string }[] = [];
+  let allowEmptyIndex = false;
+  if ("allow-empty-index" in args.flags) {
+    const raw = args.flags["allow-empty-index"]!;
+    if (raw === "true") allowEmptyIndex = true;
+    else if (raw === "false") allowEmptyIndex = false;
+    else {
+      console.error(
+        `metacoding: --allow-empty-index takes no value or exactly true|false ` +
+          `(got '${raw}').\n` +
+          `  Refusing to guess: a parser that treated every non-'false' value as ` +
+          `TRUE turned the gate OFF for '--allow-empty-index 0', 'no' and 'off'.`,
+      );
+      process.exit(2);
+    }
+    if (allowEmptyIndex) overrides.push({ flag: "--allow-empty-index", value: "true" });
+  }
+
   const raw = args.flags["min-coverage"];
   let minCoverage = DEFAULT_MIN_COVERAGE;
   if (raw !== undefined) {
     const v = Number(raw);
-    if (!Number.isFinite(v) || v < 0 || v > 1) {
+    if (raw.trim() === "" || !Number.isFinite(v) || v < 0 || v > 1) {
       console.error(`metacoding: --min-coverage must be a number in [0,1] (got '${raw}')`);
       process.exit(2);
     }
     minCoverage = v;
+    if (v < DEFAULT_MIN_COVERAGE) overrides.push({ flag: "--min-coverage", value: raw });
   }
-  return { allowEmptyIndex, minCoverage };
+  return { allowEmptyIndex, minCoverage, overrides };
 }
 
 async function cmdIndexAll(args: ParsedArgs): Promise<void> {
@@ -212,9 +304,6 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
   const parentAbs = resolve(parent);
   const dataDir = await resolveDataDir(parentAbs, args.flags["data-dir"]);
   const branch = args.flags["branch"] ?? "main";
-  const wantScip = resolveScipWanted(args.flags["scip"]);
-  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
-  const { allowEmptyIndex, minCoverage } = parseGateFlags(args);
 
   if (!existsSync(parentAbs)) {
     console.error(`metacoding: ${parentAbs} does not exist`);
@@ -236,45 +325,40 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
       const subBranch = args.flags["branch"] ?? currentGitBranch(subdir) ?? branch;
       const t0 = performance.now();
       try {
-        const repo_commit_sha = await getRepoCommitSha(subdir);
-        const indexed_at = new Date().toISOString();
-        const r = await indexOneRepo(store, subdir, {
-          repo,
-          branch: subBranch,
-          wantScip,
-          repo_commit_sha,
-          indexed_at,
-          perCommitIdentity,
-          allowEmptyIndex,
-          minCoverage,
-        });
+        const intent = await intentFromArgs(args, subdir, { repo, branch: subBranch });
+        const r = await runIndexSession(store, dataDir, intent);
+        const established = isFitnessEstablished(r.health.status);
         results.push({
           repo,
           branch: subBranch,
-          ok: true,
+          ok: established,
+          status: r.health.status,
           durationMs: Math.round(performance.now() - t0),
-          ...r,
+          treeSitter: r.treeSitter,
+          scip: r.scip,
+          health: r.health,
         });
         console.error(
-          `[index-all] ${repo}: ${r.treeSitter.filesUpdated}/${r.treeSitter.filesScanned} files, ` +
-          `${r.treeSitter.symbols}+${r.scip?.symbolsUpserted ?? 0} symbols, ` +
-          `${Math.round(performance.now() - t0)}ms`,
+          established
+            ? `[index-all] ${repo}: ${r.health.status} — ` +
+              `${r.treeSitter.filesUpdated}/${r.treeSitter.filesScanned} files, ` +
+              `${r.health.fitness?.symbols ?? 0} symbols in store, ` +
+              `${Math.round(performance.now() - t0)}ms`
+            : `[index-all] ${repo}: ${r.health.status}\n` +
+              formatGateFailure(repo, subdir, r.gate),
         );
       } catch (e) {
-        const gated = e instanceof IndexGateError;
+        // An unexpected throw leaves the health record RUNNING on purpose: a
+        // session that did not complete established nothing, and saying so is
+        // the honest record (bead MetaCoding-ae5).
         results.push({
           repo,
           branch: subBranch,
           ok: false,
-          gateFailed: gated || undefined,
-          ...(gated ? (e as IndexGateError).partial : {}),
+          status: "RUNNING",
           error: (e as Error).message,
         });
-        console.error(
-          gated
-            ? `[index-all] ${repo}: FAILED (index gate)\n${(e as Error).message}`
-            : `[index-all] ${repo}: FAILED — ${(e as Error).message.slice(0, 200)}`,
-        );
+        console.error(`[index-all] ${repo}: FAILED — ${(e as Error).message.slice(0, 200)}`);
       }
     }
   } finally {
@@ -288,217 +372,6 @@ async function cmdIndexAll(args: ParsedArgs): Promise<void> {
     console.error(`metacoding: index-all FAILED for ${failed.length} repo(s): ${failed.join(", ")}`);
     process.exit(1);
   }
-}
-
-interface IndexOneOpts {
-  repo: string;
-  branch: string;
-  wantScip: boolean;
-  repo_commit_sha?: string | null;
-  indexed_at?: string | null;
-  /** When true, fold repo_commit_sha into Symbol.id so multiple commits
-   *  coexist in one DB. bead MetaCoding-izn. */
-  perCommitIdentity?: boolean;
-  /** Ingest a PRE-BUILT external `.scip` index instead of running an indexer.
-   *  This is the ingest path for out-of-band builds — notably the Docker
-   *  full-site scip-php index (farmOS + Drupal core) whose Pass-2b boundary
-   *  edges resolve farmOS→Drupal CALLS/REFERENCES (bead MetaCoding-i00). The
-   *  in-process `runScip` PHP lane can only index a bare repo and never emits
-   *  those cross-package edges, so this file is produced externally and fed in
-   *  here. When set, `runScip` is skipped for the scip stage. */
-  loadScipPath?: string;
-  /** Language of the pre-built index at `loadScipPath`. Accepts ts/typescript,
-   *  py/python, or php; normalized to the loader's language code. Defaults to
-   *  php (the only language with an out-of-band build flow today). */
-  scipLanguage?: ScipLanguage;
-  /** PSR-4 sidecar map for a PHP pre-built index, letting the loader recover
-   *  real file paths from scip-php's namespace-derived relative_path so PHP
-   *  symbols reconcile with the tree-sitter lane. See loader `phpPsr4Map`. */
-  phpPsr4Map?: Record<string, string>;
-  /** Bypass the productivity gate, recording the degradation on stderr and in
-   *  the JSON summary. bead MetaCoding-0sd. */
-  allowEmptyIndex?: boolean;
-  /** Minimum share of the repo's source files the run must cover (default 0.1). */
-  minCoverage?: number;
-}
-
-/** Normalize a user-supplied scip-language token (ts/typescript/py/python/php)
- *  to the loader's `language` code. Throws on an unknown value. */
-export function normalizeScipLang(token: string): "ts" | "py" | "php" {
-  switch (token.toLowerCase()) {
-    case "ts":
-    case "typescript":
-      return "ts";
-    case "py":
-    case "python":
-      return "py";
-    case "php":
-      return "php";
-    default:
-      throw new Error(
-        `unknown --scip-language '${token}' (expected ts|typescript|py|python|php)`,
-      );
-  }
-}
-
-/** Ingest a pre-built `.scip` index through loadScip with a language override
- *  and optional PHP PSR-4 sidecar. Extracted from indexOneRepo so the CLI
- *  load-scip wiring is unit-testable without a live indexer. Returns the raw
- *  LoadScipStats (documents / symbolsUpserted / edgesAdded / externalRefsSkipped
- *  / externalBoundaryEdges / durationMs). */
-export async function ingestPrebuiltScip(
-  store: Store,
-  scipPath: string,
-  opts: {
-    repo: string;
-    branch: string;
-    scipLanguage?: ScipLanguage;
-    phpPsr4Map?: Record<string, string>;
-    repo_commit_sha?: string | null;
-    indexed_at?: string | null;
-    perCommitIdentity?: boolean;
-  },
-): ReturnType<typeof loadScip> {
-  if (!existsSync(scipPath)) {
-    throw new Error(`--load-scip: index file not found: ${scipPath}`);
-  }
-  const language = normalizeScipLang(opts.scipLanguage ?? "php");
-  return loadScip(store, scipPath, {
-    branch: opts.branch,
-    repo: opts.repo,
-    language,
-    repo_commit_sha: opts.repo_commit_sha,
-    indexed_at: opts.indexed_at,
-    perCommitIdentity: opts.perCommitIdentity,
-    phpPsr4Map: language === "php" ? opts.phpPsr4Map : undefined,
-  });
-}
-
-interface IndexOneResult {
-  treeSitter: Awaited<ReturnType<typeof indexDirectory>>;
-  scip?: Record<string, unknown>;
-  /** Per-lane outcome + the post-run store census (bead MetaCoding-0sd). */
-  gate?: Record<string, unknown>;
-}
-
-/** Thrown when the productivity gate refuses a run. Carries the JSON summary so
- *  the caller can still print the numbers before exiting non-zero. */
-export class IndexGateError extends Error {
-  constructor(message: string, readonly partial: IndexOneResult, readonly result: GateResult) {
-    super(message);
-    this.name = "IndexGateError";
-  }
-}
-
-async function indexOneRepo(
-  store: Store,
-  targetAbs: string,
-  opts: IndexOneOpts,
-): Promise<IndexOneResult> {
-  const lanes: LaneOutcome[] = [];
-  const tsStats = await indexDirectory(store, targetAbs, {
-    branch: opts.branch,
-    repo: opts.repo,
-    repo_commit_sha: opts.repo_commit_sha,
-    indexed_at: opts.indexed_at,
-    perCommitIdentity: opts.perCommitIdentity,
-  });
-  lanes.push({ lane: "tree-sitter", ok: true, files: tsStats.filesScanned });
-  const out: IndexOneResult = { treeSitter: tsStats };
-
-  if (opts.loadScipPath) {
-    // Ingest a pre-built external index (out-of-band Docker full-site build).
-    // Skips the in-process indexer entirely — the index file already exists.
-    const stats = await ingestPrebuiltScip(store, opts.loadScipPath, {
-      repo: opts.repo,
-      branch: opts.branch,
-      scipLanguage: opts.scipLanguage,
-      phpPsr4Map: opts.phpPsr4Map,
-      repo_commit_sha: opts.repo_commit_sha,
-      indexed_at: opts.indexed_at,
-      perCommitIdentity: opts.perCommitIdentity,
-    });
-    lanes.push({ lane: "scip:load-scip", ok: true, files: stats.documents });
-    out.scip = { source: "load-scip", scipPath: opts.loadScipPath, ...stats };
-  } else if (opts.wantScip) {
-    const scipLangs = detectScipLanguages(targetAbs);
-    const accum = { documents: 0, symbolsUpserted: 0, edgesAdded: 0, externalRefsSkipped: 0, externalBoundaryEdges: 0, indexerDurationMs: 0 };
-    for (const lang of scipLangs) {
-      try {
-        const { scipPath, durationMs } = await runScip({
-          language: lang,
-          targetRepo: targetAbs,
-          output: join(targetAbs, `index.${lang}.scip`),
-          projectName: opts.repo,
-          projectVersion: opts.branch,
-        });
-        const stats = await loadScip(store, scipPath, {
-          branch: opts.branch,
-          repo: opts.repo,
-          language: lang === "typescript" ? "ts" : "py",
-          repo_commit_sha: opts.repo_commit_sha,
-          indexed_at: opts.indexed_at,
-          perCommitIdentity: opts.perCommitIdentity,
-        });
-        accum.documents += stats.documents;
-        accum.symbolsUpserted += stats.symbolsUpserted;
-        accum.edgesAdded += stats.edgesAdded;
-        accum.externalRefsSkipped += stats.externalRefsSkipped;
-        accum.externalBoundaryEdges += stats.externalBoundaryEdges;
-        accum.indexerDurationMs += durationMs;
-        lanes.push({ lane: `scip:${lang}`, ok: true, files: stats.documents });
-      } catch (e) {
-        // NOT swallowed any more (bead MetaCoding-0sd). This `catch` used to
-        // print one stderr line and let the run report success, which is how
-        // `metacoding index <ory/fosite> --scip` exited 0 with an empty graph:
-        // scip-typescript died with "no files got indexed" and nobody was told
-        // in a way that mattered. The lane outcome is now evidence the gate
-        // reads. We still continue the loop so EVERY lane's fate is reported,
-        // not just the first one to die.
-        const msg = (e as Error).message.slice(0, 400);
-        console.error(`scip-${lang} failed: ${msg}`);
-        lanes.push({ lane: `scip:${lang}`, ok: false, error: msg, files: 0 });
-      }
-    }
-    out.scip = accum;
-  }
-
-  // THE GATE. See src/cli/index-gate.ts for the property and the fake-it
-  // analysis. Measured out of the STORE, not out of the accumulators above.
-  const scipRequested = Boolean(opts.wantScip || opts.loadScipPath);
-  const census = await storeCensus(store, opts.repo, opts.branch);
-  const gate = evaluateIndexOutcome({
-    repo: opts.repo,
-    targetPath: targetAbs,
-    lanes,
-    source: censusSourceFiles(targetAbs),
-    store: census,
-    scipRequested,
-    minCoverage: opts.minCoverage,
-  });
-  out.gate = {
-    ok: gate.ok,
-    enforced: !opts.allowEmptyIndex,
-    lanes,
-    filesCovered: gate.filesCovered,
-    sourceFiles: gate.sourceFiles,
-    coverage: gate.coverage,
-    symbols: gate.symbols,
-    relationalEdges: gate.relationalEdges,
-    edgesByKind: gate.edgesByKind,
-    failures: gate.failures,
-  };
-  if (!gate.ok && !opts.allowEmptyIndex) {
-    throw new IndexGateError(formatGateFailure(opts.repo, targetAbs, gate), out, gate);
-  }
-  if (!gate.ok) {
-    console.error(
-      `metacoding: index gate would have FAILED for '${opts.repo}' but ` +
-        `--allow-empty-index was passed:\n` +
-        gate.failures.map((f) => `  [${f.code}] ${f.message}`).join("\n"),
-    );
-  }
-  return out;
 }
 
 function haveScipBinary(name: string): boolean {
@@ -544,36 +417,6 @@ function resolveScipWanted(flag: string | undefined): boolean {
   process.exit(1);
 }
 
-function detectScipLanguages(repoPath: string): ScipLanguage[] {
-  const langs: ScipLanguage[] = [];
-  if (hasFileExt(repoPath, /\.(ts|tsx|mts|cts)$/, 6) ||
-      existsSync(join(repoPath, "tsconfig.json")) ||
-      existsSync(join(repoPath, "package.json"))) {
-    langs.push("typescript");
-  }
-  if (hasFileExt(repoPath, /\.py$/, 6) ||
-      existsSync(join(repoPath, "pyproject.toml")) ||
-      existsSync(join(repoPath, "setup.py"))) {
-    langs.push("python");
-  }
-  return langs;
-}
-
-function hasFileExt(dir: string, pattern: RegExp, maxDepth: number): boolean {
-  if (maxDepth <= 0) return false;
-  try {
-    for (const entry of readdirSync(dir)) {
-      if (entry.startsWith(".") || entry === "node_modules") continue;
-      const p = join(dir, entry);
-      let st;
-      try { st = statSync(p); } catch { continue; }
-      if (st.isFile() && pattern.test(entry)) return true;
-      if (st.isDirectory() && hasFileExt(p, pattern, maxDepth - 1)) return true;
-    }
-  } catch { /* permission/race */ }
-  return false;
-}
-
 async function cmdStatus(args: ParsedArgs): Promise<void> {
   const workspace = resolve(args.flags["workspace"] ?? args.positional[0] ?? ".");
   const dataDir = await resolveDataDir(workspace, args.flags["data-dir"]);
@@ -612,37 +455,43 @@ async function cmdWatch(args: ParsedArgs): Promise<void> {
   if (!target) usage();
   const root = resolve(target);
   const dataDir = await resolveDataDir(root, args.flags["data-dir"]);
-  const branch = args.flags["branch"] ?? currentGitBranch(root);
-  const repo = args.flags["repo"] ?? basename(root);
+  // `watch` INHERITS THE GATE. It used to call indexDirectory straight out of
+  // the extractor barrel, so the whole fitness gate simply did not apply to it
+  // (fresh-judge finding on MetaCoding-0sd). It now runs the same
+  // runIndexSession as `index` and refuses on the same terms — not because this
+  // caller was patched, but because the ingest primitives are no longer
+  // reachable from here at all (docs/design/index-fitness.md).
+  const intent = await intentFromArgs(args, root);
   // MetaCoding-cx6: Per-commit-identity watch — re-read HEAD before each
   // incremental event so every indexed file is stamped with the sha that was
   // actually current at processing time, not the sha frozen at watch-start.
-  // When perCommitIdentity is false the refreshRepoCommitSha callback is
-  // omitted and the watcher behaves exactly as before (no-op refresh path).
-  const repo_commit_sha = await getRepoCommitSha(root);
-  const indexed_at = new Date().toISOString();
-  const perCommitIdentity = args.flags["per-commit-identity"] === "true";
+  const perCommitIdentity = intent.perCommitIdentity === true;
 
   const store = await Store.open(dataDir);
-  const handle = await watch(store, root, {
-    branch,
-    repo,
-    repo_commit_sha,
-    indexed_at,
-    perCommitIdentity,
-    ...(perCommitIdentity
-      ? { refreshRepoCommitSha: () => getRepoCommitSha(root) }
-      : {}),
+  const { session, handle } = await runWatchSession(store, dataDir, intent, {
+    ...(perCommitIdentity ? { refreshRepoCommitSha: () => getRepoCommitSha(root) } : {}),
     onProcessed: (event, path) => {
       const at = new Date().toISOString().slice(11, 19);
       console.log(`${at} ${event.padEnd(6)} ${path}`);
     },
   });
-  console.log(`watching ${root} on branch ${branch}; data dir ${dataDir}`);
+
+  if (handle === null) {
+    // Same refusal as `metacoding index`, from the same measurement, recorded
+    // in the same place. Watching a refused graph would keep mutating a store
+    // every reader must refuse anyway.
+    console.error(formatGateFailure(intent.repo, root, session.gate));
+    await store.close();
+    process.exit(1);
+  }
+
+  console.log(`watching ${root} on branch ${intent.branch}; data dir ${dataDir}`);
+  console.log(`index fitness: ${session.health.status}`);
   console.log("press Ctrl-C to stop");
 
   const shutdown = async () => {
     try { await handle.close(); } catch {}
+    try { clearWatchMarker(dataDir, intent.repo, intent.branch); } catch {}
     try { await store.close(); } catch {}
     process.exit(0);
   };

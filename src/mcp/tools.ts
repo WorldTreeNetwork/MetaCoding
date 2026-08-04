@@ -7,6 +7,27 @@ import type { Store } from "../store";
 import type { TokenKind, EdgeKind } from "../store/types";
 import type { IndexState } from "../index-state";
 import { CTKR_TOOL_DESCRIPTIONS } from "./ctkr-tools";
+import {
+  gateAggregate,
+  gateQueryAnswer,
+  summarizeHealth,
+  type GraphAnswer,
+} from "./health-gate.ts";
+
+// ---------------------------------------------------------------------------
+// BREAKING CHANGE to the MCP response shape (docs/design/index-fitness.md).
+//
+// Every graph tool below used to return a bare array. It now returns a
+// `GraphAnswer<T>`:
+//
+//   { ok: true,  rows: T[], health, caveat? }
+//   { ok: false, error: "INDEX_FITNESS_UNESTABLISHED", message, health }
+//
+// The refusal branch HAS NO `rows`, so an empty answer from a graph whose
+// fitness is not established cannot be consumed as `[]`. That asymmetry is the
+// enforcement — see src/mcp/health-gate.ts.
+// ---------------------------------------------------------------------------
+export type { GraphAnswer } from "./health-gate.ts";
 
 // ---------- shared envelopes ----------
 
@@ -42,7 +63,8 @@ export interface GraphNeighborsInput {
   repo_commit_sha?: string;             // optional scope: restrict to a snapshot
 }
 
-export async function graphNeighbors(
+/** Raw rows. NOT the tool surface — `graphNeighbors` gates these. */
+export async function graphNeighborRows(
   store: Store,
   input: GraphNeighborsInput,
 ): Promise<NeighborRow[]> {
@@ -122,7 +144,7 @@ export interface GraphCallersInput {
 export async function graphCallers(
   store: Store,
   input: GraphCallersInput,
-): Promise<NeighborRow[]> {
+): Promise<GraphAnswer<NeighborRow>> {
   return graphNeighbors(store, {
     symbol: input.symbol,
     direction: "in",
@@ -143,7 +165,7 @@ export interface GraphImplementersInput {
 export async function graphImplementers(
   store: Store,
   input: GraphImplementersInput,
-): Promise<NeighborRow[]> {
+): Promise<GraphAnswer<NeighborRow>> {
   return graphNeighbors(store, {
     symbol: input.symbol,
     direction: "in",
@@ -175,7 +197,8 @@ export interface CodeSearchHit {
   symbol_id: string | null;
 }
 
-export function codeSearch(store: Store, input: CodeSearchInput): CodeSearchHit[] {
+/** Raw hits. NOT the tool surface — `codeSearch` gates these. */
+export function codeSearchRows(store: Store, input: CodeSearchInput): CodeSearchHit[] {
   if (!input.query || input.query.length < 2) return [];
   const limit = clamp(input.limit ?? 50, 1, 500);
   const hits = store.searchTokens(input.query, limit * 2, undefined, input.repo_commit_sha);
@@ -200,7 +223,8 @@ export interface GraphCypherInput {
   limit?: number;
 }
 
-export async function graphCypher(
+/** Raw rows. NOT the tool surface — `graphCypher` gates these. */
+export async function graphCypherRows(
   store: Store,
   input: GraphCypherInput,
 ): Promise<Record<string, unknown>[]> {
@@ -258,7 +282,8 @@ function toEnvelope(r: DiffRow): DiffSymbol {
   };
 }
 
-export async function graphDiff(
+/** Raw diff. NOT the tool surface — `graphDiff` gates these (AGGREGATING). */
+export async function graphDiffRows(
   store: Store,
   input: GraphDiffInput,
 ): Promise<GraphDiffResult> {
@@ -315,6 +340,57 @@ export async function graphDiff(
       unchanged,
     },
   };
+}
+
+// ---------- the GATED tool surface ----------
+//
+// Each wrapper measures the store's persisted fitness, then types the answer.
+// The gate is applied HERE, once, rather than in server.ts, so that any caller
+// reaching the tools directly (tests, the CLI, a future harness) gets it too.
+
+export async function graphNeighbors(
+  store: Store,
+  input: GraphNeighborsInput,
+): Promise<GraphAnswer<NeighborRow>> {
+  const rows = await graphNeighborRows(store, input);
+  return gateQueryAnswer(rows, await summarizeHealth(store));
+}
+
+export async function codeSearch(
+  store: Store,
+  input: CodeSearchInput,
+): Promise<GraphAnswer<CodeSearchHit>> {
+  const rows = codeSearchRows(store, input);
+  return gateQueryAnswer(rows, await summarizeHealth(store));
+}
+
+export async function graphCypher(
+  store: Store,
+  input: GraphCypherInput,
+): Promise<GraphAnswer<Record<string, unknown>>> {
+  const rows = await graphCypherRows(store, input);
+  return gateQueryAnswer(rows, await summarizeHealth(store));
+}
+
+/**
+ * graph_diff is an AGGREGATING consumer: it reduces two snapshots to counts,
+ * and a snapshot that is empty because a run was killed reduces to "everything
+ * was removed" with no visible sign. It therefore refuses by DEFAULT on
+ * REFUSED / RUNNING / UNKNOWN, not only when the result is empty.
+ */
+export async function graphDiff(
+  store: Store,
+  input: GraphDiffInput & { acknowledge_unestablished_fitness?: boolean },
+): Promise<
+  | { ok: true; result: GraphDiffResult; health: Awaited<ReturnType<typeof summarizeHealth>>; caveat?: string }
+  | { ok: false; error: "INDEX_FITNESS_UNESTABLISHED"; message: string; health: Awaited<ReturnType<typeof summarizeHealth>> }
+> {
+  const health = await summarizeHealth(store);
+  if (!health.established && !input.acknowledge_unestablished_fitness) {
+    return gateAggregate(() => ({}) as GraphDiffResult, health, false, "graph_diff") as never;
+  }
+  const result = await graphDiffRows(store, input);
+  return gateAggregate(() => result, health, true, "graph_diff");
 }
 
 // ---------- describe_api ----------
@@ -400,7 +476,7 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
   },
   {
     name: "graph_diff",
-    summary: "Compare two indexed snapshots of the same repo. Returns added / removed / changed symbols by qualified_name; changed = same name, different ast_hash. Requires both snapshots to coexist — usually means --per-commit-identity was used when indexing.",
+    summary: "Compare two indexed snapshots of the same repo. Returns added / removed / changed symbols by qualified_name; changed = same name, different ast_hash. Requires both snapshots to coexist — usually means --per-commit-identity was used when indexing. AGGREGATING CONSUMER: refuses by default when any repo's index fitness is REFUSED/RUNNING/UNKNOWN, because an aggregate absorbs a zero silently; pass acknowledge_unestablished_fitness to proceed anyway.",
     input_schema: {
       type: "object",
       required: ["repo", "from_sha", "to_sha"],
@@ -409,6 +485,10 @@ export const TOOL_DESCRIPTIONS: ToolDescription[] = [
         from_sha: { type: "string", description: "git commit sha of the baseline snapshot." },
         to_sha: { type: "string", description: "git commit sha of the target snapshot." },
         limit: { type: "integer", minimum: 1, maximum: 10000, default: 1000 },
+        acknowledge_unestablished_fitness: {
+          type: "boolean",
+          description: "Proceed even though the graph's fitness is not established. Recorded in the response caveat.",
+        },
       },
     },
   },
@@ -482,6 +562,8 @@ export interface DescribeApiResult {
     edge_kinds: string[];
     token_kinds: string[];
   };
+  /** How every graph tool's response is shaped (BREAKING as of index-fitness). */
+  response_shape?: string;
   // Present only when serve passes live index state. Lets a harness see, in the
   // same call it uses to discover the surface, whether the graph is indexed and
   // fresh — so it doesn't trust empty graph results from an unindexed workspace.
@@ -501,6 +583,21 @@ function shortSha(sha: string | null): string {
  * one line so it reads well embedded in describe_api's JSON output.
  */
 function indexStateHint(state: IndexState): string {
+  // Fitness FIRST. "indexed" is a symbol count, and a SIGKILLed run leaves
+  // symbols with zero edges (MetaCoding-ae5) — the hint used to call that
+  // "Indexed: 1724 symbols" and say nothing else.
+  if (!state.fitness_established) {
+    const bad = state.health
+      .filter((h) => h.status !== "HEALTHY" && h.status !== "OVERRIDDEN")
+      .map((h) => `${h.repo}@${h.branch}=${h.status}`)
+      .join(", ");
+    return (
+      `⚠ INDEX FITNESS NOT ESTABLISHED${bad ? ` (${bad})` : " (no index-health record beside this graph)"}. ` +
+      "Graph tools REFUSE empty results here rather than returning [] — an empty answer from an " +
+      "unfit graph is indistinguishable from an empty answer from a fit one (bead MetaCoding-hy6.16). " +
+      "Fix: metacoding index . --scip"
+    );
+  }
   if (!state.indexed) {
     return (
       `⚠ This workspace is NOT indexed (0 symbols at ${state.dataDir}). ` +
@@ -528,6 +625,12 @@ export function describeApi(indexState?: IndexState): DescribeApiResult {
       edge_kinds: VALID_EDGE_KINDS as unknown as string[],
       token_kinds: VALID_TOKEN_KINDS as unknown as string[],
     },
+    response_shape:
+      "Graph tools return { ok: true, rows: [...], health, caveat? } or, when the " +
+      "answer is EMPTY and the graph's index fitness is not established, " +
+      "{ ok: false, error: 'INDEX_FITNESS_UNESTABLISHED', message, health } — which " +
+      "has NO rows property, so an unfit empty answer cannot be consumed as []. " +
+      "graph_diff is an aggregating consumer and refuses by default, empty or not.",
   };
   if (indexState !== undefined) {
     result.index_state = indexState;

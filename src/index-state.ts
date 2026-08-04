@@ -6,6 +6,13 @@
 // summary and shells out to git read-only; it never mutates and never throws.
 
 import type { Store, RepoSnapshot } from "./store";
+import {
+  formatHealthLine,
+  isFitnessEstablished,
+  readAllIndexHealth,
+  statusOf,
+  type IndexHealthRecord,
+} from "./store/health.ts";
 
 export interface Staleness {
   indexed_commit: string | null; // most-recent indexed sha for the workspace's repo
@@ -20,6 +27,16 @@ export interface IndexState {
   symbols: number;
   repos: RepoSnapshot[]; // from Store.summary()
   staleness: Staleness | null; // null when not a git repo or no indexed commit to compare
+  /**
+   * The PERSISTED fitness verdicts beside this graph (bead MetaCoding-ae5).
+   * `indexed` is a symbol count and cannot tell a finished run from a SIGKILLed
+   * one: a killed ingest leaves symbols and zero edges — the MetaCoding-hy6.16
+   * shape — and `status` used to print "Indexed: 1724 symbol(s)" over it.
+   * An EMPTY array means UNKNOWN, never healthy.
+   */
+  health: IndexHealthRecord[];
+  /** True only when at least one slice is recorded AND every one is established. */
+  fitness_established: boolean;
 }
 
 /**
@@ -97,12 +114,18 @@ export async function gatherIndexState(
     }
   }
 
+  const health = readAllIndexHealth(summary.dataDir);
+  const fitness_established =
+    health.length > 0 && health.every((h) => isFitnessEstablished(statusOf(h)));
+
   return {
     dataDir: summary.dataDir,
     indexed: summary.indexed,
     symbols: summary.symbols,
     repos: summary.repos,
     staleness,
+    health,
+    fitness_established,
   };
 }
 
@@ -123,6 +146,16 @@ export function formatIndexState(state: IndexState): string {
   if (!state.indexed) {
     lines.push("⚠ This workspace is NOT indexed — every query will return empty results.");
     lines.push(`  data dir: ${state.dataDir}`);
+    // Fitness even here: a store with ZERO symbols and a RUNNING record is a
+    // run that died before it wrote anything, which is a different situation
+    // from "never indexed" and needs a different fix (MetaCoding-ae5).
+    lines.push("  index fitness:");
+    if (state.health.length === 0) {
+      lines.push("    ⚠ UNKNOWN — no index-health record beside this graph.");
+    }
+    for (const h of state.health) {
+      lines.push(`    ⚠ ${formatHealthLine(h, h.repo, h.branch)}`);
+    }
     lines.push("  To index, run:");
     lines.push("      metacoding index . --scip");
     return lines.join("\n");
@@ -133,6 +166,23 @@ export function formatIndexState(state: IndexState): string {
   for (const r of state.repos) {
     const at = r.indexed_at ?? "unknown time";
     lines.push(`  - ${r.repo} @ ${short(r.repo_commit_sha)} (${r.symbols} symbols, indexed ${at})`);
+  }
+
+  // FITNESS, beside the symbol count. A symbol count answers "is there data";
+  // only the persisted record answers "did a run ever establish that this data
+  // is what it claims to be" (MetaCoding-ae5). Repos with symbols but no record
+  // are reported UNKNOWN, never healthy.
+  lines.push("  index fitness:");
+  const byRepo = new Map(state.health.map((h) => [`${h.repo}`, h] as const));
+  const seen = new Set<string>();
+  for (const r of state.repos) {
+    seen.add(r.repo);
+    const rec = byRepo.get(r.repo) ?? null;
+    lines.push(`    ${statusOf(rec) === "HEALTHY" ? "✓" : "⚠"} ${formatHealthLine(rec, r.repo, rec?.branch ?? "?")}`);
+  }
+  for (const h of state.health) {
+    if (seen.has(h.repo)) continue;
+    lines.push(`    ⚠ ${formatHealthLine(h, h.repo, h.branch)}`);
   }
 
   const s = state.staleness;

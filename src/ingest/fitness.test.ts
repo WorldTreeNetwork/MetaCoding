@@ -1,0 +1,575 @@
+// Evidence for docs/design/index-fitness.md, root 1 (beads MetaCoding-4kg,
+// 5fi, e6z, 0sd).
+//
+// THE EVIDENCE RULE THIS FILE IS WRITTEN UNDER
+// ============================================
+// Every load-bearing test here is a CONTRAST PAIR whose two halves give
+// OPPOSITE verdicts. A test that only confirms is not yet evidence.
+//
+// This is not a style preference. It is the specific defect MetaCoding-e6z
+// recorded: three mutations of the previous gate left the whole suite green,
+// because every fixture in it was confirmatory. The floor's VALUE was untested
+// (the only failing case was 0.37% and the only passing case was 100%); the
+// repo scoping was untested (every fixture store held exactly ONE repo); and
+// the central "measured from the store, never the accumulators" claim was
+// untested (the one wired test used an empty .scip whose accumulators were also
+// zero, so it could not tell the two apart).
+//
+// Each `describe` below names the mutation it kills. If you weaken one of these
+// measurements, exactly one half of a pair must go red — and the other half
+// must stay green, or the test is measuring "everything fails" instead of the
+// property.
+
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
+
+import { Store } from "../store";
+import { loadScip } from "../scip/loader.ts";
+import {
+  DEFAULT_MIN_COVERAGE,
+  censusSourceFiles,
+  evaluateIndexOutcome,
+  hashIndexFile,
+  measureCorrespondence,
+  measureRunContribution,
+  measureStoreFitness,
+  type GateInput,
+  type SourceCensus,
+} from "./fitness.ts";
+
+const BRANCH = "main";
+const RUN_A = "2026-08-04T10:00:00.000Z";
+const RUN_B = "2026-08-04T11:00:00.000Z";
+
+let dataDir: string;
+let repoDir: string;
+let store: Store;
+
+beforeEach(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), "fitness-data-"));
+  repoDir = mkdtempSync(join(tmpdir(), "fitness-repo-"));
+  store = await Store.open(dataDir);
+});
+
+afterEach(async () => {
+  await store.close();
+  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(repoDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// fixtures
+// ---------------------------------------------------------------------------
+
+/** A .scip index with real definitions plus a call/reference between them. */
+function productiveScip(prefix = "src"): Uint8Array {
+  const PKG = "scip-typescript npm fixture 1.0.0";
+  const caller = `${PKG} \`${prefix}/a.ts\`/run().`;
+  const callee = `${PKG} \`${prefix}/b.ts\`/helper().`;
+  const base = `${PKG} \`${prefix}/b.ts\`/Base#`;
+  const derived = `${PKG} \`${prefix}/a.ts\`/Derived#`;
+  const docs = [
+    new scip.Document({
+      relative_path: `${prefix}/a.ts`,
+      language: "typescript",
+      occurrences: [
+        new scip.Occurrence({ symbol: caller, range: [1, 9, 1, 12], symbol_roles: scip.SymbolRole.Definition }),
+        new scip.Occurrence({ symbol: callee, range: [2, 4, 2, 10], symbol_roles: 0 }),
+        new scip.Occurrence({ symbol: derived, range: [6, 6, 6, 13], symbol_roles: scip.SymbolRole.Definition }),
+      ],
+      symbols: [
+        new scip.SymbolInformation({
+          symbol: derived,
+          relationships: [new scip.Relationship({ symbol: base, is_implementation: true })],
+        }),
+      ],
+    }),
+    new scip.Document({
+      relative_path: `${prefix}/b.ts`,
+      language: "typescript",
+      occurrences: [
+        new scip.Occurrence({ symbol: callee, range: [1, 9, 1, 15], symbol_roles: scip.SymbolRole.Definition }),
+        new scip.Occurrence({ symbol: base, range: [4, 6, 4, 10], symbol_roles: scip.SymbolRole.Definition }),
+      ],
+      symbols: [],
+    }),
+  ];
+  return new scip.Index({ documents: docs }).serialize();
+}
+
+/**
+ * The judge's `vendor40` shape (MetaCoding-5fi): 40 documents with REAL
+ * definitions and real edges, every one pathed under `node_modules/dep/`.
+ */
+function vendor40Scip(): Uint8Array {
+  const PKG = "scip-typescript npm dep 1.0.0";
+  const docs = [];
+  for (let i = 0; i < 40; i++) {
+    const p = `node_modules/dep/v${i}.ts`;
+    const a = `${PKG} \`${p}\`/f${i}().`;
+    // A real cross-document reference, exactly like the productive fixture:
+    // the vendored index is a GOOD index — of the wrong tree.
+    const other = `${PKG} \`node_modules/dep/v${(i + 1) % 40}.ts\`/f${(i + 1) % 40}().`;
+    docs.push(new scip.Document({
+      relative_path: p,
+      language: "typescript",
+      occurrences: [
+        new scip.Occurrence({ symbol: a, range: [1, 9, 1, 12], symbol_roles: scip.SymbolRole.Definition }),
+        new scip.Occurrence({ symbol: other, range: [2, 4, 2, 8], symbol_roles: 0 }),
+      ],
+      symbols: [],
+    }));
+  }
+  return new scip.Index({ documents: docs }).serialize();
+}
+
+function writeScip(bytes: Uint8Array, name: string): string {
+  const p = join(repoDir, name);
+  writeFileSync(p, bytes);
+  return p;
+}
+
+/** Populate the fixture repo with `n` files of a given extension under `dir`. */
+function seedSourceFiles(ext: string, n: number, dir = "src", body = "// x\n"): void {
+  mkdirSync(join(repoDir, dir), { recursive: true });
+  for (let i = 0; i < n; i++) {
+    writeFileSync(join(repoDir, dir, `f${i}${ext}`), body, "utf-8");
+  }
+}
+
+const census = (byExt: Record<string, number>, files: string[] = []): SourceCensus => ({
+  total: files.length || Object.values(byExt).reduce((a, b) => a + b, 0),
+  byExt,
+  files,
+});
+
+/** A GateInput with everything healthy; each test overrides ONE thing. */
+function baseInput(over: Partial<GateInput> = {}): GateInput {
+  return {
+    repo: "r",
+    targetPath: "/fixture",
+    lanes: [
+      { lane: "tree-sitter", ok: true, files: 100 },
+      { lane: "scip:typescript", ok: true, files: 100 },
+    ],
+    source: census({ ".ts": 100 }),
+    contribution: {
+      symbols: 500, relationalEdges: 200,
+      edgesByKind: { CALLS: 150, REFERENCES: 50 }, scipSymbols: 400,
+    },
+    fitness: {
+      symbols: 500, relationalEdges: 200,
+      edgesByKind: { CALLS: 150, REFERENCES: 50 },
+    },
+    correspondence: {
+      level: "exact", matched: 100, sourceFiles: 100, indexedFiles: 100, ratio: 1,
+    },
+    scipRequested: true,
+    commitSha: "aaaaaaa",
+    prevCommitSha: "aaaaaaa",
+    ...over,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PAIR 2 — repo scoping. Kills e6z/M2 (census de-scoped from (repo, branch)).
+// ---------------------------------------------------------------------------
+
+describe("PAIR 2 — a populated repo B cannot vouch for an empty repo A", () => {
+  // e6z/M2: the edge census was de-scoped from (repo, branch) and every test
+  // stayed green, because every fixture store held exactly ONE repo. This is
+  // load-bearing for the shared corpus (MetaCoding-d1l.2), where one store
+  // holds many repos by construction.
+  test("SAME store, SAME measurement, two repos, OPPOSITE verdicts", async () => {
+    await loadScip(store, writeScip(productiveScip(), "b.scip"), {
+      branch: BRANCH, repo: "B", language: "ts", indexed_at: RUN_A,
+    });
+
+    const fitB = await measureStoreFitness(store, "B", BRANCH);
+    const fitA = await measureStoreFitness(store, "A", BRANCH);
+
+    // B is real...
+    expect(fitB.symbols).toBeGreaterThan(0);
+    expect(fitB.edgesByKind["CALLS"]).toBeGreaterThan(0);
+    expect(fitB.edgesByKind["REFERENCES"]).toBeGreaterThan(0);
+    expect(fitB.edgesByKind["IMPLEMENTS"]).toBeGreaterThan(0);
+    // ...and A, in the very same store, is empty.
+    expect(fitA.symbols).toBe(0);
+    expect(fitA.relationalEdges).toBe(0);
+
+    const verdictB = evaluateIndexOutcome(baseInput({ repo: "B", fitness: fitB }));
+    const verdictA = evaluateIndexOutcome(baseInput({
+      repo: "A",
+      fitness: fitA,
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+    }));
+    expect(verdictB.ok).toBe(true);
+    expect(verdictA.ok).toBe(false);
+    expect(verdictA.failures.map((f) => f.code)).toContain("NO_SYMBOLS");
+  });
+
+  test("branch scoping too: a populated sibling BRANCH cannot vouch either", async () => {
+    await loadScip(store, writeScip(productiveScip(), "m.scip"), {
+      branch: "main", repo: "R", language: "ts", indexed_at: RUN_A,
+    });
+    const onMain = await measureStoreFitness(store, "R", "main");
+    const onFeature = await measureStoreFitness(store, "R", "feature");
+    expect(onMain.relationalEdges).toBeGreaterThan(0);
+    expect(onFeature.relationalEdges).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAIR 3 — threshold bracketing. Kills e6z/M1 (DEFAULT_MIN_COVERAGE 0.1 -> 0.004).
+// ---------------------------------------------------------------------------
+
+describe("PAIR 3 — the correspondence floor's VALUE is pinned, not just its existence", () => {
+  // e6z/M1: DEFAULT_MIN_COVERAGE could be silently dropped from 10% to 0.4% —
+  // gutting the rule the previous author chose OVER a bare `> 0` check — with
+  // every test green, because the only failing case was 1/273 = 0.37% and the
+  // only passing case was 100%. These two cases BRACKET the floor.
+  const bracket = (matched: number, total: number) =>
+    evaluateIndexOutcome(baseInput({
+      source: census({ ".ts": total }),
+      correspondence: {
+        level: "exact", matched, sourceFiles: total, indexedFiles: matched,
+        ratio: matched / total,
+      },
+    }));
+
+  test("9% is REFUSED and 11% is ESTABLISHED — the floor is at 10%", () => {
+    expect(DEFAULT_MIN_COVERAGE).toBe(0.1);
+
+    const below = bracket(9, 100);
+    const above = bracket(11, 100);
+
+    expect(below.ok).toBe(false);
+    expect(below.failures.map((f) => f.code)).toEqual(["LOW_CORRESPONDENCE"]);
+    expect(above.ok).toBe(true);
+
+    // And the message must name the actual numbers, or an operator cannot act.
+    expect(below.failures[0]!.message).toContain("9/100");
+    expect(below.failures[0]!.message).toContain("floor 10%");
+  });
+
+  test("an explicit --min-coverage moves the verdict in BOTH directions", () => {
+    const nine = {
+      source: census({ ".ts": 100 }),
+      correspondence: {
+        level: "exact" as const, matched: 9, sourceFiles: 100, indexedFiles: 9, ratio: 0.09,
+      },
+    };
+    expect(evaluateIndexOutcome(baseInput({ ...nine, minCoverage: 0.05 })).ok).toBe(true);
+    expect(evaluateIndexOutcome(baseInput({ ...nine, minCoverage: 0.5 })).ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAIR 4 — same-commit vs commit-advancing zero contribution. The CORRECTED 4kg.
+// ---------------------------------------------------------------------------
+
+describe("PAIR 4 — zero contribution is fine at the SAME commit and fatal at a NEW one", () => {
+  // MetaCoding-4kg said "a run that contributed NOTHING passes when the store
+  // already holds that repo". Half of that is right and half is not, and the
+  // difference is the COMMIT:
+  //   * same commit, already-fit store  -> defensible. The store genuinely IS
+  //     fit, and a rule that false-alarms on the most common invocation (a
+  //     re-index of unchanged content) is a rule people disable.
+  //   * new commit                      -> a lie. Fitness was established at W,
+  //     the run claims X, and every reader now believes it is looking at X.
+  const barren = {
+    contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+    lanes: [{ lane: "scip:load-scip", ok: true, files: 40 }],
+    scipRequested: false, // isolate the commit rule from the SCIP rule
+  };
+
+  test("IDENTICAL barren run: passes at commit W, REFUSED when it claims X", () => {
+    const sameCommit = evaluateIndexOutcome(baseInput({
+      ...barren, commitSha: "wwwwwww", prevCommitSha: "wwwwwww",
+    }));
+    const advancing = evaluateIndexOutcome(baseInput({
+      ...barren, commitSha: "xxxxxxx", prevCommitSha: "wwwwwww",
+    }));
+
+    expect(sameCommit.ok).toBe(true);
+    expect(sameCommit.commitAdvanced).toBe(false);
+    // The contribution is RECORDED as zero either way — it is a measurement,
+    // never silently substituted for the store's fitness.
+    expect(sameCommit.contribution.symbols).toBe(0);
+    expect(sameCommit.fitness.symbols).toBe(500);
+
+    expect(advancing.ok).toBe(false);
+    expect(advancing.commitAdvanced).toBe(true);
+    expect(advancing.failures.map((f) => f.code)).toEqual(["ZERO_CONTRIBUTION_AT_NEW_COMMIT"]);
+    expect(advancing.failures[0]!.message).toContain("wwwwwww");
+    expect(advancing.failures[0]!.message).toContain("xxxxxxx");
+  });
+
+  test("a PRODUCTIVE run at a new commit is not touched by the rule", () => {
+    expect(evaluateIndexOutcome(baseInput({
+      commitSha: "xxxxxxx", prevCommitSha: "wwwwwww",
+    })).ok).toBe(true);
+  });
+
+  test("contribution and fitness are measured SEPARATELY out of one real store", async () => {
+    // Run A writes. Run B writes nothing. The store is full either way; only
+    // the per-run measure can tell them apart, and it does — this is the
+    // quantity the old gate did not have (it substituted the repo-wide census).
+    await loadScip(store, writeScip(productiveScip(), "runA.scip"), {
+      branch: BRANCH, repo: "R", language: "ts", indexed_at: RUN_A,
+    });
+
+    const fitness = await measureStoreFitness(store, "R", BRANCH);
+    const contribA = await measureRunContribution(store, "R", BRANCH, RUN_A);
+    const contribB = await measureRunContribution(store, "R", BRANCH, RUN_B);
+
+    expect(fitness.symbols).toBeGreaterThan(0);
+    expect(fitness.relationalEdges).toBeGreaterThan(0);
+    expect(contribA.symbols).toBe(fitness.symbols);
+    expect(contribA.scipSymbols).toBeGreaterThan(0);
+    // OPPOSITE answer for a run that wrote nothing, against the SAME full store.
+    expect(contribB.symbols).toBe(0);
+    expect(contribB.relationalEdges).toBe(0);
+    expect(contribB.scipSymbols).toBe(0);
+  });
+
+  test("SCIP requested + no store-visible SCIP symbols THIS RUN is refused", () => {
+    // The other half of 4kg, which IS a straight failure: an empty document is
+    // a document, so counting documents could never catch it. This counts
+    // symbols this run's SCIP lane put in the STORE.
+    const r = evaluateIndexOutcome(baseInput({
+      scipRequested: true,
+      lanes: [{ lane: "scip:load-scip", ok: true, files: 40 }], // 40 documents!
+      contribution: { symbols: 12, relationalEdges: 3, edgesByKind: {}, scipSymbols: 0 },
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.failures.map((f) => f.code)).toContain("NO_SCIP_SYMBOLS_THIS_RUN");
+
+    // ...and one store-visible SCIP symbol flips it.
+    expect(evaluateIndexOutcome(baseInput({
+      scipRequested: true,
+      lanes: [{ lane: "scip:load-scip", ok: true, files: 40 }],
+      contribution: { symbols: 12, relationalEdges: 3, edgesByKind: {}, scipSymbols: 1 },
+    })).ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAIR 5 — correspondence vs document count. Kills 5fi.
+// ---------------------------------------------------------------------------
+
+describe("PAIR 5 — 40 vendored documents vs 40 real ones over the SAME tree", () => {
+  // MetaCoding-5fi, measured by the judge: `index <10-file .go repo>
+  // --load-scip vendor40.scip` gave scip.documents 40, symbolsUpserted 40,
+  // edgesAdded 78, coverage 1.0 (clamped), EXIT 0 — with ZERO of the 10 repo
+  // files indexed. Numerator and denominator measured different SETS.
+  test("vendor40 is UNMEASURABLE; a real 40-document index of the same tree is 100%", async () => {
+    seedSourceFiles(".ts", 40);
+    const source = censusSourceFiles(repoDir);
+    expect(source.total).toBe(40);
+
+    // (a) the vendored index — real definitions, real edges, wrong tree.
+    await loadScip(store, writeScip(vendor40Scip(), "vendor40.scip"), {
+      branch: BRANCH, repo: "vendored", language: "ts", indexed_at: RUN_A,
+    });
+    const vendored = await measureCorrespondence(store, "vendored", BRANCH, source);
+
+    // Everything a "> 0" or count-ratio measure looks at is HEALTHY here:
+    const vendorFitness = await measureStoreFitness(store, "vendored", BRANCH);
+    expect(vendorFitness.symbols).toBeGreaterThan(0);
+    expect(vendorFitness.relationalEdges).toBeGreaterThan(0);
+    expect(vendored.indexedFiles).toBe(40);
+    expect(vendored.sourceFiles).toBe(40);
+    // ...and the correspondence is ZERO at every rung of the ladder.
+    expect(vendored.level).toBe("unmeasurable");
+    expect(vendored.matched).toBe(0);
+    expect(vendored.ratio).toBeNull();
+
+    // (b) an index of the SAME tree, same document count, correct paths.
+    const realDocs = new scip.Index({
+      documents: source.files.map((f, i) =>
+        new scip.Document({
+          relative_path: f,
+          language: "typescript",
+          occurrences: [
+            new scip.Occurrence({
+              symbol: `scip-typescript npm fixture 1.0.0 \`${f}\`/fn${i}().`,
+              range: [1, 9, 1, 12],
+              symbol_roles: scip.SymbolRole.Definition,
+            }),
+          ],
+          symbols: [],
+        }),
+      ),
+    }).serialize();
+    await loadScip(store, writeScip(realDocs, "real40.scip"), {
+      branch: BRANCH, repo: "real", language: "ts", indexed_at: RUN_A,
+    });
+    const real = await measureCorrespondence(store, "real", BRANCH, source);
+
+    expect(real.level).toBe("exact");
+    expect(real.matched).toBe(40);
+    expect(real.ratio).toBe(1);
+
+    // OPPOSITE VERDICTS from the same gate on the same tree.
+    const gateInput = { source, scipRequested: true, lanes: [{ lane: "scip:load-scip", ok: true, files: 40 }] };
+    expect(evaluateIndexOutcome(baseInput({ ...gateInput, correspondence: real })).ok).toBe(true);
+    const vendorVerdict = evaluateIndexOutcome(baseInput({ ...gateInput, correspondence: vendored }));
+    expect(vendorVerdict.ok).toBe(false);
+    expect(vendorVerdict.failures.map((f) => f.code)).toEqual(["UNMEASURABLE_CORRESPONDENCE"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAIR 6 — the granularity ladder.
+// ---------------------------------------------------------------------------
+
+describe("PAIR 6 — a container prefix degrades the granularity; an unrelated tree is UNMEASURABLE", () => {
+  // --load-scip is NOT structurally unmeasurable: an out-of-band Docker build
+  // (farmOS's full-site scip-php) prefixes every path with the container root.
+  // The ladder measures it at a weaker granularity AND RECORDS WHICH RUNG,
+  // which is what distinguishes it from a vendored-dependency index.
+  async function loadPaths(repo: string, paths: string[]): Promise<void> {
+    const docs = paths.map((p, i) =>
+      new scip.Document({
+        relative_path: p,
+        language: "typescript",
+        occurrences: [
+          new scip.Occurrence({
+            symbol: `scip-typescript npm fixture 1.0.0 \`${p}\`/fn${i}().`,
+            range: [1, 9, 1, 12],
+            symbol_roles: scip.SymbolRole.Definition,
+          }),
+        ],
+        symbols: [],
+      }),
+    );
+    await loadScip(store, writeScip(new scip.Index({ documents: docs }).serialize(), `${repo}.scip`), {
+      branch: BRANCH, repo, language: "ts", indexed_at: RUN_A,
+    });
+  }
+
+  test("SUFFIX for a container-prefixed build, UNMEASURABLE for an unrelated one", async () => {
+    seedSourceFiles(".ts", 10);
+    const source = censusSourceFiles(repoDir);
+
+    await loadPaths("docker", source.files.map((f) => `/app/web/${f}`));
+    const docker = await measureCorrespondence(store, "docker", BRANCH, source);
+    expect(docker.level).toBe("suffix");
+    expect(docker.matched).toBe(10);
+    expect(docker.ratio).toBe(1);
+
+    await loadPaths("alien", ["zzz/qqq.ts", "zzz/www.ts"]);
+    const alien = await measureCorrespondence(store, "alien", BRANCH, source);
+    expect(alien.level).toBe("unmeasurable");
+    expect(alien.reason).toContain("basename");
+
+    // Opposite verdicts, and the RUNG is part of the record either way.
+    const g = { source, scipRequested: true, lanes: [{ lane: "scip:load-scip", ok: true, files: 10 }] };
+    expect(evaluateIndexOutcome(baseInput({ ...g, correspondence: docker })).ok).toBe(true);
+    expect(evaluateIndexOutcome(baseInput({ ...g, correspondence: alien })).ok).toBe(false);
+  });
+
+  test("BASENAME when the directory structure differs but the files are the same", async () => {
+    seedSourceFiles(".ts", 10);
+    const source = censusSourceFiles(repoDir);
+    // scip-php without the PSR-4 sidecar: namespace-derived paths, real files.
+    await loadPaths("php-ish", source.files.map((f) => `Drupal/farm/${f.split("/").pop()}`));
+    const c = await measureCorrespondence(store, "php-ish", BRANCH, source);
+    expect(c.level).toBe("basename");
+    expect(c.matched).toBe(10);
+  });
+
+  test("UNMEASURABLE never counts as a pass ON ITS OWN", () => {
+    // The weakest joint in the design, named. Even with a full store and a
+    // productive run, an unmeasurable correspondence is a FAILURE, not a shrug.
+    const r = evaluateIndexOutcome(baseInput({
+      correspondence: {
+        level: "unmeasurable", matched: 0, sourceFiles: 100, indexedFiles: 40,
+        ratio: null, reason: "nothing corresponds",
+      },
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.failures.map((f) => f.code)).toEqual(["UNMEASURABLE_CORRESPONDENCE"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane failure + nothing-read, kept from the previous suite as contrasts.
+// ---------------------------------------------------------------------------
+
+describe("lane outcomes", () => {
+  test("a lane that DIES fails the run even though a sibling filled the store", () => {
+    const alive = evaluateIndexOutcome(baseInput());
+    const dead = evaluateIndexOutcome(baseInput({
+      lanes: [
+        { lane: "tree-sitter", ok: true, files: 100 },
+        { lane: "scip:python", ok: false, error: "scip-python exited 1", files: 0 },
+      ],
+    }));
+    expect(alive.ok).toBe(true);
+    expect(dead.ok).toBe(false);
+    expect(dead.failures.map((f) => f.code)).toContain("LANE_FAILED");
+    expect(dead.failures.map((f) => f.message).join()).toContain("scip-python exited 1");
+  });
+
+  test("'no lane read anything' and 'read but produced nothing' stay distinguishable", () => {
+    const nothingRead = evaluateIndexOutcome(baseInput({
+      lanes: [{ lane: "tree-sitter", ok: true, files: 0 }],
+      source: census({ ".go": 262 }),
+      scipRequested: false,
+      fitness: { symbols: 0, relationalEdges: 0, edgesByKind: {} },
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+      correspondence: { level: "unmeasurable", matched: 0, sourceFiles: 262, indexedFiles: 0, ratio: null, reason: "empty" },
+    }));
+    expect(nothingRead.failures.map((f) => f.code)).toContain("NO_FILES_SCANNED");
+    expect(nothingRead.failures.map((f) => f.code)).toContain("NO_SYMBOLS");
+    // The message must name the language nobody indexed.
+    expect(nothingRead.failures.map((f) => f.message).join()).toContain(".go");
+
+    const readButBarren = evaluateIndexOutcome(baseInput({
+      lanes: [{ lane: "tree-sitter", ok: true, files: 100 }],
+      scipRequested: false,
+      fitness: { symbols: 0, relationalEdges: 0, edgesByKind: {} },
+      contribution: { symbols: 0, relationalEdges: 0, edgesByKind: {}, scipSymbols: 0 },
+    }));
+    expect(readButBarren.failures.map((f) => f.code)).toContain("NO_SYMBOLS");
+    expect(readButBarren.failures.map((f) => f.code)).not.toContain("NO_FILES_SCANNED");
+  });
+
+  test("the hy6.16 shape — symbols, zero relational edges — is refused when SCIP was requested", () => {
+    const withEdges = evaluateIndexOutcome(baseInput({
+      fitness: { symbols: 4800, relationalEdges: 7, edgesByKind: { CONTAINS: 4800, CALLS: 7 } },
+    }));
+    const withoutEdges = evaluateIndexOutcome(baseInput({
+      fitness: { symbols: 4800, relationalEdges: 0, edgesByKind: { CONTAINS: 4800 } },
+    }));
+    expect(withEdges.ok).toBe(true);
+    expect(withoutEdges.ok).toBe(false);
+    expect(withoutEdges.failures.map((f) => f.code)).toContain("NO_RELATIONAL_EDGES");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Index identity — CITATION for the standing open red, not a closure of it.
+// ---------------------------------------------------------------------------
+
+describe("index identity (open red #2: yesterday's .scip at a new commit)", () => {
+  test("two different .scip files hash differently; the same file hashes the same", async () => {
+    const a = writeScip(productiveScip("src"), "id-a.scip");
+    const b = writeScip(productiveScip("other"), "id-b.scip");
+    const ha = await hashIndexFile(a);
+    const hb = await hashIndexFile(b);
+    const ha2 = await hashIndexFile(a);
+    expect(ha.sha256).toHaveLength(64);
+    expect(ha.sha256).toBe(ha2.sha256);
+    expect(ha.sha256).not.toBe(hb.sha256);
+    expect(ha.size).toBeGreaterThan(0);
+    // NOT CLOSED: a reader can SEE that two runs ingested the same bytes at
+    // different commits. Nothing here PREVENTS it. Citation, not prevention.
+  });
+});

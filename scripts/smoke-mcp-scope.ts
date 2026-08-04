@@ -14,7 +14,8 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { Store } from "../src/store";
-import { graphNeighbors } from "../src/mcp/tools";
+// Smoke scripts use the RAW rows, not the fitness-gated tool surface.
+import { graphNeighborRows } from "../src/mcp/tools";
 import type { Symbol } from "../src/store/types";
 
 const TMP_DATA = "./tmp-mcp-scope-smoke-data";
@@ -61,7 +62,7 @@ async function main(): Promise<void> {
     await store.addEdge({ src_id: "aA-bbb", dst_id: "bB-bbb", kind: "CONTAINS" });
 
     // 1. Scoped to sha=aaa — should return only bB-aaa.
-    const aaa = await graphNeighbors(store, {
+    const aaa = await graphNeighborRows(store, {
       symbol: "foo",
       direction: "out",
       edge_kinds: ["CONTAINS"],
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
     console.log(`sha=aaa scope OK: ${aaa[0]!.symbol.id}`);
 
     // 2. Scoped to sha=bbb — should return only bB-bbb.
-    const bbb = await graphNeighbors(store, {
+    const bbb = await graphNeighborRows(store, {
       symbol: "foo",
       direction: "out",
       edge_kinds: ["CONTAINS"],
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
 
     // 3. No scope — resolveSymbol arbitrarily picks one snapshot via LIMIT 1.
     //    Verify the call returns one valid neighbor of either snapshot.
-    const unscoped = await graphNeighbors(store, {
+    const unscoped = await graphNeighborRows(store, {
       symbol: "foo",
       direction: "out",
       edge_kinds: ["CONTAINS"],
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
     console.log(`unscoped OK: ${id}`);
 
     // 4. Scoped to a non-existent sha — empty result.
-    const empty = await graphNeighbors(store, {
+    const empty = await graphNeighborRows(store, {
       symbol: "foo",
       direction: "out",
       edge_kinds: ["CONTAINS"],

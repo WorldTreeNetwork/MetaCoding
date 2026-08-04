@@ -68,17 +68,21 @@ test("describe_api omits index_state when no state is passed (back-compat)", () 
   expect(result.index_state_hint).toBeUndefined();
 });
 
-test("describe_api surfaces a NOT-indexed hint when the workspace is empty", () => {
+test("describe_api leads with UNESTABLISHED FITNESS when there is no health record", () => {
   const fakeState: IndexState = {
     dataDir: "/tmp/x",
     indexed: false,
     symbols: 0,
     repos: [],
     staleness: null,
+    health: [],
+    fitness_established: false,
   };
   const result = describeApi(fakeState);
   expect(result.index_state).toEqual(fakeState);
-  expect(result.index_state_hint).toContain("NOT indexed");
+  // Fitness outranks the symbol count: an absent health record is UNKNOWN, and
+  // UNKNOWN is never healthy (bead MetaCoding-ae5).
+  expect(result.index_state_hint).toContain("FITNESS NOT ESTABLISHED");
   expect(result.index_state_hint).toContain("metacoding index . --scip");
 });
 
@@ -94,6 +98,18 @@ test("describe_api surfaces a staleness hint when the graph is behind HEAD", () 
       head_behind: true,
       dirty_files: 3,
     },
+    // CONTRAST with the test above: the SAME hint function, given an
+    // ESTABLISHED record, reports staleness instead of unestablished fitness.
+    health: [
+      {
+        repo: "r", branch: "main", status: "HEALTHY", run_id: "x",
+        commit_sha: "bbbbbbbbbbbb", prev_commit_sha: null,
+        started_at: "t", finished_at: "t", pid: 1, heartbeat_at: "t",
+        failures: [], lanes: [], contribution: null, fitness: null,
+        correspondence: null, index_identities: [], override: null,
+      },
+    ],
+    fitness_established: true,
   };
   const result = describeApi(fakeState);
   expect(result.index_state).toEqual(fakeState);

@@ -32,6 +32,22 @@ export interface ServeOpts {
   workspace: string;
 }
 
+/**
+ * Render a gated GraphAnswer as an MCP tool result. A refusal is marked
+ * `isError` so a client cannot read it as data — the whole point of
+ * MetaCoding-hy6.16 is that an empty answer from an unfit graph must not be
+ * indistinguishable from an empty answer from a fit one.
+ */
+function answerContent(answer: { ok: boolean }): {
+  content: { type: "text"; text: string }[];
+  isError?: boolean;
+} {
+  return {
+    content: [{ type: "text", text: JSON.stringify(answer, null, 2) }],
+    isError: answer.ok === false,
+  };
+}
+
 export async function serveMcp(opts: ServeOpts): Promise<void> {
   // Read-only: a serving process must coexist with a `metacoding index` running
   // on the same store (ladybugdb's lock excludes only other writers — see
@@ -109,8 +125,8 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphCallers(await currentStore(), args);
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      const answer = await graphCallers(await currentStore(), args);
+      return answerContent(answer);
     },
   );
 
@@ -128,8 +144,8 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = await graphImplementers(await currentStore(), args);
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      const answer = await graphImplementers(await currentStore(), args);
+      return answerContent(answer);
     },
   );
 
@@ -156,7 +172,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         limit: args.limit,
         repo_commit_sha: args.repo_commit_sha,
       });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      return answerContent(rows);
     },
   );
 
@@ -175,13 +191,13 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
       },
     },
     async (args) => {
-      const rows = codeSearch(await currentStore(), {
+      const rows = await codeSearch(await currentStore(), {
         query: args.query,
         kind: args.kind as TokenKind | undefined,
         limit: args.limit,
         repo_commit_sha: args.repo_commit_sha,
       });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      return answerContent(rows);
     },
   );
 
@@ -203,7 +219,7 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         params: args.params,
         limit: args.limit,
       });
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+      return answerContent(rows);
     },
   );
 
@@ -220,11 +236,15 @@ export async function serveMcp(opts: ServeOpts): Promise<void> {
         from_sha: z.string().min(1),
         to_sha: z.string().min(1),
         limit: z.number().int().min(1).max(10000).optional(),
+        acknowledge_unestablished_fitness: z.boolean().optional(),
       },
     },
     async (args) => {
       const r = await graphDiff(await currentStore(), args);
-      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+      return {
+        content: [{ type: "text", text: JSON.stringify(r, null, 2) }],
+        isError: r.ok === false,
+      };
     },
   );
 

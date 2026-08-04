@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
-import { normalizeScipLang, ingestPrebuiltScip } from "./main.ts";
+import { normalizeScipLang, ingestPrebuiltScip } from "../ingest/session.ts";
 import { symbolId } from "../extractor/identity.ts";
 import type { EdgeKind } from "../store/types.ts";
 

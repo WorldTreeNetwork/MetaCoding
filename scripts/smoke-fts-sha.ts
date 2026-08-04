@@ -9,7 +9,8 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { Store } from "../src/store";
-import { codeSearch } from "../src/mcp/tools";
+// Smoke scripts use the RAW rows, not the fitness-gated tool surface.
+import { codeSearchRows } from "../src/mcp/tools";
 import type { TokenRow } from "../src/store/types";
 
 const TMP_DATA = "./tmp-fts-sha-smoke-data";
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
     console.log(`store.searchTokens sha=ccc (absent) OK: 0 hits`);
 
     // 4. Via codeSearch MCP tool — sha filter end-to-end.
-    const csHits = codeSearch(store, { query: "Bar", repo_commit_sha: "aaa", limit: 10 });
+    const csHits = codeSearchRows(store, { query: "Bar", repo_commit_sha: "aaa", limit: 10 });
     if (csHits.length !== 1 || csHits[0]!.text !== "Bar_in_aaa") {
       throw new Error(`codeSearch sha filter failed: ${JSON.stringify(csHits)}`);
     }

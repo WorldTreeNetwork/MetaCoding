@@ -10,7 +10,8 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { Store } from "../src/store";
-import { indexDirectory } from "../src/extractor";
+// Smoke script: reaches past the ingest seam on purpose (raw primitive).
+import { indexDirectory } from "../src/extractor/walker.ts";
 
 const DATA_DIR = "./tmp-extractor-smoke";
 
