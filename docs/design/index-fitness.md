@@ -21,6 +21,14 @@ Two things this build does NOT claim:
   re-stamps every symbol, so `contribution` passes with a large number while the
   graph holds yesterday's facts. `index_identities` (path + sha256 + size) makes
   it visible to a reader. Citation, not prevention.
+  *Corrected `MetaCoding-19g`:* the citation was recorded but **not comparable** —
+  the health table is `PRIMARY KEY (repo, branch)` with `DO UPDATE`, so writing
+  day 2 destroyed day 1 and the identical sha256 was visible only to a reader who
+  had written the previous value down out of band. Finalized records are now
+  appended to `index_health_history`, each record carries the previous run's
+  identities in `prev_index_identities`, and `describeIndexRepetition` renders the
+  sentence: *"ingested the SAME index file as the previous run (sha eef719a3) at a
+  NEW commit."* Comparable citation. Still not prevention.
 * **`watch`'s incremental writes after the initial pass are not re-gated.** The
   initial full pass runs inside a session and produces the same verdict as
   `index`; per-file updates afterwards do not re-run the measurement, and the

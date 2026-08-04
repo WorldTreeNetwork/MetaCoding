@@ -570,8 +570,18 @@ export async function measureCorrespondence(
  *
  * This does NOT close the open red it exists for — re-ingesting yesterday's
  * `.scip` at a new commit still re-stamps every symbol, so contribution reads
- * large while the graph holds yesterday's facts. Recording the hash makes that
- * VISIBLE TO A READER comparing two runs. Citation, not prevention.
+ * large while the graph holds yesterday's facts. Citation, not prevention.
+ *
+ * CORRECTION (bead MetaCoding-19g): this used to say recording the hash makes
+ * the repetition "visible to a reader COMPARING TWO RUNS", and there was no
+ * second run to compare against — the health table is one row per (repo,
+ * branch) with DO UPDATE, so writing day 2 destroyed day 1, and the identical
+ * sha256 was visible only to someone who had written the previous value down
+ * out of band. A citation that cannot be compared is not a mitigation. Finalized
+ * records are now appended to `index_health_history`, each record carries the
+ * PREVIOUS run's identities in `prev_index_identities`, and
+ * `describeIndexRepetition` turns that into the sentence the open red wants a
+ * reader to see. Comparable citation. Still not prevention.
  */
 export async function hashIndexFile(path: string): Promise<IndexIdentity> {
   const size = statSync(path).size;

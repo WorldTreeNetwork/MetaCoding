@@ -47,7 +47,12 @@
 //     with this run's indexed_at, so per-run contribution passes with a large
 //     number while the graph holds yesterday's facts. STANDING OPEN RED. The
 //     record carries the ingested index's path + sha256 + size so a reader can
-//     SEE it — citation, not prevention.
+//     SEE it — citation, not prevention. And the citation is only worth
+//     anything if it can be COMPARED (MetaCoding-19g), which is why finalized
+//     records are appended to `index_health_history` and each record carries the
+//     previous run's identities: one overwritten row per slice made the
+//     "visible to a reader" claim true only for a reader who had recorded the
+//     previous value out of band.
 
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -174,6 +179,12 @@ export interface IndexHealthRecord {
   fitness: CensusBlock | null;
   correspondence: CorrespondenceBlock | null;
   /**
+   * The index identities the PREVIOUS finalized record carried, so the current
+   * record can be compared against it WITHOUT a reader having written the
+   * previous value down out of band (bead MetaCoding-19g).
+   */
+  prev_index_identities?: IndexIdentity[];
+  /**
    * Whether the graph was shown to still BE the tree at finalize time. Absent
    * on records written before MetaCoding-c03, and absent MEANS UNVERIFIED.
    */
@@ -213,6 +224,18 @@ export function isAbandonedRun(rec: IndexHealthRecord | null | undefined): boole
   }
 }
 
+// `index_health` is the CURRENT verdict per slice — one row, overwritten.
+// `index_health_history` is the APPEND-ONLY log of finalized verdicts, and it
+// exists because of bead MetaCoding-19g: the standing open red (re-ingesting
+// yesterday's .scip at a new commit) was defended with CITATION — "index
+// identities make the repetition visible to a reader COMPARING TWO RUNS" — and
+// with one overwritten row there was no second run to compare against. The
+// identical sha256 that proves the repetition was only visible to someone who
+// had written the previous value down out of band, which is not a property of
+// the system. Recorded but not comparable is not a mitigation.
+//
+// Only FINALIZED records are appended: a RUNNING row is rewritten every
+// heartbeat, and a log of heartbeats would bury the thing it exists to show.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS index_health (
   repo    TEXT NOT NULL,
@@ -222,6 +245,16 @@ CREATE TABLE IF NOT EXISTS index_health (
   record  TEXT NOT NULL,
   PRIMARY KEY (repo, branch)
 );
+CREATE TABLE IF NOT EXISTS index_health_history (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo    TEXT NOT NULL,
+  branch  TEXT NOT NULL,
+  status  TEXT NOT NULL,
+  written_at TEXT NOT NULL,
+  record  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS index_health_history_slice
+  ON index_health_history (repo, branch, id);
 `;
 
 /**
@@ -250,6 +283,18 @@ export class IndexHealthStore {
   }
 
   write(rec: IndexHealthRecord): void {
+    const now = new Date().toISOString();
+    // The append-only half, FIRST: if the two writes ever diverge, a history row
+    // with no current row is a reader's problem, and a current row with no
+    // history row is the ungrounded citation 19g is about.
+    if (rec.status !== "RUNNING") {
+      this.db
+        .prepare(
+          `INSERT INTO index_health_history (repo, branch, status, written_at, record)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(rec.repo, rec.branch, rec.status, now, JSON.stringify(rec));
+    }
     this.db
       .prepare(
         `INSERT INTO index_health (repo, branch, status, updated_at, record)
@@ -259,7 +304,23 @@ export class IndexHealthStore {
            updated_at = excluded.updated_at,
            record = excluded.record`,
       )
-      .run(rec.repo, rec.branch, rec.status, new Date().toISOString(), JSON.stringify(rec));
+      .run(rec.repo, rec.branch, rec.status, now, JSON.stringify(rec));
+  }
+
+  /**
+   * Finalized records for one slice, NEWEST FIRST. This is what makes the
+   * index-identity citation comparable: `history[1]` is the run the current
+   * record must be compared against, and it is in the store rather than in
+   * someone's notes.
+   */
+  history(repo: string, branch: string, limit = 20): IndexHealthRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT record FROM index_health_history
+         WHERE repo = ? AND branch = ? ORDER BY id DESC LIMIT ?`,
+      )
+      .all(repo, branch, limit) as { record: string }[];
+    return rows.map((r) => JSON.parse(r.record) as IndexHealthRecord);
   }
 
   read(repo: string, branch: string): IndexHealthRecord | null {
@@ -299,6 +360,59 @@ export function readIndexHealth(
   } finally {
     h.close();
   }
+}
+
+/**
+ * Finalized records for one slice, newest first; empty when the DB is absent
+ * (or predates MetaCoding-19g, which is the honest reading — a store with no
+ * history has nothing to compare, and says so rather than implying agreement).
+ */
+export function readIndexHealthHistory(
+  dataDir: string,
+  repo: string,
+  branch: string,
+  limit = 20,
+): IndexHealthRecord[] {
+  const h = IndexHealthStore.openExisting(dataDir);
+  if (!h) return [];
+  try {
+    return h.history(repo, branch, limit);
+  } catch {
+    return []; // a health DB written before the history table existed
+  } finally {
+    h.close();
+  }
+}
+
+/**
+ * "This run ingested the SAME index file as the previous run" — the sentence
+ * open red #2 wants a reader to see, derived from data the store now KEEPS
+ * (bead MetaCoding-19g). Null when there is nothing to compare or nothing
+ * repeated.
+ *
+ * This does NOT close the open red: re-ingesting yesterday's `.scip` at a new
+ * commit still passes the contribution measure. It makes the citation
+ * COMPARABLE, which is all it was ever claimed to be.
+ */
+export function describeIndexRepetition(rec: IndexHealthRecord | null | undefined): string | null {
+  if (!rec) return null;
+  const prev = rec.prev_index_identities ?? [];
+  const now = rec.index_identities ?? [];
+  if (prev.length === 0 || now.length === 0) return null;
+  const prevShas = new Set(prev.map((i) => i.sha256));
+  const repeated = now.filter((i) => prevShas.has(i.sha256));
+  if (repeated.length === 0) return null;
+  const same = rec.prev_commit_sha !== null && rec.prev_commit_sha === rec.commit_sha;
+  return (
+    `ingested the SAME index file as the previous run ` +
+    `(${repeated.map((i) => `${i.path} sha ${i.sha256.slice(0, 8)}`).join(", ")})` +
+    (same
+      ? ` at the same commit.`
+      : ` at a NEW commit (${rec.prev_commit_sha?.slice(0, 7) ?? "(none)"} -> ` +
+        `${rec.commit_sha?.slice(0, 7) ?? "(none)"}): the graph may hold the ` +
+        `PREVIOUS commit's facts while the record claims this one ` +
+        `(docs/design/index-fitness.md, open red #2).`)
+  );
 }
 
 /** Every recorded (repo, branch) health row; empty when the DB is absent. */
@@ -341,16 +455,18 @@ export function formatHealthLine(rec: IndexHealthRecord | null, repo: string, br
   const corrTxt = corr
     ? `, correspondence ${corr.level}${corr.ratio === null ? "" : ` ${(corr.ratio * 100).toFixed(0)}%`}`
     : "";
+  const repeat = describeIndexRepetition(rec);
+  const repeatTxt = repeat ? `\n    ⚠ ${repeat}` : "";
   if (status === "OVERRIDDEN") {
     return (
       `${repo}@${branch}: fitness OVERRIDDEN by ${rec?.override?.flag}=${rec?.override?.value} — ` +
       `the run failed [${(rec?.failures ?? []).map((f) => f.code).join(", ")}] and an operator ` +
-      `waived it${corrTxt}.`
+      `waived it${corrTxt}.${repeatTxt}`
     );
   }
   return (
     `${repo}@${branch}: fitness HEALTHY (run ${rec?.run_id}, commit ${rec?.commit_sha?.slice(0, 7) ?? "(none)"}` +
     `, ${rec?.fitness?.symbols ?? 0} symbols / ${rec?.fitness?.relationalEdges ?? 0} relational edges` +
-    `${corrTxt}).`
+    `${corrTxt}).${repeatTxt}`
   );
 }

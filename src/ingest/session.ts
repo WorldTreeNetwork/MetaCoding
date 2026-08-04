@@ -195,6 +195,10 @@ export async function runIndexSession(
       run_id: intent.runStamp,
       commit_sha: intent.commitSha,
       prev_commit_sha: prevCommitSha,
+      // The previous run's ingested-index identities, carried forward so open
+      // red #2's citation can actually be COMPARED (bead MetaCoding-19g). The
+      // record already does exactly this for commits; this is the same shape.
+      prev_index_identities: prev?.index_identities ?? [],
       started_at: new Date().toISOString(),
       finished_at: null,
       pid: process.pid,

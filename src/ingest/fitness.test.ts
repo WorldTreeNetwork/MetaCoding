@@ -28,6 +28,12 @@ import { join } from "node:path";
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 
 import { Store } from "../store";
+import {
+  describeIndexRepetition,
+  formatHealthLine,
+  readIndexHealth,
+  readIndexHealthHistory,
+} from "../store/health.ts";
 import { loadScip } from "../scip/loader.ts";
 // The ingest seam (bead MetaCoding-9ed): loadScip requires a write capability.
 // These stores carry no health record, so nothing established can go stale.
@@ -132,6 +138,25 @@ function vendor40Scip(): Uint8Array {
     }));
   }
   return new scip.Index({ documents: docs }).serialize();
+}
+
+/** A .scip that DEFINES a symbol per given path, plus a cross-file reference. */
+function scipForPaths(paths: string[]): Uint8Array {
+  const PKG = "scip-typescript npm fixture 1.0.0";
+  const sym = (i: number) => `${PKG} \`${paths[i]}\`/fn${i}().`;
+  return new scip.Index({
+    documents: paths.map((p, i) =>
+      new scip.Document({
+        relative_path: p,
+        language: "typescript",
+        occurrences: [
+          new scip.Occurrence({ symbol: sym(i), range: [1, 9, 1, 12], symbol_roles: scip.SymbolRole.Definition }),
+          new scip.Occurrence({ symbol: sym((i + 1) % paths.length), range: [2, 4, 2, 8], symbol_roles: 0 }),
+        ],
+        symbols: [],
+      }),
+    ),
+  }).serialize();
 }
 
 function writeScip(bytes: Uint8Array, name: string): string {
@@ -798,5 +823,64 @@ describe("index identity (open red #2: yesterday's .scip at a new commit)", () =
     expect(ha.size).toBeGreaterThan(0);
     // NOT CLOSED: a reader can SEE that two runs ingested the same bytes at
     // different commits. Nothing here PREVENTS it. Citation, not prevention.
+  });
+
+  // -------------------------------------------------------------------------
+  // PAIR 19g — the citation must be COMPARABLE, not merely recorded.
+  // -------------------------------------------------------------------------
+  //
+  // A fresh judge confirmed the open red is reachable exactly as named, and
+  // then found the DEFENCE weaker than documented: `index_identities` is
+  // recorded correctly, but `index_health` is PRIMARY KEY (repo, branch) with
+  // DO UPDATE, so writing day 2's record destroyed day 1's. At any moment a
+  // reader could see exactly one index identity and had nothing to compare it
+  // to — the identical sha256 that proves the repetition was visible only to
+  // someone who had recorded the previous value out of band.
+  //
+  // Both halves below run TWO sessions at two commits, ingesting a .scip each
+  // time, and ask the store alone "was this a repeat?". They must disagree.
+  test("PAIR 19g — the SAME .scip at a new commit is legible from the store; a DIFFERENT one is not", async () => {
+    seedSourceFiles(".ts", 4, "src", "export function f() { return 1; }\n");
+    const source = censusSourceFiles(repoDir);
+    const dayOne = writeScip(scipForPaths(source.files), "day1.scip");
+    const dayTwo = writeScip(scipForPaths(source.files.slice(0, 3)), "day2.scip");
+
+    const run = async (repo: string, scipPath: string, stamp: string, commit: string) =>
+      runIndexSession(store, dataDir, {
+        repo, branch: BRANCH, targetPath: repoDir, commitSha: commit,
+        runStamp: stamp, wantScip: false, loadScipPath: scipPath,
+      });
+
+    // half A: yesterday's .scip, re-ingested at a NEW commit.
+    await run("repeated", dayOne, RUN_A, "aaaaaaa");
+    const a2 = await run("repeated", dayOne, RUN_B, "bbbbbbb");
+    // The open red is still REACHABLE — this is not a claim that it is closed.
+    expect(a2.gate.contribution.symbols).toBeGreaterThan(0);
+    expect(a2.gate.commitAdvanced).toBe(true);
+
+    // half B: a DIFFERENT .scip at a new commit — the ordinary case.
+    await run("moving", dayOne, RUN_A, "aaaaaaa");
+    await run("moving", dayTwo, RUN_B, "bbbbbbb");
+
+    // THE ASSERTION THAT IS THE POINT: asked of the store and nothing else,
+    // after the fact, the two runs give OPPOSITE answers.
+    const repeated = readIndexHealth(dataDir, "repeated", BRANCH);
+    const moving = readIndexHealth(dataDir, "moving", BRANCH);
+    expect(describeIndexRepetition(repeated)).toContain("SAME index file");
+    expect(describeIndexRepetition(repeated)).toContain("NEW commit");
+    expect(describeIndexRepetition(moving)).toBeNull();
+    expect(formatHealthLine(repeated, "repeated", BRANCH)).toContain("SAME index file");
+    expect(formatHealthLine(moving, "moving", BRANCH)).not.toContain("SAME index file");
+
+    // ...and the run being compared against is RETRIEVABLE, not remembered:
+    // the previous record survives its own overwrite.
+    const hist = readIndexHealthHistory(dataDir, "repeated", BRANCH);
+    expect(hist).toHaveLength(2);
+    expect(hist[0]!.commit_sha).toBe("bbbbbbb");
+    expect(hist[1]!.commit_sha).toBe("aaaaaaa");   // day 1 SURVIVED day 2.
+    expect(hist[0]!.index_identities[0]!.sha256).toBe(hist[1]!.index_identities[0]!.sha256);
+    const movingHist = readIndexHealthHistory(dataDir, "moving", BRANCH);
+    expect(movingHist[0]!.index_identities[0]!.sha256)
+      .not.toBe(movingHist[1]!.index_identities[0]!.sha256);
   });
 });
