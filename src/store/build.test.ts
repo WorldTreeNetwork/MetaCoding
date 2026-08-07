@@ -208,6 +208,46 @@ describe("the CSV bulk load round-trips what a MERGE would have written", () => 
     }
   });
 
+  test("the dialect holds at PRODUCTION size, not just at fixture size", async () => {
+    // THIS TEST EXISTS BECAUSE THE SMALL VERSION OF IT PASSED AND THE REAL
+    // RUN FAILED. ladybugdb SNIFFS the CSV dialect from a sample when it is not
+    // stated, and the sniff is not stable across file size: the six-row fixture
+    // above round-tripped, then the real 21,282-row MetaCoding index was
+    // rejected at line 8,274 on a scip `type_alias` named, literally,
+    // `"just-types"0`. Same escaping, same code, different verdict.
+    //
+    // TWO THINGS HERE ARE LOAD-BEARING, and both were established by mutating
+    // the dialect back to unpinned and checking this test goes red:
+    //
+    //   * the escaped row must sit BEYOND the sniffer's sample window. A
+    //     version of this test with the same row at index 137 passed against
+    //     the unpinned dialect — the sniffer saw a `\"` early, inferred the
+    //     right escape, and the test proved nothing.
+    //   * every row before it must be free of quotes and backslashes, so the
+    //     sample the sniffer does see is genuinely ambiguous. That is what the
+    //     real file looked like: 8,273 clean rows, then this.
+    const build = new GraphBuild(dataDir, { repo: "csv", branch: BRANCH });
+    const CLEAN = 12_000;
+    for (let i = 0; i < CLEAN; i++) {
+      await build.upsertSymbol(sym({
+        id: `bulk-${i}`, qualified_name: `plain::fn${i}`, short_name: `fn${i}`,
+      }));
+    }
+    const REAL = 'scripts/codegen-ctkr-types.ts::"just-types"0';
+    await build.upsertSymbol(sym({
+      id: "bulk-pathological", qualified_name: REAL, short_name: '"just-types"0',
+    }));
+    const stats = await build.flush(store);
+    expect(stats.symbols).toBe(CLEAN + 1);
+
+    const rows = await store.query<{ q: string; s: string }>(
+      `MATCH (n:Symbol {id: 'bulk-pathological'})
+       RETURN n.qualified_name AS q, n.short_name AS s`,
+    );
+    expect(rows[0]!.q).toBe(REAL);
+    expect(rows[0]!.s).toBe('"just-types"0');
+  }, 120_000);
+
   test("a NEVER-NULL string column keeps its empty string; a nullable one does not", async () => {
     // Boundary nodes (src/extractor/walker.ts, ensureBoundaryNode) carry
     // `file: ""` and `branch: ""`, and code queries on `branch = ''`. If CSV's

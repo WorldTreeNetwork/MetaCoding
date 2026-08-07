@@ -108,6 +108,22 @@ const NEVER_NULL_STRING_COLUMNS = [
   "file", "branch", "source",
 ] as const;
 
+/**
+ * The COPY dialect, stated in full and never inferred.
+ *
+ * `parallel=false` is required because a quoted field may contain a newline —
+ * the parallel reader rejects those outright.
+ *
+ * `escape`/`quote`/`delim` are explicit because ladybugdb SNIFFS the dialect
+ * from a sample when they are omitted, and the sniff is not stable across file
+ * sizes. Measured: the identical escaping round-tripped on six hand-written
+ * fixture rows and then rejected the real 21,282-row file at line 8,274, on a
+ * `type_alias` whose SCIP name is literally `"just-types"0`. A fixture-sized
+ * file agreed with us about the dialect; a production-sized one guessed
+ * differently. State it.
+ */
+const CSV_DIALECT = String.raw`(header=false, parallel=false, escape='\\', quote='"', delim=',')`;
+
 type Cell = string | number | boolean | null | undefined;
 
 /**
@@ -238,9 +254,7 @@ export class GraphBuild implements GraphWriter {
         let csv = "";
         for (const s of toWrite) csv += csvRow(columns.map((c) => symbolCell(s, c)));
         writeFileSync(path, csv);
-        await store.query(
-          `COPY Symbol FROM '${sqlPath(path)}' (header=false, parallel=false);`,
-        );
+        await store.query(`COPY Symbol FROM '${sqlPath(path)}' ${CSV_DIALECT};`);
         await this.normalizeEmptyStrings(store);
       }
 
@@ -260,7 +274,13 @@ export class GraphBuild implements GraphWriter {
         flushMs: performance.now() - t0,
       };
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      // METACODING_KEEP_BUILD_CSV leaves the staged CSVs on disk. A COPY that
+      // rejects a row names a line number in a file that no longer exists,
+      // which makes the one class of bug this path can have — an escaping case
+      // real code produces and a fixture did not — unusually hard to see.
+      if (!process.env.METACODING_KEEP_BUILD_CSV) {
+        rmSync(tmp, { recursive: true, force: true });
+      }
     }
   }
 
@@ -350,9 +370,7 @@ export class GraphBuild implements GraphWriter {
       }
       const path = join(tmp, `edges.${kind}.csv`);
       writeFileSync(path, csv);
-      await store.query(
-        `COPY ${kind} FROM '${sqlPath(path)}' (header=false, parallel=false);`,
-      );
+      await store.query(`COPY ${kind} FROM '${sqlPath(path)}' ${CSV_DIALECT};`);
       written += list.length;
     }
     return { written, dropped };
