@@ -244,9 +244,50 @@ export class GraphBuild implements GraphWriter {
       const columns = await symbolColumns(store);
       const toWrite: Symbol[] = [];
       let symbolsPreexisting = 0;
+      // THE PROPERTY THIS ENFORCES (found by a fresh judge, 2026-08-07):
+      //
+      //   the set `deleteSlice` removes must be a SUPERSET of the ids this
+      //   build is about to write.
+      //
+      // Skipping an id because it already exists is only safe when the delete
+      // was supposed to leave it — and the only such ids are the repo's shared
+      // BOUNDARY NODES under per-commit identity, which are deliberately not
+      // sha-scoped and deliberately not deleted (see deleteSlice).
+      //
+      // Anything else surviving means the delete did not cover this build's
+      // own output, and skipping it writes the 9jt failure shape back into the
+      // module that exists to close it: measured on the shipped CLI with
+      // `--per-commit-identity` against a NON-GIT directory, where
+      // `getRepoCommitSha` is null, `s.repo_commit_sha = $sha` is never true
+      // for NULL so the delete removed nothing, and `identity.ts` does not fold
+      // a null sha into the id so every id repeated. Three runs: 6 edges where
+      // a fresh index gives 2, every symbol skipped, HEALTHY every time — and
+      // renaming a method left the OLD name in the graph permanently.
+      //
+      // So it REFUSES instead of skipping. A partial flush is recoverable; a
+      // silently stale HEALTHY graph is what cost this project weeks.
+      const unexpected: string[] = [];
       for (const s of this.symbols.values()) {
-        if (surviving.has(s.id)) { symbolsPreexisting++; continue; }
+        if (surviving.has(s.id)) {
+          if (s.language === "external") { symbolsPreexisting++; continue; }
+          unexpected.push(s.id);
+          continue;
+        }
         toWrite.push(s);
+      }
+      if (unexpected.length > 0) {
+        throw new Error(
+          `metacoding: refusing to flush — ${unexpected.length} symbol(s) this build ` +
+          `produced already exist and were NOT removed by the slice delete, so ` +
+          `writing would leave stale rows behind forever. This means the delete's ` +
+          `scope does not cover the build's output. First: ${unexpected.slice(0, 3).join(", ")}` +
+          (this.scope.perCommitIdentity && !this.scope.commitSha
+            ? "\n  CAUSE: --per-commit-identity with no commit sha. Symbol ids are " +
+              "only sha-scoped when a sha exists, and the slice delete matches on " +
+              "repo_commit_sha, which never matches NULL. Index a git repo, or drop " +
+              "--per-commit-identity."
+            : ""),
+        );
       }
 
       if (toWrite.length > 0) {
