@@ -35,6 +35,35 @@
 4. **Observe**: 8–12 fixtures per feature recorded from live farmOS; no
    intuition-authored values, ever (the pure-LLM cell's wrong-guess is the
    standing proof).
+
+   **PRECONDITION — the oracle preflight, and it is not optional** (added
+   2026-08-07, `MetaCoding-hy6.25`/`hy6.28`). A build may not begin probing while
+   any resource type it names is unresolvable, or is provided by a module
+   `bring-up.sh` would not re-enable. A missing module does not crash a run, it
+   *degrades* it: on 2026-08-03 two ports probed bundles that were never enabled,
+   got 404s and a 422 "the attribute `quick` does not exist", and recorded as
+   findings about farmOS what were measurements of the oracle.
+
+   The gate is `farmos-port/tools/oracle_preflight.py` and the way to run it is
+   to **build the observe step on `tools/ledger.py`**, which calls it for you
+   before the first probe. Three properties, which the ledger holds by
+   construction and a hand-rolled `probes.py` must reproduce explicitly:
+
+   - **the gate runs at all** — `ledger.run()` preflights before the body, and a
+     probe on an ungated ledger raises;
+   - **it is asked the right question** — the type list is DERIVED from the
+     run's own `collections`/`delete_order`/`log_collections`, and any probe
+     outside that set raises. A hand-written list is one a build can
+     under-declare, and an under-declared preflight passes vacuously — which
+     `identity-farm-org` did, live, over `taxonomy_term--animal_type`;
+   - **a skipped module-drift check is a refusal** — it is required by default
+     now. It used to exit 0 when it could not run, which an automated caller
+     reads as a pass.
+
+   Source-read-only observation is not an outcome this step may reach. If the
+   preflight refuses, the remedy is a declared module in `bring-up.sh` and an
+   operator enabling it — never a hand-run `drush en`, which vanishes on the next
+   rebuild and takes the reproducibility of everything recorded against it.
 5. **Decide**: registry pass; kernel-bound decisions are fixed inputs; new hard
    decisions go to the elicitation menu (batched to Duke at wave boundaries;
    decide-for-me with recorded reversal conditions when authorized).
