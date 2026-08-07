@@ -370,9 +370,25 @@ export class Store {
   }
 
   /**
+   * Drop every FTS token belonging to `repo`. The whole-tree build path
+   * (src/store/build.ts) rewrites a repo's tokens wholesale rather than
+   * per-file, because per-file token deletion is only correct when the walk
+   * visited every file — which is exactly the assumption MetaCoding-9jt broke.
+   */
+  deleteRepoTokens(repo: string): void {
+    this.fts.prepare(`DELETE FROM tokens WHERE repo = ?`).run(repo);
+  }
+
+  /**
    * Drop every Symbol/edge/token belonging to (repo, file, branch). Called
    * before a re-extraction when the content hash has changed, and on
    * file deletions in watch mode.
+   *
+   * WARNING (bead MetaCoding-9jt): DETACH DELETE destroys edges OWNED BY OTHER
+   * FILES that point into this one, and nothing re-derives them unless every
+   * other file is re-walked in the same pass. That is why the whole-tree path
+   * no longer calls this — it builds a fresh slice instead. Watch mode still
+   * does, and inherits the defect by design (graph-as-cache: watch is scratch).
    */
   async deleteFileData(repo: string, file: string, branch: string): Promise<void> {
     await this.query(
@@ -386,3 +402,4 @@ export class Store {
 }
 
 export type { Symbol, Edge, TokenRow } from "./types";
+export { GraphBuild, type GraphWriter, type FlushStats } from "./build.ts";

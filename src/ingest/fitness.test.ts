@@ -428,26 +428,42 @@ describe("PAIR c03 — zero contribution at a new commit: skipped-unchanged vs d
     return out;
   }
 
-  test("half A: a docs-only commit re-stamps NOTHING and is HEALTHY anyway", async () => {
+  test("half A: DISSOLVED — a docs-only commit now re-stamps EVERYTHING", async () => {
+    // THIS HALF USED TO ASSERT THE OPPOSITE, and the change is the point.
+    //
+    // c03's whole premise was the walker's content-hash skip: a commit that
+    // touched only README.md re-stamped nothing, so contribution read 0 on a
+    // correct graph. MetaCoding-9jt then showed that same skip was silently
+    // DESTROYING cross-file edges, so the whole-tree lane no longer skips —
+    // it rebuilds. See src/store/build.ts.
+    //
+    // So the condition c03 describes is no longer reachable from a whole-tree
+    // index, and `measureGraphFreshness` is no longer what saves this run:
+    // there is simply nothing stale to vouch for. Half B keeps the rule under
+    // test, because a store written by some OTHER path (a watch session) can
+    // still present the zero-contribution-over-drift shape.
     seedSourceFiles(".ts", 6, "src", "export function f() { return 1; }\n");
     const first = await runOne(RUN_1, "aaaaaaa");
     expect(first.health.status).toBe("HEALTHY");
     expect(first.gate.contribution.symbols).toBeGreaterThan(0);
 
-    // A commit that touches NO indexed source file. This is the most common
-    // real invocation there is: docs, CI config, lockfiles, images.
+    // A commit that touches NO indexed source file. Still the most common real
+    // invocation there is: docs, CI config, lockfiles, images.
     writeFileSync(join(repoDir, "README.md"), "# docs only\n", "utf-8");
     const second = await runOne(RUN_B, "bbbbbbb");
 
-    // THE MEASUREMENT THAT WAS MISSING: run 2 really did re-stamp nothing.
-    expect(second.gate.contribution.symbols).toBe(0);
+    // THE DISSOLUTION, MEASURED: run 2 re-stamped every symbol run 1 wrote.
+    expect(second.gate.contribution.symbols).toBe(first.gate.contribution.symbols);
     expect(second.gate.commitAdvanced).toBe(true);
     const buckets = await stampBuckets();
-    expect(Object.keys(buckets)).toHaveLength(1);   // ONE bucket: run 1's.
+    const stamps = Object.keys(buckets);
+    expect(stamps).toHaveLength(1);                 // ONE bucket...
+    expect(new Date(stamps[0]!).toISOString()).toBe(RUN_B);   // ...and it is run 2's.
     expect(Object.values(buckets)[0]).toBe(first.gate.contribution.symbols);
 
-    // ...and the verdict is HEALTHY, because the graph was shown to still BE
-    // the tree. Before c03 this was REFUSED [ZERO_CONTRIBUTION_AT_NEW_COMMIT].
+    // The verdict is HEALTHY, and now for the plainest possible reason: this
+    // run wrote the whole graph. Freshness still reports, and still finds
+    // nothing stale — it just is not what is carrying the verdict any more.
     expect(second.gate.verifiedCurrent).toBe(true);
     expect(second.health.freshness!.checked).toBeGreaterThan(0);
     expect(second.health.freshness!.stale).toBe(0);

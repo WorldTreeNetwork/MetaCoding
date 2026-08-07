@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 
-import type { Store } from "../store";
+import type { GraphWriter } from "../store/build.ts";
 import type { Edge, EdgeKind, EdgeProvenance, Symbol } from "../store/types";
 import { symbolId } from "../extractor/identity";
 import { assertMayIngest, type IngestTicket } from "../ingest/ticket.ts";
@@ -81,7 +81,7 @@ interface DefRecord {
 }
 
 export async function loadScip(
-  store: Store,
+  store: GraphWriter,
   scipPath: string,
   opts: LoadScipOpts,
 ): Promise<LoadScipStats> {

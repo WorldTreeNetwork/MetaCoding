@@ -392,14 +392,31 @@ describe("the judge's end-to-end bypass (24 -> 52 symbols under a stale HEALTHY)
     // is what runIndexSession does on entry. What he cannot do is write while
     // the record still reads HEALTHY. So we assert the observable consequence:
     // during any window in which writes are possible, the slice is unestablished.
-    let statusDuringWrite: string | null = null;
+    const observed: { statusDuringWrite: string | null } = { statusDuringWrite: null };
+    // The spy watches for the FIRST mutation of the store.
+    //
+    // It used to watch `upsertSymbol`, and after MetaCoding-9jt the lanes no
+    // longer call it: they accumulate into an in-memory GraphBuild and the
+    // store is mutated exactly once, by the bulk COPY in `GraphBuild.flush`.
+    // Watching a method nobody calls is a test that passes for the wrong
+    // reason, so the spy follows the write to where the write actually is.
+    const MUTATING = /^\s*(COPY|CREATE|MERGE|SET|DELETE|MATCH[\s\S]*?(DETACH DELETE|SET|CREATE))/i;
+    const note = (): void => {
+      observed.statusDuringWrite ??=
+        readIndexHealth(dataDir, REPO, BRANCH)?.status ?? "UNKNOWN";
+    };
     const spy = new Proxy(store, {
       get(target, prop, recv) {
         if (prop === "upsertSymbol") {
-          return async (...args: unknown[]) => {
-            statusDuringWrite ??= readIndexHealth(dataDir, REPO, BRANCH)?.status ?? "UNKNOWN";
-            return (target as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)
-              .upsertSymbol.apply(target, args);
+          return async (...args: [never]) => { note(); return target.upsertSymbol(...args); };
+        }
+        if (prop === "addEdge") {
+          return async (...args: [never]) => { note(); return target.addEdge(...args); };
+        }
+        if (prop === "query") {
+          return async (cypher: string, params?: Record<string, never>) => {
+            if (MUTATING.test(cypher)) note();
+            return target.query(cypher, params);
           };
         }
         return Reflect.get(target, prop, recv);
@@ -415,7 +432,7 @@ describe("the judge's end-to-end bypass (24 -> 52 symbols under a stale HEALTHY)
       dataDir,
       intent({ runStamp: new Date(Date.now() + 1_000).toISOString() }),
     );
-    expect(statusDuringWrite).toBe("RUNNING");
+    expect(observed.statusDuringWrite).toBe("RUNNING");
   });
 });
 

@@ -1,6 +1,22 @@
 // Directory walker — runs Tree-sitter extractors over every supported file
-// in a tree and pumps results into the Store. Incremental: files whose
-// content hash matches the previously-stored ast_hash are skipped.
+// in a tree and pumps results into a GraphWriter.
+//
+// WHOLE-TREE IS NOT INCREMENTAL (bead MetaCoding-9jt). `indexDirectory` walks
+// and extracts EVERY file, every time. It used to skip files whose content hash
+// matched the stored ast_hash, and that skip was a correctness defect, not an
+// optimization: cross-file edge candidates are resolved at the end of the walk
+// against a SymbolResolver populated BY the walk, so a skipped file is absent
+// from the resolver and every candidate pointing at it is dropped — silently,
+// permanently, and while every freshness check still passes. Meanwhile the
+// changed file's `deleteFileData` had already DETACH DELETEd edges owned by
+// those very files. Measured: fresh 14 edges, incremental 12, both HEALTHY.
+//
+// The skip was also never where the time went. Parse + extract of this repo's
+// 92 files is 269ms; the write path was 76s. See src/store/build.ts.
+//
+// `indexFile` / `removeFile` (watch mode) still write per-file into a live
+// Store and still carry the defect above — deliberately, per
+// docs/design/graph-as-cache.md, which names watch as a mutable scratch entry.
 //
 // Multi-repo: callers pass `repo` (defaults to the basename of the
 // indexed root). Symbol ids include repo so cross-repo names don't clash.
@@ -12,6 +28,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 import type { Store } from "../store";
+import type { GraphWriter } from "../store/build.ts";
 import type { Edge, Symbol } from "../store/types";
 import {
   extractEdgeCandidates,
@@ -106,14 +123,14 @@ async function getParsers(): Promise<ParserCache> {
 }
 
 export async function indexDirectory(
-  store: Store,
+  writer: GraphWriter,
   rootPath: string,
   opts: WalkOpts,
 ): Promise<WalkStats> {
   const t0 = performance.now();
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
-  assertMayIngest(opts?.ticket, { repo, branch, dataDir: store?.dataDir }, "indexDirectory");
+  assertMayIngest(opts?.ticket, { repo, branch, dataDir: writer?.dataDir }, "indexDirectory");
   const exclude = new Set([...DEFAULT_EXCLUDE_DIRS, ...(opts.excludeDirs ?? [])]);
 
   const files: ScannedFile[] = [];
@@ -128,12 +145,16 @@ export async function indexDirectory(
   // Cross-file edge resolution (MetaCoding-3s5). Collected per-file during the
   // main pass, then resolved against an in-memory index of *all* symbols seen
   // in this directory walk so cross-file `new Foo()` finds Foo's class node.
+  //
+  // This is the invariant the removed content-hash skip violated: EVERY unit
+  // must be in the resolver for ANY unit's cross-file edges to resolve. The
+  // only files counted as skipped now are ones no grammar could parse.
   const resolver = new SymbolResolver();
   const pendingCandidates: EdgeCandidate[] = [];
 
   for (const f of files) {
     const r = await indexOne(
-      store, f, repo, branch,
+      writer, f, repo, branch,
       opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
       resolver, pendingCandidates,
     );
@@ -148,7 +169,7 @@ export async function indexDirectory(
 
   // Resolve and flush the deferred behavior-edges (WRITES_FIELD, CONSTRUCTS,
   // RETURNS_TYPE). Dangling refs (target name not in the repo) are dropped.
-  edges += await flushCandidates(store, pendingCandidates, resolver, repo);
+  edges += await flushCandidates(writer, pendingCandidates, resolver, repo);
 
   return {
     filesScanned: files.length,
@@ -195,6 +216,7 @@ export async function indexFile(
     store, { abs, rel, grammar }, repo, branch,
     opts.repo_commit_sha, opts.indexed_at, opts.perCommitIdentity,
     resolver, pending,
+    store, // watch mode keeps the per-file hash skip + delete against a live Store
   );
   // Hydrate only the short_names the pending candidates reference. Empty set
   // (no behavior edges in this file) skips the store query entirely.
@@ -223,7 +245,7 @@ export async function removeFile(
 }
 
 async function indexOne(
-  store: Store,
+  writer: GraphWriter,
   f: ScannedFile,
   repo: string,
   branch: string,
@@ -232,6 +254,16 @@ async function indexOne(
   perCommitIdentity?: boolean,
   resolver?: SymbolResolver,
   pendingCandidates?: EdgeCandidate[],
+  /**
+   * WATCH MODE ONLY. When present, this file's prior data is looked up by
+   * content hash and deleted in place before re-extraction.
+   *
+   * The whole-tree path passes nothing, and that is the fix for
+   * MetaCoding-9jt: skipping a file removes it from the SymbolResolver, so
+   * OTHER files' cross-file edges into it are dropped as unresolvable, while
+   * `deleteFileData` has already destroyed the copies those files owned.
+   */
+  incremental?: Store,
 ): Promise<{ skipped: boolean; symbols: number; edges: number; tokens: number }> {
   const source = readFileSync(f.abs, "utf-8");
   const newHash = fileContentHash(source);
@@ -239,13 +271,13 @@ async function indexOne(
   // In per-commit-identity mode every commit produces its own row family
   // (Symbol.id is sha-scoped), so the (repo, file, branch) cache key is
   // ambiguous — skip the incremental cache and the cross-commit wipe.
-  if (!perCommitIdentity) {
-    const oldHash = await store.fileHash(repo, f.rel, branch);
+  if (incremental && !perCommitIdentity) {
+    const oldHash = await incremental.fileHash(repo, f.rel, branch);
     if (oldHash === newHash) {
       return { skipped: true, symbols: 0, edges: 0, tokens: 0 };
     }
     if (oldHash) {
-      await store.deleteFileData(repo, f.rel, branch);
+      await incremental.deleteFileData(repo, f.rel, branch);
     }
   }
 
@@ -277,9 +309,9 @@ async function indexOne(
     if (sym.kind === "file" && sym.file === f.rel) sym.ast_hash = newHash;
   }
 
-  for (const sym of result.symbols) await store.upsertSymbol(sym);
-  for (const edge of result.edges) await store.addEdge(edge);
-  store.writeTokens(result.tokens);
+  for (const sym of result.symbols) await writer.upsertSymbol(sym);
+  for (const edge of result.edges) await writer.addEdge(edge);
+  writer.writeTokens(result.tokens);
 
   // Behavior-edge pass (MetaCoding-3s5). Feed every extracted symbol into the
   // resolver, then collect WRITES_FIELD / CONSTRUCTS / RETURNS_TYPE candidates.
@@ -313,7 +345,7 @@ async function indexOne(
  * Dropped candidates (target not in repo) are counted in the returned summary.
  */
 async function flushCandidates(
-  store: Store,
+  writer: GraphWriter,
   candidates: EdgeCandidate[],
   resolver: SymbolResolver,
   repo: string,
@@ -330,7 +362,7 @@ async function flushCandidates(
       // same name collapse to one node, which is exactly the role-cluster
       // signal we want. Boundary nodes use language "external" so their ids
       // never collide with real symbols. bead MetaCoding-1xd.
-      dst = await ensureBoundaryNode(store, repo, c.target, boundaryUpserted);
+      dst = await ensureBoundaryNode(writer, repo, c.target, boundaryUpserted);
     }
     if (!dst) continue;
     if (dst === c.src_id) continue;   // self-edges are noise
@@ -345,7 +377,7 @@ async function flushCandidates(
     if (c.kind === "READS_FIELD" || c.kind === "WRITES_FIELD") {
       edge.provenance = "tree_sitter_heuristic";
     }
-    await store.addEdge(edge);
+    await writer.addEdge(edge);
     flushed++;
   }
   return flushed;
@@ -359,7 +391,7 @@ async function flushCandidates(
  * no file/position — they exist only as shared edge targets. bead MetaCoding-1xd.
  */
 async function ensureBoundaryNode(
-  store: Store,
+  writer: GraphWriter,
   repo: string,
   target: { kinds: string[]; shortName: string },
   seen: Set<string>,
@@ -387,7 +419,7 @@ async function ensureBoundaryNode(
     repo_commit_sha: null,
     indexed_at: null,
   };
-  await store.upsertSymbol(sym);
+  await writer.upsertSymbol(sym);
   return id;
 }
 

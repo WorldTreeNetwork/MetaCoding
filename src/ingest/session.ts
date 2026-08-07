@@ -39,6 +39,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { GraphBuild, type FlushStats, type GraphWriter } from "../store/build.ts";
 import type { Store } from "../store";
 import {
   IndexHealthStore,
@@ -103,6 +104,8 @@ export interface IndexSessionResult {
   /** The FINALIZED persisted verdict. The exit code is derived from this. */
   health: IndexHealthRecord;
   gate: GateResult;
+  /** What the single bulk write to the store actually did (src/store/build.ts). */
+  flush: FlushStats;
 }
 
 /** Normalize a user-supplied scip-language token to the loader's code. */
@@ -134,7 +137,7 @@ export function normalizeScipLang(token: string): "ts" | "py" | "php" {
  * That is a guard, not a construction — see MetaCoding-qv0.
  */
 export async function ingestPrebuiltScip(
-  store: Store,
+  store: GraphWriter,
   scipPath: string,
   opts: {
     /** The session's write capability — src/ingest/ticket.ts. */
@@ -236,6 +239,20 @@ export async function runIndexSession(
     });
 
     // --- THE LANES ----------------------------------------------------------
+    //
+    // Every lane writes into an in-memory BUILD, not into the store. The store
+    // is touched exactly once, at the flush below, which replaces this slice
+    // wholesale. That is what closes MetaCoding-9jt: a whole-tree index can no
+    // longer skip a file (so cross-file candidates always resolve) and can no
+    // longer DETACH DELETE one file's symbols out from under another file's
+    // edges. It is also ~400x faster than the MERGE-per-row path it replaces.
+    // See src/store/build.ts for the measurements.
+    const build = new GraphBuild(dataDir, {
+      repo: intent.repo,
+      branch: intent.branch,
+      commitSha: intent.commitSha,
+      perCommitIdentity: intent.perCommitIdentity,
+    });
     const lanes: LaneRecord[] = [];
     const identities: IndexIdentity[] = [];
     const walkOpts = {
@@ -247,7 +264,7 @@ export async function runIndexSession(
       perCommitIdentity: intent.perCommitIdentity,
     };
 
-    const tsStats = await indexDirectory(store, intent.targetPath, walkOpts);
+    const tsStats = await indexDirectory(build, intent.targetPath, walkOpts);
     lanes.push({ lane: "tree-sitter", ok: true, files: tsStats.filesScanned });
     let scipSummary: Record<string, unknown> | undefined;
 
@@ -260,7 +277,7 @@ export async function runIndexSession(
       // large while the graph holds yesterday's facts. Recording the file's
       // identity makes that visible to a reader. NOT closed by this.
       identities.push(await hashIndexFile(intent.loadScipPath));
-      const stats = await ingestPrebuiltScip(store, intent.loadScipPath, { ...intent, ticket });
+      const stats = await ingestPrebuiltScip(build, intent.loadScipPath, { ...intent, ticket });
       lanes.push({ lane: "scip:load-scip", ok: true, files: stats.documents });
       scipSummary = { source: "load-scip", scipPath: intent.loadScipPath, ...stats };
     } else if (intent.wantScip) {
@@ -279,7 +296,7 @@ export async function runIndexSession(
             projectVersion: intent.branch,
           });
           identities.push(await hashIndexFile(scipPath));
-          const stats = await loadScip(store, scipPath, {
+          const stats = await loadScip(build, scipPath, {
             ticket,
             branch: intent.branch,
             repo: intent.repo,
@@ -305,6 +322,21 @@ export async function runIndexSession(
         }
       }
       scipSummary = accum;
+    }
+
+    // --- THE FLUSH: the one and only write to the store ----------------------
+    // Ordered AFTER every lane so the SCIP lane's COALESCE-preserving merge onto
+    // tree-sitter symbols happens in the buffer, exactly as it used to happen in
+    // the graph. Ordered BEFORE the measurements because every measurement below
+    // reads the store, and a measurement of a store the build has not landed in
+    // would be measuring the previous run.
+    const flush = await build.flush(store);
+    if (flush.edgesDropped > 0) {
+      // Reported, never thresholded. These edges were dropped by the old write
+      // path too — it just never said so.
+      console.error(
+        `index: ${flush.edgesDropped} edge(s) dropped — endpoint symbol not in the built slice`,
+      );
     }
 
     // --- THE MEASUREMENTS, each scoped to its claim's subject ----------------
@@ -384,7 +416,7 @@ export async function runIndexSession(
     ticket = null;
     health.write(record);
 
-    return { treeSitter: tsStats, scip: scipSummary, health: record, gate };
+    return { treeSitter: tsStats, scip: scipSummary, health: record, gate, flush };
   } finally {
     if (timer) clearInterval(timer);
     // A lane that threw leaves the record RUNNING (deliberately) — but it must

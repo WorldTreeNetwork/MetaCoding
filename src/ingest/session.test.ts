@@ -146,13 +146,20 @@ describe("PAIR 1 — the verdict comes from the STORE, not the indexer's counter
     expect(rec!.index_identities[0]!.sha256).toHaveLength(64);
   }, 120_000);
 
-  test("1b (the mirror): accumulators ZERO + store FULL -> HEALTHY", async () => {
-    // A warm re-index of unchanged content contributes nothing new: the
-    // walker's ast_hash skip path fires and every counter the run returns is
-    // ZERO. A gate fed those accumulators would read 0 symbols and REFUSE the
-    // most common invocation there is; a gate reading the store sees the graph
-    // that is actually there. Opposite verdict from 1a, same measurement, and
-    // the mutation that flips it is the SAME mutation.
+  test("1b (the mirror): a warm re-index REBUILDS, and the store is unchanged", async () => {
+    // THE CONSTRUCTION CHANGED WITH MetaCoding-9jt, and it is worth saying why.
+    //
+    // This half used to work by the walker's ast_hash skip: a warm re-index
+    // touched nothing, every accumulator read ZERO, and the point was that the
+    // verdict followed the STORE rather than those zeros. That skip is deleted
+    // — it was destroying cross-file edges (src/store/build.ts) — so a warm
+    // re-index now re-extracts and re-writes everything.
+    //
+    // 1a still carries the store-vs-accumulators property on its own: an
+    // accumulator of 40 over an empty store is REFUSED. What this half tests
+    // now is the stronger property the rebuild makes available and that the
+    // skip path could never have offered: A RE-INDEX OF AN UNCHANGED TREE IS
+    // IDEMPOTENT. Same verdict, same store, no drift, no growth.
     seed(".ts", 12, (i) => `export function fn${i}() { return ${i}; }\n`);
     const args = [
       "index", repoDir, "--data-dir", dataDir, "--repo", "warm", "--branch", "main",
@@ -173,13 +180,21 @@ describe("PAIR 1 — the verdict comes from the STORE, not the indexer's counter
       treeSitter: { filesScanned: number; filesSkipped: number; filesUpdated: number; symbols: number };
       health: { status: string; fitness: { symbols: number }; contribution: { symbols: number } };
     };
-    // ACCUMULATORS: nothing. Every one of them.
-    expect(summary.treeSitter.filesUpdated).toBe(0);
-    expect(summary.treeSitter.symbols).toBe(0);
-    expect(summary.treeSitter.filesSkipped).toBe(12);
-    expect(summary.health.contribution.symbols).toBe(0);
-    // STORE: full. And the verdict follows the STORE.
-    expect(summary.health.fitness.symbols).toBeGreaterThan(0);
+    // ACCUMULATORS: the whole tree, again. Nothing is skipped any more, and
+    // `filesSkipped` now means only "no grammar could parse this".
+    expect(summary.treeSitter.filesScanned).toBe(12);
+    expect(summary.treeSitter.filesUpdated).toBe(12);
+    expect(summary.treeSitter.filesSkipped).toBe(0);
+    expect(summary.treeSitter.symbols).toBeGreaterThan(0);
+    // ...and every symbol in the store carries THIS run's stamp, because this
+    // run wrote all of them.
+    expect(summary.health.contribution.symbols).toBe(summary.health.fitness.symbols);
+
+    // IDEMPOTENT: rebuilding an unchanged tree neither grows nor shrinks the
+    // store. A rebuild that double-wrote, or that dropped the slice it was
+    // replacing, fails here — and both are live risks in a bulk-load write path
+    // that DELETEs before it COPYs (src/store/build.ts).
+    expect(summary.health.fitness.symbols).toBe(rec1.fitness!.symbols);
     expect(summary.health.status).toBe("HEALTHY");
   }, 180_000);
 });
