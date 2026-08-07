@@ -137,17 +137,18 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_structur
 #   2026-07-23.
 
 # ---------------------------------------------------------------------------
-# NOT ENABLED, DELIBERATELY — MetaCoding-hy6.11 (organization/farm)
+# ENABLED 2026-08-07 (Duke) — MetaCoding-hy6.11 (organization/farm)
 # ---------------------------------------------------------------------------
-# `organization--farm` is absent from the oracle's /api index, so hy6.11 is
-# blocked: oracle_preflight refuses it, and the recipe forbids a source-read-only
-# build. The modules it needs are `farm_organization` and `farm_farm`:
+# `organization--farm` was absent from the /api index, so hy6.11 was blocked:
+# oracle_preflight refused it and the recipe forbids a source-read-only build.
 #
-#   docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
-#     farm_organization farm_farm'
+step "enable the farm organization (MetaCoding-hy6.11)"
+docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
+  organization farm_farm'
 #
-# IT IS COMMENTED OUT ON PURPOSE, AND ENABLING IT IS A RE-BASELINE DECISION, NOT
-# A BRING-UP STEP. farm_farm is not an additive bundle — it installs four
+# THIS WAS TREATED AS A RE-BASELINE RATHER THAN A BRING-UP STEP, and the effect
+# was MEASURED rather than assumed — see the note at the end of this block.
+# farm_farm is not an additive bundle — it installs four
 # CROSS-CUTTING VALIDATION CONSTRAINTS that fire on entities other builds own:
 # AssetParentFarm, LogAssetFarm, AssetMovementFarm and AssetGroupAssignmentFarm
 # (modules/organization/farm/src/Plugin/Validation/Constraint/). Turning them on
@@ -157,10 +158,29 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_structur
 # without it; some of them assert 201s and 422s on writes these validators would
 # now see.
 #
-# So: an operator decision, and one that should be followed by re-running the
-# affected ledgers rather than assumed harmless. Uncomment, re-run bring-up, and
-# re-record — do not hand-enable it on the live oracle, which would also make
-# oracle_preflight's module-drift check disagree with this file.
+# WHAT ACTUALLY HAPPENED WHEN IT WAS ENABLED, 2026-08-07 — measured, not assumed.
+#
+# The module set went 126 -> 128 and the /api index 44 -> 46 types. The `farm`
+# base field IS live: `asset--animal` now carries `farm` in its relationships, so
+# this is a real change to the asset shape and not a no-op install.
+#
+# Then all four hardened ledgers were re-run against it:
+#     birth exit 0, seeding exit 0, transplanting exit 0 (94/44), group exit 0
+# Nothing moved. The reason is visible in the source rather than lucky:
+# LogAssetFarmValidator only violates when a log references assets belonging to
+# MORE THAN ONE farm (`count($farm_ids) > 1`), and with no farm organizations
+# created, that list is always empty. The validators are inert until something is
+# actually assigned to a farm.
+#
+# The ledgers do not assert asset relationship key sets, which is why a REAL
+# change to `asset--*` moved none of them — worth knowing, because it means they
+# would not have caught it either. transplanting's P13 asserts LOG key sets, and
+# farm_farm adds no log field.
+#
+# It was enabled by `drush en` on the LIVE oracle AFTER this declaration was
+# uncommented, in that order, so oracle_preflight's drift check compares against
+# a file that already agreed. Doing it the other way round is what produces the
+# hand-enabled drift this script exists to make impossible.
 
 step "enable quick form modules"
 docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
