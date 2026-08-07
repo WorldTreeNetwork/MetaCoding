@@ -136,6 +136,32 @@ docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y farm_structur
 #   port (MetaCoding-xq7) records all three. Enabled on the live oracle
 #   2026-07-23.
 
+# ---------------------------------------------------------------------------
+# NOT ENABLED, DELIBERATELY — MetaCoding-hy6.11 (organization/farm)
+# ---------------------------------------------------------------------------
+# `organization--farm` is absent from the oracle's /api index, so hy6.11 is
+# blocked: oracle_preflight refuses it, and the recipe forbids a source-read-only
+# build. The modules it needs are `farm_organization` and `farm_farm`:
+#
+#   docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
+#     farm_organization farm_farm'
+#
+# IT IS COMMENTED OUT ON PURPOSE, AND ENABLING IT IS A RE-BASELINE DECISION, NOT
+# A BRING-UP STEP. farm_farm is not an additive bundle — it installs four
+# CROSS-CUTTING VALIDATION CONSTRAINTS that fire on entities other builds own:
+# AssetParentFarm, LogAssetFarm, AssetMovementFarm and AssetGroupAssignmentFarm
+# (modules/organization/farm/src/Plugin/Validation/Constraint/). Turning them on
+# changes how asset and log WRITES validate for every bundle, which is exactly
+# the cross-cutting property that got hy6.11 tiered up to a full identity port in
+# the first place. The 43 sealed packs were recorded against a 126-module set
+# without it; some of them assert 201s and 422s on writes these validators would
+# now see.
+#
+# So: an operator decision, and one that should be followed by re-running the
+# affected ledgers rather than assumed harmless. Uncomment, re-run bring-up, and
+# re-record — do not hand-enable it on the live oracle, which would also make
+# oracle_preflight's module-drift check disagree with this file.
+
 step "enable quick form modules"
 docker exec farmos-oracle-www sh -c 'cd /opt/drupal && drush en -y \
   farm_quick farm_quick_birth farm_quick_group farm_quick_inventory \
