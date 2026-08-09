@@ -107,6 +107,49 @@ deliberately.
   refactor step of the iteration loop already knows this: four findings
   collapsing into one mechanism is the signal it worked).
 
+### When the Elenchus fires — flags, not gates (added 2026-08-09)
+
+The Elenchus fired once, at the wave-1 boundary. Its only trigger was a boundary
+a human declares, and eighteen days of wave 2 went by without one. That is the
+same shape `MetaCoding-hy6.28` spent two days removing one level down: the oracle
+preflight existed, was cheap, was correct, and ran in one build out of five
+because nothing made it a precondition of anything. **A step that depends on
+memory is off by default.**
+
+The repair there was to bind the gate to the irreversible act and derive its
+inputs from what the work already emits. Both halves carry over — but only the
+first as a *gate*:
+
+- **Gate the act.** A kernel freeze, a wave seal, an oracle re-baseline, the
+  elicitation menu: steps that make prose permanent or are expensive to undo may
+  not proceed on a stale reading of the whole. `ctkr/ctkr/elenchus.py
+  --require-current` refuses, and refuses equally when it cannot tell — an
+  unanswerable question is *no answer*, never a pass.
+- **Flag the smell, and never gate on it.** Everywhere else in this project,
+  "advisory to a human, invisible to an automated caller" is the defect. Here the
+  inversion is deliberate: the flags say it *may* be time to examine; whether it
+  is, and what the examination finds, is judgment — and judgment auto-fired on a
+  counter is judgment performed to reset the counter. A method exhausting to live
+  inside gets gamed, and an Elenchus convened to clear a threshold produces three
+  tidy questions and examines nothing. So the flag command exits 0 whatever it
+  finds, and that property is mutation-tested.
+
+**Two of the flags are not computable, and they are the two strongest** — "can
+you say in one sentence what this wave established?" and "have two independent
+readings volunteered the same closing observation, unprompted?". They are carried
+as first-class flags reported as *your call*, never as clear. A flag set holding
+only what is easy to measure would quietly redefine "time to examine" as "time
+the easy measurements noticed" — the substitution this charter exists to refuse.
+
+**The flag list is data and will churn.** Each flag carries the observation that
+produced it and the condition under which to drop it, in the spirit of
+`eval/ctkr/metric_updates.jsonl`: no silent redefinition of when we look. The
+principle above is meant to last; the particular smells are provisional, and
+adding or retiring one is a commit that says which observation moved it. The
+first flag was miscalibrated on arrival — its threshold never fired across the
+episode it was written from — which is the expected failure mode and the reason
+each one is measured against a real case before it counts.
+
 The rules of good dialectic are the rules we already paid to learn:
 
 1. **Observation before assertion.** Record what the world said; never author

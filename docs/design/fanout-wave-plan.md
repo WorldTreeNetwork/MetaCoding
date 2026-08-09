@@ -142,6 +142,29 @@ review, not tokens.
   Kind and forthright: the reading is addressed to colleagues, and it names
   the question the wave's work is avoiding, plainly.
 
+  **When it fires (added 2026-08-09).** Not on memory. The boundary ritual is
+  the *scheduled* occasion; the ones that matter are unscheduled, so:
+
+  - **PRECONDITION on the irreversible steps.** Kernel version freeze, wave-close
+    sealing, an oracle re-baseline, and the elicitation menu itself may not
+    proceed on a stale reading of the whole — `python3 ctkr/ctkr/elenchus.py
+    --require-current` exits 2, including when it cannot tell. Same pattern as
+    the observe step's preflight: gate the act you cannot take back.
+  - **FLAGS, which decide nothing.** `python3 ctkr/ctkr/elenchus.py --epic
+    MetaCoding-hy6` prints the reasons it may be time — findings clustering on
+    one mechanism, mechanism-hardening whose measured side never leaves one
+    build, builds landed since anyone read the whole — and exits 0 whatever it
+    finds. Two flags are not computable and are reported as *your call*; they are
+    the two strongest. See `epistemology-charter.md` §"When the Elenchus fires"
+    for why flags must never become gates here.
+
+  **By hand, when you notice it yourself:** say so and convene one. What the
+  interlocutor gets is the wave whole — every build's decisions and punts, the
+  friction log, the readings, the open findings — and *not* a thesis from whoever
+  has been building, who is saturated by definition. What it returns is one to
+  three questions. A findings list is a reader's product; if the deliverable
+  reads like a checklist item, it was one, and it should be sent back.
+
 ## Standing policies
 
 - **Fixture re-verification**: every pack re-runs against the live oracle on
