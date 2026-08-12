@@ -23,6 +23,7 @@ import {
   ToolchainIdentityRefused,
   digestBytes,
   grammarLane,
+  isDigest,
   layer2Key,
   loadedArtifacts,
   registerLoadedArtifact,
@@ -185,6 +186,130 @@ describe("the registry refuses what would make a key ambiguous", () => {
     expect(() =>
       registerLoadedArtifact({ lane: "l", kind: "file", source: "a", digest: "0.1.13" }),
     ).toThrow(/MALFORMED_DIGEST/);
+  });
+
+  // FOUND BY THE JUDGE'S MUTATION N1, and it is the more dangerous half.
+  // Loosening isDigest from /^sha256:[0-9a-f]{64}$/ to /^sha256:/ SURVIVED all
+  // 31 fixtures, because BOTH cases aimed at this guard ("0.1.13" here and
+  // "TODO" in preflight.test.ts) fail on the PREFIX alone. Nothing asserted the
+  // 64-hex half, so `sha256:TODO` — a placeholder that has learned to dress
+  // like a measurement — would have entered the registry as identity. That is
+  // the module's own header failure ("a declaration wearing a measurement's
+  // clothes") with the costume improved.
+  //
+  // Every case here CARRIES THE PREFIX, so the prefix cannot be what refuses
+  // them; only the body can.
+  test("MALFORMED_DIGEST: sha256:-PREFIXED non-digests are refused on the BODY", () => {
+    const hex = "a".repeat(64);
+    const refused: Record<string, string> = {
+      placeholder: "sha256:TODO",
+      empty_body: "sha256:",
+      too_short: "sha256:" + "a".repeat(63),
+      too_long: "sha256:" + "a".repeat(65),
+      uppercase_hex: "sha256:" + "A".repeat(64),
+      non_hex_char: "sha256:" + "g" + "a".repeat(63),
+      trailing_space: "sha256:" + hex + " ",
+      version_with_prefix: "sha256:0.1.13",
+    };
+    for (const [why, digest] of Object.entries(refused)) {
+      let kind = "ACCEPTED";
+      try {
+        registerLoadedArtifact({ lane: `n1-${why}`, kind: "file", source: "a", digest });
+      } catch (e) {
+        kind = (e as ToolchainIdentityRefused).kind;
+      }
+      expect(`${why}:${kind}`).toBe(`${why}:MALFORMED_DIGEST`);
+    }
+    // CONTRAST, in the same shape: the one string that differs from
+    // "sha256:<63 a>" by a single character IS accepted. Without this the test
+    // above would pass against a guard that refuses everything.
+    expect(
+      registerLoadedArtifact({ lane: "n1-ok", kind: "file", source: "a", digest: "sha256:" + hex })
+        .digest,
+    ).toBe("sha256:" + hex);
+    expect(isDigest("sha256:" + hex)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE BINDING BETWEEN THE REGISTRY AND THE KEY — bead MetaCoding-0bd.
+//
+// Every fixture above passes `artifacts` EXPLICITLY. The ordinary call site
+// does not: it relies on `artifacts = loadedArtifacts()` defaulting, and that
+// default is the entire link between what the loader measured and what the key
+// folds in. A fresh adversary mutated it four ways — to `[]` (N12 on
+// toolchainDigest, N13 on layer2Key), to a CONSTANT ArtifactIdentity (N18), and
+// by having loadedArtifacts() invent a constant when nothing was measured (N19)
+// — and ALL FOUR SURVIVED all 31 fixtures. Under N18 every key at the ordinary
+// call site is folded over a frozen digest and NO_ARTIFACTS can never fire:
+// bead 0bm's own defect, reproduced inside the fix, with a green suite watching.
+//
+// identity.ts:330 stated the link as PROSE ("the ordinary call site cannot omit
+// the toolchain") and no test implemented that sentence. This is that sentence,
+// implemented. It needs all three legs — the refusal, the equality, and the
+// difference — because each mutant survives some pair of them:
+//   REFUSAL   with an empty registry kills N18 and N19 (a constant never refuses)
+//   EQUALITY  to the explicit call kills N12, N13 and N18 (a wrong set never matches)
+//   DIFFERENCE from another set kills a default that returns something constant
+// ---------------------------------------------------------------------------
+describe("F3.1b — the DEFAULT argument is the link, and it is measured", () => {
+  test("empty registry -> layer2Key(inputs) with NO second argument REFUSES", () => {
+    resetLoadedArtifacts();
+    expect(loadedArtifacts().length).toBe(0);
+    let kind = "COMPUTED";
+    try {
+      layer2Key(SAME_TREE);
+    } catch (e) {
+      kind = (e as ToolchainIdentityRefused).kind;
+    }
+    expect(kind).toBe("NO_ARTIFACTS");
+    // and the same for the digest itself, which carries the refusal
+    expect(() => toolchainDigest()).toThrow(ToolchainIdentityRefused);
+  });
+
+  test("after makeParser('php'), the DEFAULT key equals the EXPLICIT php key", async () => {
+    resetLoadedArtifacts();
+    const { makeParser } = await import("../extractor/parser.ts");
+    await makeParser("php");
+
+    const measured = loadedArtifacts();
+    expect(measured.map((a) => a.lane)).toEqual([grammarLane("php")]);
+
+    // THE LOAD-BEARING LINE: no second argument. If the default is `[]` this
+    // throws; if the default is a constant this is unequal; if the default is
+    // the registry this is the same key by construction.
+    const viaDefault = layer2Key(SAME_TREE);
+    const viaExplicit = layer2Key(SAME_TREE, artifactFor(readFileSync(REAL_PHP_WASM)));
+    expect(viaDefault).toBe(viaExplicit);
+    expect(toolchainDigest()).toBe(toolchainDigest(measured));
+
+    // CONTRAST: and it is not equal to just any set. A default that returned a
+    // constant would satisfy the equality above only by accident and would fail
+    // here — this is the leg that refuses "make them all the same".
+    const upgraded = Uint8Array.from(readFileSync(REAL_PHP_WASM));
+    upgraded[0] = upgraded[0]! ^ 0xff;
+    expect(viaDefault).not.toBe(layer2Key(SAME_TREE, artifactFor(upgraded)));
+    expect(viaDefault).not.toBe(
+      layer2Key(SAME_TREE, [
+        { lane: "other", kind: "file", source: "s", digest: digestBytes("other") },
+      ]),
+    );
+  });
+
+  test("the default TRACKS the registry: registering a second lane moves the key", async () => {
+    resetLoadedArtifacts();
+    const { makeParser } = await import("../extractor/parser.ts");
+    await makeParser("php");
+    const before = layer2Key(SAME_TREE);
+    registerLoadedArtifact({
+      lane: "zz:extra",
+      kind: "file",
+      source: "s",
+      digest: digestBytes("extra"),
+    });
+    const after = layer2Key(SAME_TREE);
+    expect(after).not.toBe(before);
+    resetLoadedArtifacts();
   });
 });
 
