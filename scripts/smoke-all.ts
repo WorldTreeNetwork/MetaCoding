@@ -78,13 +78,19 @@ export function scriptsOnDisk(dir: string = SCRIPTS_DIR): string[] {
 }
 
 /** Scripts on disk that the suite never runs. A silently narrower suite. */
-export function unlisted(disk: string[] = scriptsOnDisk(), suite: string[] = SUITE): string[] {
+export function unlisted(
+  disk: string[] = scriptsOnDisk(),
+  suite: readonly string[] = SUITE,
+): string[] {
   const listed = new Set(suite);
   return disk.filter((f) => !listed.has(f));
 }
 
 /** Scripts the suite lists that are not on disk. A suite naming a ghost. */
-export function missing(disk: string[] = scriptsOnDisk(), suite: string[] = SUITE): string[] {
+export function missing(
+  disk: string[] = scriptsOnDisk(),
+  suite: readonly string[] = SUITE,
+): string[] {
   const present = new Set(disk);
   return suite.filter((f) => !present.has(f));
 }
@@ -109,8 +115,8 @@ export function parseRecord(stdout: string): ScriptOutcome["record"] {
   }
 }
 
-async function runScript(script: string): Promise<ScriptOutcome> {
-  const proc = Bun.spawn(["bun", "run", join(SCRIPTS_DIR, script)], {
+async function runScript(dir: string, script: string): Promise<ScriptOutcome> {
+  const proc = Bun.spawn(["bun", "run", join(dir, script)], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -124,31 +130,62 @@ async function runScript(script: string): Promise<ScriptOutcome> {
   return { script, exitCode, record: parseRecord(out) };
 }
 
-async function main(): Promise<void> {
-  const keepGoing = process.argv.includes("--keep-going");
-  const onlyAt = process.argv.indexOf("--only");
-  const only = onlyAt >= 0 ? process.argv[onlyAt + 1] : undefined;
+/**
+ * Options for one suite run. The DIR and the SUITE are parameters rather than
+ * the constants above for exactly one reason: main() below is where the bracket
+ * lives, and a bracket nothing drives is a bracket nothing has ever measured.
+ * A judge deleted the bracket, replaced its refusal with a literal `true`, and
+ * dropped the suite floors whole — five mutations, all SURVIVING the suite,
+ * because smoke-all.test.ts could only reach the four pure helpers
+ * (MetaCoding-6a0). The fixture suites in src/testkit/fixtures/smoke-suite/
+ * drive THIS function as a real subprocess over real stub scripts.
+ */
+export interface SuiteOptions {
+  dir: string;
+  suite: readonly string[];
+  keepGoing?: boolean;
+  only?: string;
+  /**
+   * Floor over the suite-wide check total. Only a FULL run declares one:
+   * --only deliberately narrows the run, and saying so is better than a floor
+   * that quietly does not apply.
+   */
+  checksAcrossSuiteFloor?: number;
+  /** Names the run, and supplies the PASS token's prefix. */
+  runName?: string;
+}
 
-  const run = beginRun("smoke-all");
+export async function runSuite(opts: SuiteOptions): Promise<void> {
+  const { dir, suite, keepGoing = false, only } = opts;
+  const run = beginRun(opts.runName ?? "smoke-all");
+
+  // EVERY suite-level outcome is a `verdict`, not a `check`. `check()` throws
+  // on the first false, and that made the bracket UNREACHABLE: with 12 of 22
+  // scripts red, "no script exited non-zero" threw before "no script exited 0
+  // without emitting a record" was ever asked, before the measures, and before
+  // the floors were evaluated (MetaCoding-u0l, measured — the bracket had never
+  // fired in this repo). `verdict()` holds the refusal until finish(), so an
+  // ordinary failure cannot shadow the fundamental one and the record is still
+  // emitted.
 
   // 1. The suite list must match the directory, both ways. This runs even when
   //    --only narrows the execution, because it is about the LIST, not the run.
-  const disk = scriptsOnDisk();
-  const notListed = unlisted(disk);
-  const notOnDisk = missing(disk);
-  run.check(
+  const disk = scriptsOnDisk(dir);
+  const notListed = unlisted(disk, suite);
+  const notOnDisk = missing(disk, suite);
+  run.verdict(
     "every smoke script on disk is in the suite",
     notListed.length === 0,
     `unlisted: ${notListed.join(", ")} — the suite is silently narrower than the directory`,
   );
-  run.check(
+  run.verdict(
     "every script the suite lists exists on disk",
     notOnDisk.length === 0,
     `missing: ${notOnDisk.join(", ")}`,
   );
 
-  const selected = only ? SUITE.filter((s) => s.includes(only)) : SUITE;
-  run.check("the selection is non-empty", selected.length > 0, `--only ${only} matched nothing`);
+  const selected = only ? suite.filter((s) => s.includes(only)) : [...suite];
+  run.verdict("the selection is non-empty", selected.length > 0, `--only ${only} matched nothing`);
 
   // 2. Run them.
   const outcomes: ScriptOutcome[] = [];
@@ -156,7 +193,7 @@ async function main(): Promise<void> {
   const silent: string[] = [];
   for (const script of selected) {
     console.log(`\n--- ${script}`);
-    const o = await runScript(script);
+    const o = await runScript(dir, script);
     outcomes.push(o);
     if (o.exitCode !== 0) failed.push(script);
     // THE BRACKET: exit 0 and no record is not a pass. A script that never
@@ -175,20 +212,18 @@ async function main(): Promise<void> {
     );
   }
 
-  run.check("no script exited non-zero", failed.length === 0, `failed: ${failed.join(", ")}`);
-  run.check(
+  run.verdict("no script exited non-zero", failed.length === 0, `failed: ${failed.join(", ")}`);
+  run.verdict(
     "no script exited 0 without emitting a record",
     silent.length === 0,
     `silent: ${silent.join(", ")} — exit 0 is not evidence that anything ran`,
   );
 
-  // 3. The suite's OWN floors. `scripts` and `checks` are derived: `scripts`
-  //    counts records actually parsed, so a script dropped from SUITE lowers it.
+  // 3. The suite's OWN floors. `scriptsReported` counts records actually
+  //    parsed, so a script that ran without publishing lowers it — the same
+  //    refusal as the bracket, stated as a number instead of a name.
   const scriptsWithRecords = outcomes.filter((o) => o.record !== null).length;
-  const checksAcrossSuite = outcomes.reduce(
-    (n, o) => n + (o.record?.published.checks ?? 0),
-    0,
-  );
+  const checksAcrossSuite = outcomes.reduce((n, o) => n + (o.record?.published.checks ?? 0), 0);
   run.measure(
     "scriptsReported",
     scriptsWithRecords,
@@ -204,25 +239,43 @@ async function main(): Promise<void> {
     {
       min: 5,
       measuredAs: "checks",
-      why: "counted from the source: this runner makes 5 check() calls (list drift x2, selection non-empty, no failures, no silent scripts)",
+      why: "counted from the source: this runner makes 5 verdict() calls (list drift x2, selection non-empty, no failures, no silent scripts)",
     },
   ];
-  // Suite-wide floors only bind a FULL run; --only deliberately narrows it and
-  // saying so is better than a floor that quietly does not apply.
-  if (!only) {
+  if (selected.length > 0) {
+    // Binds the SELECTED set, not only a full run: --only narrows what runs, it
+    // does not license a script to run without saying what it ran.
     floors.push({
-      min: SUITE.length,
+      min: selected.length,
       measuredAs: "scriptsReported",
-      why: `one record per script in SUITE (${SUITE.length}); fewer means a script ran without publishing what it ran`,
+      why: `one record per script actually selected (${selected.length}); fewer means a script ran without publishing what it ran`,
     });
+  }
+  if (opts.checksAcrossSuiteFloor !== undefined) {
     floors.push({
-      min: 58,
+      min: opts.checksAcrossSuiteFloor,
       measuredAs: "checksAcrossSuite",
-      why: "58 = the assertion sites counted from the source of the 10 scripts green at baseline (5+5+5+7+6+10+5+7+3+5); it is a FLOOR, and it rises as the red scripts are repaired",
+      why: `${opts.checksAcrossSuiteFloor} = the assertion sites counted from the source of the scripts green at baseline; it is a FLOOR, and it rises as the red scripts are repaired`,
     });
   }
 
   run.finish(floors);
+}
+
+async function main(): Promise<void> {
+  const keepGoing = process.argv.includes("--keep-going");
+  const onlyAt = process.argv.indexOf("--only");
+  const only = onlyAt >= 0 ? process.argv[onlyAt + 1] : undefined;
+
+  await runSuite({
+    dir: SCRIPTS_DIR,
+    suite: SUITE,
+    keepGoing,
+    only,
+    // 58 = 5+5+5+7+6+10+5+7+3+5, counted from the source of the 10 scripts
+    // green at baseline. A narrowed run does not get to carry a full run's floor.
+    checksAcrossSuiteFloor: only ? undefined : 58,
+  });
 }
 
 // The runner is itself an instrument, so its own refusal must be loud and its
