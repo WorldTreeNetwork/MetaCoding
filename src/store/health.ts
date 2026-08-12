@@ -268,9 +268,31 @@ CREATE INDEX IF NOT EXISTS index_health_history_slice
 export class IndexHealthStore {
   private constructor(private readonly db: SqliteDb, readonly dataDir: string) {}
 
+  /**
+   * How long a blocked connection waits for the lock before giving up.
+   *
+   * BEAD MetaCoding-byf. bun:sqlite's default busy timeout is ZERO, so a reader
+   * that arrived while a writer held the lock did not wait — it threw
+   * SQLITE_BUSY on the spot. Under the full suite that made `bun test` red
+   * roughly half the time at readIndexHealth, and `bun test` is the ONLY
+   * enforcing surface this repo has (docs/design/enforceability.md: no CI, no
+   * git hooks). A gate that is red for reasons unrelated to the property it
+   * guards is a gate whose reds get waved through, which is worse than no gate:
+   * it trains the reader to ignore the colour.
+   *
+   * SQLITE_BUSY does not mean "the data is bad", it means "come back". Zero was
+   * an answer of "never", not a measurement of contention.
+   */
+  static readonly BUSY_TIMEOUT_MS = 5000;
+
   static open(dataDir: string): IndexHealthStore {
     mkdirSync(dataDir, { recursive: true });
     const db = new SqliteDb(join(dataDir, HEALTH_DB_FILE));
+    // WAL before the schema: readers and one writer then proceed concurrently
+    // instead of excluding each other. Set on the WRITER because changing the
+    // journal mode needs write access.
+    db.exec(`PRAGMA journal_mode=WAL;`);
+    db.exec(`PRAGMA busy_timeout=${IndexHealthStore.BUSY_TIMEOUT_MS};`);
     db.exec(SCHEMA);
     return new IndexHealthStore(db, dataDir);
   }
@@ -283,6 +305,9 @@ export class IndexHealthStore {
     const path = join(dataDir, HEALTH_DB_FILE);
     if (!existsSync(path)) return null;
     const db = new SqliteDb(path, { readonly: true });
+    // The reader half of MetaCoding-byf. A read-only connection cannot change
+    // the journal mode, but it CAN agree to wait.
+    db.exec(`PRAGMA busy_timeout=${IndexHealthStore.BUSY_TIMEOUT_MS};`);
     return new IndexHealthStore(db, dataDir);
   }
 
@@ -340,6 +365,21 @@ export class IndexHealthStore {
       .prepare(`SELECT record FROM index_health ORDER BY repo, branch`)
       .all() as { record: string }[];
     return rows.map((r) => JSON.parse(r.record) as IndexHealthRecord);
+  }
+
+  /**
+   * The concurrency settings this connection actually carries.
+   *
+   * PUBLISHED, not assumed (bead MetaCoding-byf). The two pragmas above are the
+   * whole fix, and a pragma that silently failed to apply looks exactly like one
+   * that did — the DB keeps working and only goes wrong under contention, which
+   * is the shape that made this flake survive as long as it did. So the settings
+   * are readable, and src/ingest/session.test.ts asserts them.
+   */
+  concurrency(): { journalMode: string; busyTimeoutMs: number } {
+    const j = this.db.prepare(`PRAGMA journal_mode`).get() as { journal_mode: string };
+    const b = this.db.prepare(`PRAGMA busy_timeout`).get() as { timeout: number };
+    return { journalMode: j.journal_mode, busyTimeoutMs: b.timeout };
   }
 
   close(): void {

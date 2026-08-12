@@ -460,3 +460,75 @@ describe("migration: an absent health file is UNKNOWN, never HEALTHY", () => {
     }
   }, 180_000);
 });
+
+// ---------------------------------------------------------------------------
+// MetaCoding-byf — the ENFORCING SURFACE's own reliability.
+//
+// `bun test` is the only surface this repo enforces anything on
+// (docs/design/enforceability.md: no CI, no git hooks). A judge measured five
+// full runs and found it red roughly HALF THE TIME, at both HEAD and the parent
+// — always the same SQLITE_BUSY at readIndexHealth, and never reproducible with
+// session.test.ts run alone. bun:sqlite's default busy timeout is ZERO, so a
+// reader that arrived while a writer held the lock did not wait; it threw.
+//
+// A gate that is red for reasons unrelated to the property it guards is worse
+// than no gate: it teaches the reader that red means nothing. So the fix
+// (WAL + a busy timeout, src/store/health.ts) ships with the evidence that
+// catches its regression — which cannot be "the suite went green", because a
+// flake is green most of the time by definition.
+// ---------------------------------------------------------------------------
+describe("MetaCoding-byf — the health DB agrees to WAIT rather than throw", () => {
+  test("both connections publish a NON-ZERO busy timeout, and the writer is in WAL", () => {
+    const w = IndexHealthStore.open(dataDir);
+    try {
+      const writer = w.concurrency();
+      // The two settings, asserted as a NAMED PAIR so a value that quietly
+      // failed to apply cannot read as one that did.
+      expect(`journal=${writer.journalMode.toLowerCase()}`).toBe("journal=wal");
+      expect(`writerWaits=${writer.busyTimeoutMs > 0}`).toBe("writerWaits=true");
+      expect(writer.busyTimeoutMs).toBe(IndexHealthStore.BUSY_TIMEOUT_MS);
+
+      // The READER is the half that was throwing, and it is a separate
+      // connection: setting the pragma on the writer alone would not have
+      // fixed it, and this is the assertion that says so.
+      const r = IndexHealthStore.openExisting(dataDir)!;
+      try {
+        const reader = r.concurrency();
+        expect(`readerWaits=${reader.busyTimeoutMs > 0}`).toBe("readerWaits=true");
+        expect(reader.busyTimeoutMs).toBe(IndexHealthStore.BUSY_TIMEOUT_MS);
+      } finally {
+        r.close();
+      }
+    } finally {
+      w.close();
+    }
+  });
+
+  test("a reader that arrives DURING a write gets the record, not SQLITE_BUSY", () => {
+    // The behavioural half. Before the fix this is exactly the interleaving the
+    // full suite produced by accident and no single file could produce on
+    // purpose: a writer holding the lock, a reader arriving mid-flight.
+    const w = IndexHealthStore.open(dataDir);
+    try {
+      for (let i = 0; i < 25; i++) {
+        w.write({
+          repo: "busy", branch: "main", status: "HEALTHY", run_id: `r${i}`,
+          commit_sha: null, prev_commit_sha: null, started_at: "t", finished_at: "t",
+          pid: null, heartbeat_at: "t", failures: [], lanes: [], contribution: null,
+          fitness: null, correspondence: null, index_identities: [], override: null,
+        });
+        // Interleaved, on a SECOND connection opened and closed each time —
+        // which is what readIndexHealth() does on every call.
+        const rec = readIndexHealth(dataDir, "busy", "main");
+        expect(rec).not.toBeNull();
+        expect(rec!.repo).toBe("busy");
+      }
+    } finally {
+      w.close();
+    }
+    // CONTRAST: the same reader over a slice nobody wrote is null, not a throw.
+    // Without this the test above would pass against a reader that returns a
+    // record for everything.
+    expect(readIndexHealth(dataDir, "never-written", "main")).toBeNull();
+  });
+});

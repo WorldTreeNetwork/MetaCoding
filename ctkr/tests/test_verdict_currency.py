@@ -17,11 +17,21 @@ from __future__ import annotations
 
 import json
 
-from ctkr.verdict_currency import (NAME_RULE, SPINE, _matches, discover,
-                                   evaluate, gating_rows, load_partition,
-                                   load_retirements, load_verdicts, main, render,
-                                   resolve_tier, tier_of)
-
+from ctkr.verdict_currency import (
+    NAME_RULE,
+    SPINE,
+    _matches,
+    discover,
+    evaluate,
+    gating_rows,
+    load_partition,
+    load_retirements,
+    load_verdicts,
+    main,
+    render,
+    resolve_tier,
+    tier_of,
+)
 
 # ---------------------------------------------------------------------------
 # a synthetic workspace
