@@ -430,6 +430,70 @@ def _missing_operations(adapter: PortAdapter, fx: SemanticFixture) -> list[str]:
     return missing
 
 
+def _exercised_capabilities(
+    fixtures: Iterable[SemanticFixture],
+) -> tuple[set[str], set[str]]:
+    """The operation and probe terms the PACK actually asks a port about.
+
+    An operation is asked about when a ``when`` step names it as its action, and
+    additionally when a step that carries an effective time requires it as an
+    extra operation of its own (a dated ``record_log`` restates the time via
+    ``set_effective_time``, which no ``when`` step names directly). A probe is
+    asked about when some ``then`` asserts it.
+    """
+    ops: set[str] = set()
+    probes: set[str] = set()
+    for fx in fixtures:
+        for w in fx.when:
+            ops.add(w.action)
+            if w.at:
+                ops.update(
+                    set(methods_for_action(w.action, timed=True))
+                    - set(methods_for_action(w.action))
+                )
+        for t in fx.then:
+            probes.add(t.assert_)
+    return ops, probes
+
+
+def undriven_capabilities(
+    manifest: PortManifest, fixtures: Iterable[SemanticFixture]
+) -> list[str]:
+    """Declared capabilities this pack never asks about — one problem each.
+
+    INVARIANT 2, in the direction the sweep was missing. ``verify_port`` already
+    refuses a probe DECLARED-then-DECLINED; a capability nobody ever asked about
+    is the same class of self-claim, untested rather than refused, and it used to
+    read as clean: ``identity-lab-test`` declared four operations, its pack drove
+    exactly one, and it scored 22/22 clean over three quarters of its own
+    declared surface.
+
+    INVARIANT 2 also fixes the SIGN. A declaration may only ever cost the port:
+    declaring an operation the pack drives is how the fixture becomes runnable,
+    so declaring MORE than the pack drives must not be free. It is not — every
+    surplus term is a declaration problem, and declaration problems block
+    ``clean``.
+
+    INVARIANT 3 — this is never resolved silently. The verdict does not say the
+    surface is fine and does not say it is broken; it says nobody asked, which
+    is exactly what is known.
+    """
+    driven_ops, driven_probes = _exercised_capabilities(fixtures)
+    problems = [
+        f"port declares operation {op!r} which no fixture in this pack performs "
+        f"— a capability the pack never exercises is an untested self-claim, "
+        f"not a verified one"
+        for op in sorted(set(manifest.capabilities.operations) - driven_ops)
+    ]
+    problems += [
+        f"port declares probe {p!r} which no fixture in this pack asserts — a "
+        f"capability the pack never exercises is an untested self-claim, not a "
+        f"verified one"
+        for p in sorted(set(manifest.capabilities.probes) - driven_probes)
+    ]
+    return problems
+
+
 def verify_fixture(
     adapter: PortAdapter,
     fx: SemanticFixture,
@@ -803,6 +867,10 @@ def verify_port(
             f"a capability that is unavailable exactly where it is tested is not "
             f"a capability, and the declines are NOT gaps in the pack"
         )
+
+    # And the reverse sweep: a capability the pack NEVER ASKED ABOUT. Declared-
+    # then-declined is caught above; declared-then-never-asked used to be free.
+    declaration_problems += undriven_capabilities(manifest, fixtures)
 
     score = score_verdicts(verdicts)
     score.fixtures_invalid = len(pack.invalid)

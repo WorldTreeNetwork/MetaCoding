@@ -524,6 +524,86 @@ def test_a_declared_but_refused_probe_fails_and_is_not_a_gap() -> None:
     assert any("refuses it" in p for p in report.declaration_problems)
 
 
+def test_a_declared_operation_the_pack_never_drives_is_a_declaration_problem() -> None:
+    """MetaCoding-hy6.47 — clean was vacuous over undriven surface.
+
+    Measured: ``identity-lab-test`` declared four operations, its pack drove one
+    (``record_log``, 17 uses), and it scored 22/22, 0 NO VERDICT, clean=yes. The
+    declared-then-DECLINED sweep does not see this, because nothing was ever
+    asked.
+    """
+    fx = fixture("f-undriven", [soh(4.0)])
+    ops = [*ALL_OPS, "archive_asset", "set_log_status"]
+    manifest = make_manifest(ops, ["stock_on_hand"])
+    report = verify_port(make_adapter(ops, ["stock_on_hand"], manifest),
+                         pack([fx]), manifest)
+
+    # Every value it WAS asked for is right — and that is not enough.
+    assert report.score.scored_failed == 0 and report.score.no_verdict == 0
+    assert report.score.scored_passed == 1
+    assert not report.clean
+    problems = report.declaration_problems
+    assert any("'archive_asset'" in p and "no fixture" in p for p in problems)
+    assert any("'set_log_status'" in p for p in problems)
+    assert not any("record_inventory_adjustment" in p for p in problems)
+    assert any("declaration problem" in w for w in report.needs_review)
+
+
+def test_a_declared_probe_the_pack_never_asserts_is_a_declaration_problem() -> None:
+    fx = fixture("f-undriven-probe", [soh(4.0)])
+    probes = ["stock_on_hand", "adjustment_count"]
+    manifest = make_manifest(ALL_OPS, probes)
+    report = verify_port(make_adapter(ALL_OPS, probes, manifest),
+                         pack([fx]), manifest)
+    assert not report.clean
+    assert any("probe 'adjustment_count'" in p
+               for p in report.declaration_problems)
+
+
+def test_a_port_whose_whole_declared_surface_is_driven_stays_clean() -> None:
+    """The contrast. The new sweep must cost only the UNDRIVEN surface."""
+    fx = fixture("f-driven", [soh(4.0), adjcount(1)])
+    manifest = make_manifest(ALL_OPS, ["stock_on_hand", "adjustment_count"])
+    report = verify_port(
+        make_adapter(ALL_OPS, ["stock_on_hand", "adjustment_count"], manifest),
+        pack([fx]), manifest)
+    assert report.declaration_problems == []
+    assert report.clean
+
+
+def test_a_dated_record_log_drives_the_restatement_operation() -> None:
+    """``set_effective_time`` is named by no ``when``, yet a dated ``record_log``
+    performs it — the pack DID ask about that term, so declaring it is honest."""
+    fx = fixture(
+        "f-dated", [adjcount(0)],
+        when=[{"action": "record_log", "alias": "lg", "kind": "activity",
+               "status": "done", "against": ["bin"], "at": "2024-01-01T00:00:00Z"}],
+    )
+    ops = ["record_log", "set_effective_time"]
+    manifest = make_manifest(ops, ["adjustment_count"])
+    report = verify_port(make_adapter(ops, ["adjustment_count"], manifest),
+                         pack([fx]), manifest)
+    assert not any("set_effective_time" in p
+                   for p in report.declaration_problems), \
+        report.declaration_problems
+
+
+def test_an_undated_record_log_does_not_drive_the_restatement_operation() -> None:
+    """The contrast that keeps the restatement allowance honest: with no dated
+    step in the pack, ``set_effective_time`` is declared and never performed."""
+    fx = fixture(
+        "f-undated", [adjcount(0)],
+        when=[{"action": "record_log", "alias": "lg", "kind": "activity",
+               "status": "done", "against": ["bin"]}],
+    )
+    ops = ["record_log", "set_effective_time"]
+    manifest = make_manifest(ops, ["adjustment_count"])
+    report = verify_port(make_adapter(ops, ["adjustment_count"], manifest),
+                         pack([fx]), manifest)
+    assert any("set_effective_time" in p for p in report.declaration_problems)
+    assert not report.clean
+
+
 def test_capabilities_must_use_glossary_terms() -> None:
     with pytest.raises(ContractError):
         make_manifest(["teleport_asset"], ["stock_on_hand"]).check()

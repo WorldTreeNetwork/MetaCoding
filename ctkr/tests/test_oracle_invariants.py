@@ -622,6 +622,38 @@ def test_a_topically_bound_decision_still_sanctions() -> None:
     assert not decision_covers("… stock_on_hand …", "stock_on_hand")  # names never sanction
 
 
+def test_declaring_more_capability_can_only_cost_the_port() -> None:
+    """The SIGN of a self-claim, stated as a property, not as a defect.
+
+    A port's capabilities are a claim about itself, and I2 permits it only
+    because such a claim can only hurt: over-claiming is a false declaration,
+    under-claiming is a gap. Declared-then-NEVER-ASKED broke that sign — it was
+    the one way to widen your own declared surface for free, and it read as
+    clean (MetaCoding-hy6.47: 22/22 clean over four declared operations of which
+    the pack drove one). Here the same pack is judged against a minimal
+    declaration and against every superset of it: no superset may produce fewer
+    declaration problems, and none may turn a not-clean run clean.
+    """
+    fx = fixture("f-sign", [soh(4.0)])
+    minimal = make_manifest(ALL_OPS, ["stock_on_hand"])
+    base = verify_port(make_adapter(ALL_OPS, ["stock_on_hand"], minimal),
+                       pack([fx]), minimal)
+    assert base.clean and base.declaration_problems == []
+
+    for extra_ops, extra_probes in (
+        (["archive_asset"], []),
+        ([], ["adjustment_count"]),
+        (["archive_asset", "record_log"], ["adjustment_count"]),
+    ):
+        ops = [*ALL_OPS, *extra_ops]
+        probes = ["stock_on_hand", *extra_probes]
+        m = make_manifest(ops, probes)
+        wider = verify_port(make_adapter(ops, probes, m), pack([fx]), m)
+        assert len(wider.declaration_problems) >= len(base.declaration_problems)
+        assert len(wider.declaration_problems) == len(extra_ops) + len(extra_probes)
+        assert not wider.clean, (extra_ops, extra_probes)
+
+
 # =========================================================================== #
 # I3 — ABSENCE OF AN ANSWER IS NEVER AN ANSWER                                #
 # =========================================================================== #
