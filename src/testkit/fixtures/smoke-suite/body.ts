@@ -45,6 +45,37 @@ export function redScript(name: string): never {
  * exits non-zero when it refuses — and the whole point of this shape is the
  * disagreement between the exit code and the record.
  */
+/**
+ * THE SELF-CONTRADICTING-NUMBERS SHAPE (MetaCoding-cn0): exits 0, publishes a
+ * record that says `ok:true`, and that record's OWN floors do not hold against
+ * its OWN published counts.
+ *
+ * This is not forgery — forgery is internally consistent and the runner's header
+ * says it cannot be caught here. It is the shape that appears when a gate is
+ * bypassed but the reporting is not: the numbers and the verdict disagree, and
+ * the only thing that notices is re-running the child's floors with the
+ * advertised verb. Written by hand for the same reason as the shape above:
+ * `finish()` would refuse it and exit non-zero, and the disagreement is the point.
+ */
+export function contradictingScript(name: string): void {
+  console.log(
+    "SMOKE_RECORD " +
+      JSON.stringify({
+        script: name,
+        published: { checks: 2, pairs: 0 },
+        checkLabels: [`${name} a`, `${name} b`],
+        refused: [],
+        pairNames: [],
+        provenance: { checks: "hand-written by the fixture" },
+        floors: [
+          { min: 9, measuredAs: "checks", why: "this script claims to gate on nine checks" },
+        ],
+        ok: true,
+      }),
+  );
+  console.log(`${name.toUpperCase()}_SMOKE_PASS`);
+}
+
 export function selfRefusingScript(name: string): void {
   console.log(
     "SMOKE_RECORD " +

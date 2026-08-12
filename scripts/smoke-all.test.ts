@@ -6,7 +6,16 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { SUITE_SIZE, missing, parseRecord, scriptsOnDisk, unlisted } from "./smoke-all.ts";
+import { FloorsRefused, observeFloors } from "../src/testkit/floors.ts";
+import {
+  SUITE_SIZE,
+  missing,
+  parseRecord,
+  recheckOwnFloors,
+  scriptsOnDisk,
+  suiteExitCode,
+  unlisted,
+} from "./smoke-all.ts";
 
 describe("the suite list must match the directory", () => {
   test("a script on disk that the suite never runs is NAMED", () => {
@@ -107,10 +116,10 @@ interface SuiteRan {
   } | null;
 }
 
-async function runSuiteFixture(fixtureCase: string): Promise<SuiteRan> {
+async function runSuiteFixture(fixtureCase: string, recordFile = ""): Promise<SuiteRan> {
   const proc = Bun.spawn(["bun", "run", SUITE_FIXTURE], {
     cwd: new URL("..", import.meta.url).pathname,
-    env: { ...process.env, SUITE_FIXTURE_CASE: fixtureCase, SMOKE_RECORD_FILE: "" },
+    env: { ...process.env, SUITE_FIXTURE_CASE: fixtureCase, SMOKE_RECORD_FILE: recordFile },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -134,9 +143,10 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     expect(r.record).not.toBeNull();
     expect(r.record!.ok).toBe(true);
     expect(r.record!.refused).toEqual([]);
-    // The runner's own SIX verdicts, all held (the sixth is the self-refusal
-    // check added for MetaCoding-870).
-    expect(r.record!.published.checks).toBe(6);
+    // The runner's own SEVEN verdicts, all held (the sixth is the self-refusal
+    // check added for MetaCoding-870, the seventh the own-floors recheck added
+    // for MetaCoding-cn0).
+    expect(r.record!.published.checks).toBe(7);
     // Derived, not declared: two stub scripts, 3 + 2 checks between them.
     expect(r.record!.published.scriptsReported).toBe(2);
     expect(r.record!.published.checksAcrossSuite).toBe(5);
@@ -208,17 +218,17 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     const green = await runSuiteFixture("green");
     const own = green.record!.floors.find((f) => f.measuredAs === "checks")!;
     expect(own.min).toBe(green.record!.checkLabels.length);
-    // 6 since MetaCoding-870 added the self-refusal verdict. Bumping this is the
+    // 7 since MetaCoding-cn0 added the own-floors recheck. Bumping this is the
     // point: the floor is pinned to the labels a green run actually recorded, so
     // a new verdict cannot be added without someone raising the number on purpose.
-    expect(own.min).toBe(6);
+    expect(own.min).toBe(7);
     expect(own.basis).toBe("derived");
-    // REFUTING: a run that reaches only 3 of them fails that floor by name.
+    // REFUTING: a run that reaches only some of them fails that floor by name.
     const red = await runSuiteFixture("red-and-silent");
-    // 4 of 6 since the self-refusal verdict: a partial run reaches one more check
-    // before it refuses. The pair still discriminates — the point is that the
-    // truncated run fails its own floor BY NAME, not the specific integers.
-    expect(red.stderr).toContain('"checks" = 4, floor is 6');
+    // 5 of 7: a partial run reaches the later verdicts and refuses two of them.
+    // The pair still discriminates — the point is that the truncated run fails
+    // its own floor BY NAME, not the specific integers.
+    expect(red.stderr).toContain('"checks" = 5, floor is 7');
   });
 
   test("a script on disk the suite never runs is refused by the RUNNER", async () => {
@@ -239,6 +249,106 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     const none = await runSuiteFixture("only-matches-nothing");
     expect(none.code).toBe(1);
     expect(none.stderr).toContain("the selection is non-empty");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MetaCoding-cn0 — the two things that were machinery nothing drove.
+//
+// 1. `evaluateFloors` had ZERO production callers: every real gate went through
+//    SmokeRun.finish(), which reaches the same refusal by its own code. Two
+//    copies of one invariant, one of them dead. It is now the verb the PARENT
+//    uses on each child's record, so the copies are exercised against each other
+//    on every run.
+// 2. `instrumentFailed` had NO consumer: both tiers threw the same error and
+//    exited the same 1, so "structurally distinct" was distinct in the report
+//    and in no decision. It now decides the exit code — 2 for INSTRUMENT.
+// ---------------------------------------------------------------------------
+
+describe("a script's own floors are re-run against its own numbers", () => {
+  test("REFUTING: exit 0 and ok:true with a floor its own record does not meet", async () => {
+    const r = await runSuiteFixture("contradicts");
+    expect(r.code).toBe(1);
+    expect(r.stdout).not.toContain("FIXTURE_SUITE_SMOKE_PASS");
+    expect(r.stderr).toContain("no script's own floors are unmet by its own record");
+    expect(r.stderr).toContain("smoke-liar.ts");
+    // BY NAME: the tier and kind the child's own numbers produce, not a bare no.
+    expect(r.stderr).toContain("CHECK FLOOR_UNMET");
+    // The liar exited 0 and printed its own PASS token — which is exactly why
+    // the recheck cannot live inside it.
+    expect(r.stdout).toContain("LIAR_SMOKE_PASS");
+  });
+
+  test("CONTRAST: the same suite shape whose child records are honest passes", async () => {
+    // Without this, a recheck that refused EVERY record would pass the test
+    // above. `green` is two children whose floors do hold against their counts.
+    const r = await runSuiteFixture("green");
+    expect(r.code).toBe(0);
+    expect(r.stderr).not.toContain("no script's own floors are unmet");
+    expect(r.record!.refused).toEqual([]);
+  });
+
+  test("the recheck is evaluateFloors, on the record's OWN floors and OWN numbers", () => {
+    const honest = { published: { checks: 3, pairs: 0 }, checkLabels: [], floors: [
+      { min: 3, measuredAs: "checks", why: "three checks" },
+    ] };
+    expect(recheckOwnFloors(honest)).toBeNull();
+    // A floor one higher than the record's own count refuses, as a CHECK.
+    expect(recheckOwnFloors({ ...honest, published: { checks: 2, pairs: 0 } })).toBe(
+      "CHECK FLOOR_UNMET",
+    );
+    // A floor over a field the child did not publish is an INSTRUMENT failure,
+    // the same one level up as it is inside the child.
+    expect(
+      recheckOwnFloors({
+        published: { checks: 3 },
+        checkLabels: [],
+        floors: [{ min: 1, measuredAs: "sectionsCovered", why: "w" }],
+      }),
+    ).toBe("INSTRUMENT UNPUBLISHED_FIELD");
+    // A record with NO floors is a record nothing was measured against.
+    expect(recheckOwnFloors({ published: { checks: 3 }, checkLabels: [] })).toBe(
+      "INSTRUMENT NO_FLOORS",
+    );
+  });
+});
+
+describe("the INSTRUMENT/CHECK tier decides the exit code, not just the wording", () => {
+  test("an INSTRUMENT-tier refusal exits 2; a CHECK-tier one exits 1", () => {
+    const instrument = new FloorsRefused(
+      observeFloors([{ min: 1, measuredAs: "gone", why: "w" }], { checks: 9 }),
+    );
+    const check = new FloorsRefused(
+      observeFloors([{ min: 9, measuredAs: "checks", why: "w" }], { checks: 1 }),
+    );
+    expect(instrument.result.instrumentFailed).toBe(true);
+    expect(check.result.instrumentFailed).toBe(false);
+    // The pair: the SAME shape of refusal, told apart by tier alone.
+    expect(suiteExitCode(instrument)).toBe(2);
+    expect(suiteExitCode(check)).toBe(1);
+    // Anything that is not a floors refusal at all is still an ordinary failure.
+    expect(suiteExitCode(new Error("boom"))).toBe(1);
+  });
+
+  test("END TO END: the same green suite exits 2 when its RECORD SINK is broken", async () => {
+    // The apparatus, not the run: every check holds and every floor is met, and
+    // the record cannot be written. Under a runner that exits 1 for everything
+    // this is indistinguishable from a short run — which was the whole finding.
+    const broken = await runSuiteFixture("green", "/no-such-dir-cn0/deeper/rec.jsonl");
+    expect(broken.code).toBe(2);
+    expect(broken.stderr).toContain("RECORD_SINK_UNWRITABLE");
+
+    // CONTRAST 1: the identical suite with a writable sink exits 0.
+    const sink = `/tmp/smoke-all-cn0-${process.pid}-${Date.now()}.jsonl`;
+    await Bun.write(sink, "");
+    const ok = await runSuiteFixture("green", sink);
+    expect(ok.code).toBe(0);
+
+    // CONTRAST 2: a CHECK-tier refusal of the same suite exits 1, not 2. Without
+    // this half, an exit code hard-wired to 2 would pass the assertion above.
+    const short = await runSuiteFixture("green-floor-unmet");
+    expect(short.code).toBe(1);
+    expect(short.stderr).toContain("FLOOR_UNMET");
   });
 });
 

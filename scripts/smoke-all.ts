@@ -43,7 +43,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { beginRun, type Floor } from "../src/testkit/floors.ts";
+import { FloorsRefused, beginRun, evaluateFloors, type Floor } from "../src/testkit/floors.ts";
 
 const SCRIPTS_DIR = join(import.meta.dir);
 
@@ -119,11 +119,56 @@ export interface ScriptOutcome {
   record: {
     published: Record<string, number>;
     checkLabels: string[];
+    /** The floors the child says it gated itself on. Re-run by the parent. */
+    floors?: Floor[];
     /** The child's OWN verdict on itself. Parsed and then DISCARDED until
      *  MetaCoding-870: a script could publish ok:false and still be counted as
      *  a reporting script. Its own no is now a refusal. */
     ok?: boolean;
   } | null;
+}
+
+/**
+ * Re-run the child's OWN declared floors against its OWN published numbers,
+ * with the ADVERTISED verb. Returns null when they hold, or the named failures.
+ *
+ * WHY (MetaCoding-cn0): `evaluateFloors` had zero production callers. Every real
+ * gate went through `SmokeRun.finish()`, which reaches the same refusal by its
+ * own code — TWO COPIES OF ONE INVARIANT, one of them dead. A dead copy is a
+ * copy nothing keeps in step: the day finish() and evaluateFloors disagree,
+ * nothing would say so. This is where they are made to agree, on real records,
+ * on every run.
+ *
+ * It cannot detect FORGERY — a forged record is internally consistent, and the
+ * header says so. What it detects is a record that CONTRADICTS ITSELF: exit 0
+ * and `ok:true` while a floor the child published is unmet, or measured against
+ * a field the child did not publish, or no floors at all. That is the same
+ * refusal one level up, and it is the child's own numbers doing the refusing.
+ */
+export function recheckOwnFloors(record: NonNullable<ScriptOutcome["record"]>): string | null {
+  try {
+    evaluateFloors(record.floors ?? [], record.published);
+    return null;
+  } catch (e) {
+    if (!(e instanceof FloorsRefused)) throw e;
+    return e.result.failures.map((f) => `${f.tier} ${f.kind}`).join(", ");
+  }
+}
+
+/**
+ * The suite's exit code, and the ONE decision that reads `instrumentFailed`.
+ *
+ * WHY (MetaCoding-cn0): the INSTRUMENT/CHECK tier was a word in a diagnostic
+ * string and an assertion about itself — both tiers threw the same error and
+ * exited the same 1, so "structurally distinct" was distinct in the report and
+ * in no decision. They are different diagnoses and they need different
+ * responses: a CHECK failure says the run came up short and the operator reads
+ * the numbers; an INSTRUMENT failure says the apparatus is broken and the
+ * numbers mean nothing yet. Exit 2 is that difference, machine-readable, so a
+ * CI job can route the two without parsing prose.
+ */
+export function suiteExitCode(err: unknown): number {
+  return err instanceof FloorsRefused && err.result.instrumentFailed ? 2 : 1;
 }
 
 export function parseRecord(stdout: string): ScriptOutcome["record"] {
@@ -216,6 +261,7 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
   const failed: string[] = [];
   const silent: string[] = [];
   const selfRefused: string[] = [];
+  const contradicted: string[] = [];
   for (const script of selected) {
     console.log(`\n--- ${script}`);
     const o = await runScript(dir, script);
@@ -230,7 +276,21 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
     // child's own no was the one piece of evidence here written by the party
     // that actually ran, and it was the piece being ignored.
     else if (o.record.ok === false) selfRefused.push(script);
-    if ((o.exitCode !== 0 || o.record === null || o.record.ok === false) && !keepGoing) break;
+    // ...and a script claiming ok:true whose OWN floors do not hold against its
+    // OWN published numbers is refused by the advertised verb, on its own say-so.
+    else {
+      const contradiction = recheckOwnFloors(o.record);
+      if (contradiction !== null) contradicted.push(`${script} (${contradiction})`);
+    }
+    if (
+      (o.exitCode !== 0 ||
+        o.record === null ||
+        o.record.ok === false ||
+        contradicted.length > 0) &&
+      !keepGoing
+    ) {
+      break;
+    }
   }
 
   console.log(`\n=== suite summary`);
@@ -253,6 +313,12 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
     selfRefused.length === 0,
     `self-refused: ${selfRefused.join(", ")} — the script published its own no and exited 0`,
   );
+  run.verdict(
+    "no script's own floors are unmet by its own record",
+    contradicted.length === 0,
+    `contradicted: ${contradicted.join(", ")} — the script exited 0 and said ok:true, ` +
+      `and re-running the floors IT published against the numbers IT published refuses`,
+  );
 
   // 3. The suite's OWN floors. `scriptsReported` counts records actually
   //    parsed, so a script that ran without publishing lowers it — the same
@@ -272,9 +338,9 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
 
   const floors: Floor[] = [
     {
-      min: 6,
+      min: 7,
       measuredAs: "checks",
-      why: "counted from the source: this runner makes 6 verdict() calls (list drift x2, selection non-empty, no failures, no silent scripts, no self-refused scripts)",
+      why: "counted from the source: this runner makes 7 verdict() calls (list drift x2, selection non-empty, no failures, no silent scripts, no self-refused scripts, no script contradicting its own floors)",
     },
   ];
   if (selected.length > 0) {
@@ -314,13 +380,17 @@ async function main(): Promise<void> {
 }
 
 // The runner is itself an instrument, so its own refusal must be loud and its
-// exit code must be the suite's.
+// exit code must be the suite's — and WHICH non-zero code is the tier.
 if (import.meta.main) {
   main()
   .then(() => process.exit(0))
   .catch((err) => {
-    console.error("SMOKE_ALL_FAIL", err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    const code = suiteExitCode(err);
+    console.error(
+      code === 2 ? "SMOKE_ALL_INSTRUMENT_FAIL" : "SMOKE_ALL_FAIL",
+      err instanceof Error ? err.message : String(err),
+    );
+    process.exit(code);
   });
 }
 

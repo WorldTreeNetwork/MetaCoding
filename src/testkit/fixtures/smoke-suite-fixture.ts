@@ -11,7 +11,7 @@
 
 import { join } from "node:path";
 
-import { type SuiteOptions, runSuite } from "../../../scripts/smoke-all.ts";
+import { type SuiteOptions, runSuite, suiteExitCode } from "../../../scripts/smoke-all.ts";
 
 const HERE = join(import.meta.dir, "smoke-suite");
 
@@ -55,6 +55,15 @@ const CASES: Record<string, SuiteOptions> = {
     keepGoing: true,
     checksAcrossSuiteFloor: 2,
   },
+  // A script that exits 0 and publishes ok:true while the floors IT declared do
+  // not hold against the numbers IT published (MetaCoding-cn0).
+  contradicts: {
+    dir: join(HERE, "contradicts"),
+    suite: ["smoke-liar.ts", "smoke-two.ts"],
+    runName: "fixture-suite",
+    keepGoing: true,
+    checksAcrossSuiteFloor: 2,
+  },
   // A script on disk that the suite never runs.
   drift: {
     dir: join(HERE, "drift"),
@@ -82,9 +91,12 @@ const name = process.env.SUITE_FIXTURE_CASE ?? "green";
 const opts = CASES[name];
 if (!opts) throw new Error(`unknown SUITE_FIXTURE_CASE: ${name}`);
 
+// The exit code comes from the SAME policy the real entrypoint uses. A fixture
+// with its own copy of `process.exit(1)` would measure a different exit policy
+// than the one that ships (MetaCoding-cn0).
 runSuite(opts)
   .then(() => process.exit(0))
   .catch((err) => {
     console.error("SUITE_FIXTURE_FAIL", err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    process.exit(suiteExitCode(err));
   });

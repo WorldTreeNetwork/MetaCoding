@@ -704,3 +704,83 @@ def test_a_pack_seal_file_carrying_NO_seal_is_an_ERROR_not_an_empty_seal(tmp_pat
     assert r.state == "undeterminable", "an empty seal matched an empty pack_seal"
     assert r.gates
     assert "carries no" in r.detail
+
+
+# ---------------------------------------------------------------------------
+# hy6.60 — a partition that names NOTHING is not a partition
+# ---------------------------------------------------------------------------
+
+def test_a_partition_file_that_names_NOTHING_REFUSES(tmp_path, capsys):
+    """MEASURED on the real tree: with both partition-*.jsonl present but
+    truncated to zero bytes, the gate reported `40 build(s) were tiered by the
+    FALLBACK name rule`, moved three builds' gating status, and refused nothing.
+    That is hy6.55's defect — a bound risk decision made by a directory-name
+    proxy — restored in full by a rename, a bad glob or an unsynced results/.
+
+    The tree here is otherwise CLEAN: without the refusal it exits 0. That is
+    what makes this a red rather than a decoration."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+                   verdicts=[("a.json", verdict("w2-identity-a", "abc"))],
+                   partition=[("partition-1.jsonl", [])])
+    assert main(["--workspace", ws]) == 2
+    err = capsys.readouterr().err
+    assert "REFUSING" in err
+    assert "partition-1.jsonl" in err
+
+
+def test_a_workspace_with_NO_partition_file_AT_ALL_still_falls_back_visibly(tmp_path,
+                                                                            capsys):
+    """The contrast, and it is the load-bearing half: there is a difference
+    between "nobody wrote a record" and "the record I am reading is empty", and
+    only the second is a broken instrument. A refusal that fired on both would
+    make the fallback — which the docstring explicitly keeps — unreachable."""
+    workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+              verdicts=[("a.json", verdict("w2-identity-a", "abc"))])
+    assert main(["--workspace", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "1 build(s) were tiered by the FALLBACK name rule" in out
+
+
+def test_a_partition_file_with_rows_but_no_MODULE_also_refuses(tmp_path, capsys):
+    """The other way to name nothing: rows that parse and carry no module. A
+    file with bytes in it must not read as a record because it is non-empty."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+                   verdicts=[("a.json", verdict("w2-identity-a", "abc"))],
+                   partition=[("partition-1.jsonl", [{"tier": "spine"},
+                                                     {"note": "header"}])])
+    assert main(["--workspace", ws]) == 2
+    assert "REFUSING" in capsys.readouterr().err
+
+
+def test_a_tier_OUTSIDE_the_vocabulary_is_an_ERROR_not_a_tier(tmp_path):
+    """J13 / hy6.60's second half. `{"module": "asset/sensor", "tier": "SPINE"}`
+    was accepted verbatim and printed as `the recorded partition says SPINE`.
+    It gated (only the exact string `spine` disables gating) so the direction was
+    safe, but the gate could not distinguish "the record says spine" from "the
+    record says a word I do not recognise" — and a gate that cannot tell those
+    apart is not reading the record."""
+    ws = workspace(tmp_path, {"identity-sensor": {"seal": None}},
+                   partition=[("partition-1.jsonl", [prow("asset/sensor", "SPINE")])])
+    p = load_partition(ws)
+    assert p.tier_by_module["asset/sensor"] == "unknown"
+    assert any("is not a tier" in e for e in p.errors), p.errors
+    r = rows_of(ws)["wave2/identity-sensor"]
+    assert r.build.tier == "unknown" and r.gates
+    assert "SPINE" not in r.build.tier_source, (
+        f"the report repeats a word that is not a tier: {r.build.tier_source}")
+
+
+def test_a_tier_INSIDE_the_vocabulary_is_read_as_written(tmp_path):
+    """The contrast: closing the vocabulary must not reject the record itself.
+    All three words the live partition uses still resolve."""
+    ws = workspace(tmp_path, {"identity-sensor": {"seal": None}},
+                   partition=[("partition-1.jsonl",
+                               [prow("asset/sensor", "spine"),
+                                prow("log/input", "identity"),
+                                prow("asset/mystery", "unknown")])])
+    p = load_partition(ws)
+    assert p.errors == []
+    assert p.tier_by_module == {"asset/sensor": "spine", "log/input": "identity",
+                                "asset/mystery": "unknown"}
+    r = rows_of(ws)["wave2/identity-sensor"]
+    assert r.build.tier == SPINE and not r.gates

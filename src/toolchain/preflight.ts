@@ -64,7 +64,22 @@ import {
   isDigest,
 } from "./identity.ts";
 
+/**
+ * The lock format this checker knows how to read.
+ *
+ * FOUND BY MUTATION N22. This constant was EXPORTED AND CONSUMED BY NOBODY, and
+ * `readLockfile` did `Number(lock.version ?? 0)` and threw the answer away — so
+ * changing the field, or handing a v1 checker a v2 lock, moved nothing. That is
+ * the module's own thesis inverted: a declared input that no code reads is not
+ * a declaration, it is a comment with a colon in it. A future v2 that adds a
+ * lane kind or changes what `digest` means would be read by this checker under
+ * v1 rules and reported CLEAN — a wrong answer, arrived at silently, which is
+ * the one outcome this file exists to make impossible.
+ */
 export const LOCK_VERSION = 1;
+
+/** Versions this checker will evaluate. Widen deliberately, never by default. */
+export const SUPPORTED_LOCK_VERSIONS: readonly number[] = [1];
 
 /** One lane as the committed lockfile declares it. */
 export interface LaneDeclaration {
@@ -102,7 +117,8 @@ export type PreflightRefusalKind =
   | "LOCK_UNREADABLE" // the lockfile is not there or cannot be read
   | "LOCK_UNPARSEABLE" // it is there and is not JSON
   | "LOCK_EMPTY" // it parses to ZERO lanes — oracle_preflight.py:351
-  | "LOCK_MALFORMED"; // a lane declaration this checker cannot evaluate
+  | "LOCK_MALFORMED" // a lane declaration this checker cannot evaluate
+  | "LOCK_VERSION_UNSUPPORTED"; // a lock this checker does not know how to read
 
 /**
  * Thrown when the CHECK ITSELF cannot run. Distinct, on purpose, from a lane
@@ -171,6 +187,19 @@ export function readLockfile(lockPath: string): Lockfile {
     throw new PreflightRefused("LOCK_UNPARSEABLE", `${lockPath} is not a JSON object`);
   }
   const lock = parsed as Partial<Lockfile>;
+
+  // N22's fix. Checked BEFORE the lanes, because under an unknown version this
+  // checker does not know what a lane means and must not pretend it does.
+  const version = lock.version;
+  if (!SUPPORTED_LOCK_VERSIONS.includes(version as number)) {
+    throw new PreflightRefused(
+      "LOCK_VERSION_UNSUPPORTED",
+      `${lockPath} declares version ${JSON.stringify(version)}; this checker reads ` +
+        `${SUPPORTED_LOCK_VERSIONS.join(", ")}. A checker that evaluates a format it ` +
+        `does not know reports CLEAN by guessing. Absence of an answer is never a pass.`,
+    );
+  }
+
   const lanes = lock.lanes;
   if (lanes === undefined || lanes === null || typeof lanes !== "object" || Array.isArray(lanes)) {
     throw new PreflightRefused(
@@ -224,7 +253,7 @@ export function readLockfile(lockPath: string): Lockfile {
     }
   }
 
-  return { version: Number(lock.version ?? 0), why: lock.why, lanes: lanes as Record<string, LaneDeclaration> };
+  return { version: version as number, why: lock.why, lanes: lanes as Record<string, LaneDeclaration> };
 }
 
 /** Measure one lane live. Returns null when the check COULD NOT RUN. */
@@ -390,6 +419,130 @@ export function relock(opts: PreflightOptions & { lock?: Lockfile }): Lockfile {
         : { ...decl };
   }
   return { version: LOCK_VERSION, why: lock.why, lanes };
+}
+
+// ---------------------------------------------------------------------------
+// COVERAGE: does the lock actually cover what this process loaded?
+// (bead MetaCoding-7sv)
+//
+// Everything above compares the LOCK's lanes against disk. It answers "is what
+// I declared still what is installed" and it cannot answer "did I declare what
+// I used" — those are different questions and only the first was being asked.
+// Two concrete ways the gap bites, both named by the judge:
+//
+//   1. `preflight` reads `<root>/node_modules/tree-sitter-wasms/out/...` BY
+//      PATH, while `src/extractor/parser.ts` resolves via
+//      `require.resolve("tree-sitter-wasms/package.json")`. Under a nested or
+//      pnpm install those are two different files. The preflight would report
+//      OK about a blob the parser never loaded.
+//   2. A fifth grammar added to walker.ts would be loaded, parsed from, and
+//      folded into every key — and declared nowhere, drift-checked never.
+//
+// So this compares the REGISTRY (what was measured at load time, from the bytes
+// the loader consumed) against the lock. UNDECLARED is the outcome that did not
+// exist before and is the whole point.
+// ---------------------------------------------------------------------------
+
+export type CoverageOutcome = "OK" | "UNDECLARED" | "DRIFT" | "UNPINNED";
+
+export interface CoverageResult {
+  lane: string;
+  outcome: CoverageOutcome;
+  declared: string | null;
+  measured: string;
+  detail: string;
+}
+
+/**
+ * Compare artifacts MEASURED IN THIS PROCESS against the committed lock.
+ *
+ * Note which direction this runs: it is keyed by what was loaded, not by what
+ * was declared. A lane in the lock that this process never loaded is not a
+ * finding here — that is `observeToolchain`'s question, and it already asks it.
+ */
+export function coverageOf(
+  lock: Lockfile,
+  artifacts: readonly ArtifactIdentity[],
+): CoverageResult[] {
+  return [...artifacts]
+    .sort((a, b) => (a.lane < b.lane ? -1 : a.lane > b.lane ? 1 : 0))
+    .map((a) => {
+      const decl = lock.lanes[a.lane];
+      if (decl === undefined) {
+        return {
+          lane: a.lane,
+          outcome: "UNDECLARED" as const,
+          declared: null,
+          measured: a.digest,
+          detail:
+            `this process LOADED ${a.lane} (${a.source}) and the lock does not ` +
+            `declare it. Every fact derived from it is keyed against an artifact ` +
+            `no rebuild is obliged to reproduce.`,
+        };
+      }
+      if (decl.digest === null || decl.digest === undefined) {
+        return {
+          lane: a.lane,
+          outcome: "UNPINNED" as const,
+          declared: null,
+          measured: a.digest,
+          detail: `declared without a digest (${decl.why}); this process measured ${a.digest}`,
+        };
+      }
+      if (decl.digest !== a.digest) {
+        return {
+          lane: a.lane,
+          outcome: "DRIFT" as const,
+          declared: decl.digest,
+          measured: a.digest,
+          detail:
+            `the lock declares ${decl.digest} but this process LOADED ${a.digest}. ` +
+            `The lock is measured by path from the install root; the loader ` +
+            `resolves its own. When they disagree, the loader is the one that ` +
+            `produced the facts.`,
+        };
+      }
+      return {
+        lane: a.lane,
+        outcome: "OK" as const,
+        declared: decl.digest,
+        measured: a.digest,
+        detail: `loaded blob matches the declaration`,
+      };
+    });
+}
+
+/** Lanes this process should have loaded and did not declare. Empty is the pass. */
+export function coverageGaps(
+  lock: Lockfile,
+  artifacts: readonly ArtifactIdentity[],
+): CoverageResult[] {
+  return coverageOf(lock, artifacts).filter((c) => c.outcome !== "OK");
+}
+
+/** The enforcing verb for coverage. Throws when the lock does not cover the load. */
+export function assertCoverage(
+  lock: Lockfile,
+  artifacts: readonly ArtifactIdentity[],
+): CoverageResult[] {
+  const all = coverageOf(lock, artifacts);
+  if (all.length === 0) {
+    throw new PreflightRefused(
+      "LOCK_EMPTY",
+      "coverage was asserted over ZERO measured artifacts. A coverage check with " +
+        "nothing to cover passes trivially and forever — the same parse-zero shape " +
+        "oracle_preflight.py:351 pays for.",
+    );
+  }
+  const bad = all.filter((c) => c.outcome === "UNDECLARED" || c.outcome === "DRIFT");
+  if (bad.length > 0) {
+    throw new PreflightRefused(
+      "LOCK_MALFORMED",
+      `the lock does not cover what this process loaded:\n` +
+        bad.map((c) => `  ${c.outcome.padEnd(11)} ${c.lane} — ${c.detail}`).join("\n"),
+    );
+  }
+  return all;
 }
 
 /** The artifacts a preflight run measured, in the shape the key folds in. */

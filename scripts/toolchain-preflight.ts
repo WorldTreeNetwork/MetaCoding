@@ -30,6 +30,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { GRAMMARS } from "../src/extractor/walker.ts";
 import { beginRun } from "../src/testkit/floors.ts";
 import { toolchainDigest } from "../src/toolchain/identity.ts";
 import {
@@ -101,19 +102,25 @@ run.finish([
     min: 8,
     measuredAs: "lanesDeclared",
     why:
-      "the 8 lanes this repo's parse- and scip-derived facts come from today, " +
-      "counted from toolchain.lock.json when it was first written: 4 tree-sitter " +
-      "grammars + web-tree-sitter + scip-typescript + scip-python + scip-php. " +
-      "Deleting a lane from the declaration is how this check gets quietly " +
-      "narrowed, and it is the one thing a lock cannot report about itself.",
+      "A RATCHET, and disclosed as one: 8 was counted from toolchain.lock.json as " +
+      "written (4 tree-sitter grammars + web-tree-sitter + scip-typescript + " +
+      "scip-python + scip-php), which is the design document's own fake #4 — a " +
+      "floor derived from the thing it measures can only ever catch a DELETION. " +
+      "That is still worth having (deleting a lane is how this check gets quietly " +
+      "narrowed, and it is the one thing a lock cannot report about itself) but it " +
+      "is not evidence of coverage. The floor below is; so is assertCoverage() in " +
+      "src/toolchain/preflight.test.ts, which runs under `bun test`.",
   },
   {
-    min: 4,
+    min: GRAMMARS.length,
     measuredAs: "grammarLanes",
     why:
-      "src/extractor/walker.ts:117-120 loads exactly four grammars — typescript, " +
-      "tsx, python, php. Counted from that call site, not guessed. Fewer declared " +
-      "lanes than the walker loads means a grammar is parsing facts into the graph " +
-      "with no digest in the key, which is bead 0bm restated.",
+      `DERIVED, not counted: GRAMMARS.length (${GRAMMARS.length}) read at runtime ` +
+      "from src/extractor/walker.ts, which is the array the `Grammar` type is now " +
+      "derived FROM. A fifth grammar cannot typecheck without joining that array, " +
+      "so it raises this floor the moment it is added and this check goes red " +
+      "until the lock declares it. Before bead MetaCoding-7sv this floor was the " +
+      "literal 4 and a fifth grammar would have parsed facts into the graph with " +
+      "no digest in the key — bead 0bm restated, one grammar over.",
   },
 ]);

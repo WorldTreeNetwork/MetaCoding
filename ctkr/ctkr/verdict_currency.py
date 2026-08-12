@@ -72,6 +72,25 @@ The name rule survives only as a FALLBACK for builds the partition does not name
 and every row says which source decided it. A build tiered by the fallback is
 visible as such, because deciding a bound question by a proxy is the defect.
 
+A PARTITION THAT NAMES NOTHING IS NOT A PARTITION (`MetaCoding-hy6.60`)
+======================================================================
+`main()` refused a vacuous SWEEP and not a vacuous RECORD. With the two
+`partition-*.jsonl` files present but truncated to zero bytes, the gate reported
+`40 build(s) were tiered by the FALLBACK name rule`, moved three builds' gating
+status, and refused nothing — i.e. a rename, a bad glob or an unsynced `results/`
+hands the bound risk decision for every build back to the directory name, which
+is verbatim `hy6.55`'s defect restored. A partition file that exists and names no
+module now REFUSES. A partition that is genuinely ABSENT still falls back, and
+still says so on every row: there is a difference between "nobody wrote a record"
+and "the record I am reading is empty", and only the second is a broken instrument.
+
+The tier VOCABULARY is closed for the same reason. `{"module": "asset/land",
+"tier": "SPINE"}` used to be accepted verbatim and printed as `the recorded
+partition says SPINE` — the gate could not distinguish "the record says spine"
+from "the record says a word I do not recognise". A tier outside
+`identity|spine|unknown` is now an ERROR, and the module it names resolves to
+UNKNOWN, which gates: absence of an answer is never a yes.
+
 `hy6.51`'s prose enumeration lists `quick-folds` among the spine builds; the
 recorded partition says identity. The gate follows the RECORD and prints the
 disagreement rather than quietly picking — reconciling the two is `hy6.55`'s job,
@@ -103,6 +122,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ctkr.elenchus import port_workspace  # noqa: E402
 
 IDENTITY, SPINE, UNKNOWN = "identity", "spine", "unknown"
+
+#: The closed tier vocabulary, ordered by HOW MUCH EACH ONE GATES. `spine` is
+#: advisory, `identity` gates, and `unknown` gates and additionally means nobody
+#: decided — the strictest reading, because absence of an answer is never a yes.
+TIER_RANK = {SPINE: 0, IDENTITY: 1, UNKNOWN: 2}
 
 NAME_RULE = "directory name (FALLBACK — the partition does not name this build)"
 
@@ -168,6 +192,18 @@ def load_partition(workspace):
             module, tier = str(row.get("module") or ""), str(row.get("tier") or "")
             if not module or not tier:
                 continue
+            if tier not in TIER_RANK:
+                # A CLOSED VOCABULARY (hy6.60). `"SPINE"` used to be recorded
+                # verbatim and printed as if it were a tier. It gates either way
+                # — only the exact string `spine` disables gating — but a gate
+                # that cannot tell "the record says spine" from "the record says
+                # a word I do not recognise" is not reading the record.
+                p.errors.append(
+                    f"{os.path.basename(path)}:{n}: {tier!r} is not a tier — the "
+                    f"vocabulary is {'|'.join(sorted(TIER_RANK))}. {module} is "
+                    "recorded as UNKNOWN, which gates: a tier nobody can read is "
+                    "not a decision.")
+                tier = UNKNOWN
             seen.setdefault(module, set()).add(tier)
             cluster = str(row.get("cluster") or "")
             if cluster:
@@ -581,6 +617,21 @@ def main(argv=None):
     print(f"wave: {args.wave or '(all, minus RETIRED packs)'}")
     print(f"partition: {len(partition.tier_by_module)} module row(s) from "
           f"{len(partition.files)} file(s); retirement record: {len(retired)} seal(s)")
+    if partition.files and not partition.tier_by_module:
+        # A VACUOUS RECORD, symmetric with the vacuous sweep below (hy6.60). The
+        # partition files are THERE and name nothing, so every build would fall
+        # back to the directory-name proxy — which is hy6.55's defect restored,
+        # and it moved three builds' gating status when it was measured. A gate
+        # that cannot read the record it says it decides by is not entitled to an
+        # exit code for the right reason.
+        for e in partition.errors:
+            print(f"  ERR   {e}", file=sys.stderr)
+        print("REFUSING: the recorded partition names no module, but its file(s) are "
+              f"present: {', '.join(partition.files)}. Falling back to the directory "
+              "name for every build hands a bound risk decision back to a proxy "
+              "(hy6.55). A truncated, mis-globbed or unsynced partition is not a "
+              "clean bill of health.", file=sys.stderr)
+        return 2
     builds = discover(workspace, args.wave, partition, retired)
     if not builds:
         # An empty sweep is the classic vacuous pass: no builds found reads exactly

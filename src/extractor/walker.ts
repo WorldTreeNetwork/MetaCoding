@@ -42,7 +42,18 @@ import { extractPython, type ExtractPyOpts } from "./python";
 import { extractPhp, type ExtractPhpOpts } from "./php";
 import { assertMayIngest, type IngestTicket } from "../ingest/ticket.ts";
 
-type Grammar = "typescript" | "tsx" | "python" | "php";
+/**
+ * Every grammar this walker can parse with, ENUMERABLE AT RUNTIME.
+ *
+ * It was a bare union type (bead MetaCoding-7sv). A fifth grammar added there
+ * would have been loaded, folded into every layer-2 key, and declared in
+ * toolchain.lock.json never — the live preflight fixture hardcoded the four
+ * names, so nothing could notice. `Grammar` is now DERIVED from this array, so
+ * a new grammar cannot typecheck without joining the list, and the list is what
+ * src/toolchain/preflight.test.ts checks the lock against.
+ */
+export const GRAMMARS = ["typescript", "tsx", "python", "php"] as const;
+type Grammar = (typeof GRAMMARS)[number];
 
 export interface WalkOpts {
   /**

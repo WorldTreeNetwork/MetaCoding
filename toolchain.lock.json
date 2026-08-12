@@ -8,6 +8,21 @@
       "digest": null,
       "why": "UNPINNED, deliberately and loudly. The image is not pulled on the machine that wrote this lock, so `docker image inspect` has NO ANSWER for it — and no answer is not no drift. The lane is declared anyway so that its absence is REPORTED (SKIP_UNAVAILABLE, naming the lane) instead of being invisible, and so `--require-lanes` can refuse it. A machine that has pulled the image should `--write` and commit the resulting id. Note also that `:latest` is mutable by definition, which is why the digest — not the tag — is what a key may fold in."
     },
+    "npm:@ladybugdb/core": {
+      "kind": "package",
+      "source": "@ladybugdb/core",
+      "digest": "sha256:103af81a87aa0a69ad9e7c2057b79def9174465264ee0d34c9bce8eceb6a8023"
+    },
+    "npm:intelephense": {
+      "kind": "package",
+      "source": "intelephense",
+      "digest": "sha256:d5d0aa6acfc27b666de9982dc3a8e1518cce8b35f51a2de92c38ad5c0dc393aa"
+    },
+    "npm:typescript-language-server": {
+      "kind": "package",
+      "source": "typescript-language-server",
+      "digest": "sha256:8dec9c555da9f4a46d448a39e4a43a20fa6439a43b6b000213a17fbb767608e3"
+    },
     "npm:@sourcegraph/scip-python": {
       "kind": "package",
       "source": "@sourcegraph/scip-python",
