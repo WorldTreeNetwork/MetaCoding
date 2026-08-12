@@ -73,6 +73,32 @@
 7. **Read**: independent per-feature runner + composition smoke against the
    accumulated store + prevention checks (no ad-hoc kinds, no ordinal ids).
    (Formerly "Judge" — vocabulary per `epistemology-charter.md`.)
+8. **Exercise**: the port is DRIVEN and the verdict is recorded. `ctkr
+   port-verify <pack> --port <build>` replays the sealed observations through the
+   port's own bridge and writes a verdict of record under
+   `results/port-verify/`. A build with a bridge and no recorded verdict is not
+   done; a build whose observations exist only as ledger transcripts is not done
+   either, because the judge cannot eat them.
+
+   **Why this step had to be added (2026-08-11).** It was missing, and its
+   absence was invisible for exactly the reason a missing step always is: it was
+   never a step that could be skipped, because it was never a step. The recipe
+   ended at "Read", twenty-one wave-2 builds shipped, and the last port-verify
+   verdict of any kind was dated 2026-07-20 — before the wave began. Run cold on
+   2026-08-11 the apparatus worked first try and scored 60/60 across the four
+   builds that had a replayable pack. The other seventeen shipped 34 port
+   manifests and 31 bridges — the whole apparatus for BEING judged — with nothing
+   to judge them with.
+
+   Everything wave 2 built to notice things asks whether a RUN behaved. This is
+   the step that asks whether the PORT is right, and it is the only one that
+   compares the destination to the source rather than to itself.
+
+   **Not yet a step, and it should be:** the port as a RUNNING SYSTEM. There is
+   no server, no entry point, no deployable artifact anywhere in the workspace —
+   the destination is a library that answers a bridge when asked, and has never
+   been started, served or used. A methodology whose goal is a working system has
+   to make contact with one.
 
 Per-feature LLM cost, measured: **≈ $0.30–0.60** (surface ~$0.13, mining ~$0.16,
 adjudication ~$0.01, builder ~$0.25). 147 features ≈ **< $100 total LLM spend**.
