@@ -17,6 +17,19 @@ import { join } from "node:path";
 import { Store } from "../src/store";
 import type { Symbol } from "../src/store/types";
 import { gatherIndexState } from "../src/index-state";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): the count is derived from
+// the calls that run, so a deleted assertion is visible instead of silent.
+const run = beginRun("summary");
+
+const FLOORS: Floor[] = [
+  {
+    min: 10,
+    measuredAs: "checks",
+    why: "counted from the source: 10 assertion sites - 5 on the fresh store (symbols, indexed, dataDir, gatherIndexState indexed, staleness) and 5 on the filled one (symbols, indexed, snapshot present, snapshot count, indexed_at type)",
+  },
+];
 
 const DATA_DIR = mkdtempSync(join(tmpdir(), "metacoding-summary-smoke-"));
 
@@ -54,23 +67,13 @@ async function main(): Promise<void> {
 
   // 1. Fresh store: nothing indexed.
   const empty = await store.summary();
-  if (empty.symbols !== 0) {
-    throw new Error(`fresh store: expected symbols=0, got ${empty.symbols}`);
-  }
-  if (empty.indexed !== false) {
-    throw new Error(`fresh store: expected indexed=false, got ${empty.indexed}`);
-  }
-  if (empty.dataDir !== DATA_DIR) {
-    throw new Error(`fresh store: dataDir mismatch ${empty.dataDir} !== ${DATA_DIR}`);
-  }
+  run.check("fresh store reports symbols=0", empty.symbols === 0, `got ${empty.symbols}`);
+  run.check("fresh store reports indexed=false", empty.indexed === false, `got ${empty.indexed}`);
+  run.check("fresh store reports its dataDir", empty.dataDir === DATA_DIR, `got ${empty.dataDir}`);
 
   const emptyState = await gatherIndexState(store, DATA_DIR);
-  if (emptyState.indexed !== false) {
-    throw new Error(`fresh gatherIndexState: expected indexed=false, got ${emptyState.indexed}`);
-  }
-  if (emptyState.staleness !== null) {
-    throw new Error(`fresh gatherIndexState: expected staleness=null`);
-  }
+  run.check("fresh gatherIndexState reports indexed=false", emptyState.indexed === false, `got ${emptyState.indexed}`);
+  run.check("fresh gatherIndexState reports staleness=null", emptyState.staleness === null, `got ${emptyState.staleness}`);
   console.log(`empty summary OK: symbols=0 indexed=false`);
 
   // 2. After writing symbols.
@@ -78,27 +81,21 @@ async function main(): Promise<void> {
   await store.upsertSymbol(makeSymbol("b", "beta"));
 
   const filled = await store.summary();
-  if (filled.symbols !== 2) {
-    throw new Error(`filled store: expected symbols=2, got ${filled.symbols}`);
-  }
-  if (filled.indexed !== true) {
-    throw new Error(`filled store: expected indexed=true, got ${filled.indexed}`);
-  }
+  run.check("filled store reports symbols=2", filled.symbols === 2, `got ${filled.symbols}`);
+  run.check("filled store reports indexed=true", filled.indexed === true, `got ${filled.indexed}`);
   const snap = filled.repos.find((r) => r.repo === "smoke-repo");
-  if (!snap) {
-    throw new Error(`filled store: repo 'smoke-repo' missing from ${JSON.stringify(filled.repos)}`);
-  }
-  if (snap.symbols !== 2) {
-    throw new Error(`filled store: expected smoke-repo count=2, got ${snap.symbols}`);
-  }
-  if (typeof snap.indexed_at !== "string") {
-    throw new Error(`filled store: expected indexed_at string, got ${snap.indexed_at}`);
-  }
+  run.check(
+    "filled store carries a smoke-repo snapshot",
+    snap !== undefined,
+    `repos: ${JSON.stringify(filled.repos)}`,
+  );
+  run.check("smoke-repo snapshot counts 2 symbols", snap!.symbols === 2, `got ${snap!.symbols}`);
+  run.check("smoke-repo snapshot carries indexed_at", typeof snap!.indexed_at === "string", `got ${snap!.indexed_at}`);
   console.log(`filled summary OK: symbols=2 indexed=true repo=smoke-repo`);
 
   await store.close();
   cleanup();
-  console.log("SUMMARY_SMOKE_PASS");
+  run.finish(FLOORS);
 }
 
 main()

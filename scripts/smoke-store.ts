@@ -11,6 +11,19 @@
 import { existsSync, rmSync } from "node:fs";
 import { Store } from "../src/store";
 import type { Symbol, TokenRow } from "../src/store/types";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): the count is derived from
+// the calls that run, so a deleted assertion is visible instead of silent.
+const run = beginRun("store");
+
+const FLOORS: Floor[] = [
+  {
+    min: 6,
+    measuredAs: "checks",
+    why: "counted from the source: 6 assertion sites - graph round-trip, MERGE updated b.line, FTS returned hits, FTS hit the expected files, and 2 on-disk files",
+  },
+];
 
 const DATA_DIR = "./tmp-store-smoke";
 
@@ -65,12 +78,12 @@ async function main(): Promise<void> {
     `MATCH (a:Symbol)-[:CONTAINS]->(b:Symbol)
      RETURN a.id AS aid, b.id AS bid, b.line AS bline`,
   );
-  if (rows.length !== 1 || rows[0]?.aid !== "a" || rows[0]?.bid !== "b") {
-    throw new Error(`graph round-trip unexpected: ${JSON.stringify(rows)}`);
-  }
-  if (rows[0]?.bline !== 99) {
-    throw new Error(`MERGE did not update b.line — got ${rows[0]?.bline}`);
-  }
+  run.check(
+    "CONTAINS round-trips a->b",
+    rows.length === 1 && rows[0]?.aid === "a" && rows[0]?.bid === "b",
+    `got ${JSON.stringify(rows)}`,
+  );
+  run.check("MERGE updated b.line to 99", rows[0]?.bline === 99, `got ${rows[0]?.bline}`);
 
   // FTS round-trip.
   const tokens: TokenRow[] = [
@@ -81,11 +94,13 @@ async function main(): Promise<void> {
   s.writeTokens(tokens);
 
   const hits = s.searchTokens("orderService", 10);
-  if (hits.length < 1) throw new Error(`FTS search returned no hits`);
+  run.check("FTS search returns at least one hit", hits.length >= 1, "got none");
   const ids = hits.map((h) => h.file).sort();
-  if (!ids.includes("x.ts") && !ids.includes("y.ts")) {
-    throw new Error(`FTS missed expected hits: ${JSON.stringify(hits)}`);
-  }
+  run.check(
+    "FTS hit x.ts or y.ts",
+    ids.includes("x.ts") || ids.includes("y.ts"),
+    `got ${JSON.stringify(hits)}`,
+  );
 
   await s.close();
 
@@ -95,10 +110,10 @@ async function main(): Promise<void> {
     `${DATA_DIR}/tokens.fts.sqlite`,
   ];
   for (const f of expected) {
-    if (!existsSync(f)) throw new Error(`expected ${f} on disk`);
+    run.check(`${f} landed on disk`, existsSync(f), "missing");
   }
 
-  console.log("STORE_SMOKE_PASS");
+  run.finish(FLOORS);
   cleanup();
 }
 

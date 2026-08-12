@@ -14,6 +14,19 @@ import { join, resolve } from "node:path";
 
 import { LspService } from "../src/lsp";
 import { lspHover, lspDefinition, lspReferences } from "../src/mcp/lsp-tools";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): the count is derived from
+// the calls that run, so a deleted assertion is visible instead of silent.
+const run = beginRun("lsp-php");
+
+const FLOORS: Floor[] = [
+  {
+    min: 5,
+    measuredAs: "checks",
+    why: "counted from the source: 5 assertion sites - hover non-empty, hover names Greeter, definition found, definition in Greeter.php, at least 2 references",
+  },
+];
 
 const FIX = resolve("./tmp-php-lsp-fixture");
 
@@ -84,12 +97,16 @@ async function main(): Promise<void> {
         col: classDecl.col,
       });
     }
-    if (!hover.markdown || hover.markdown.length === 0) {
-      throw new Error(`lsp_hover returned empty markdown; raw: ${JSON.stringify(hover)}`);
-    }
-    if (!hover.markdown.includes("Greeter")) {
-      throw new Error(`lsp_hover for Greeter didn't mention 'Greeter'; got:\n${hover.markdown}`);
-    }
+    run.check(
+      "lsp_hover returns non-empty markdown",
+      Boolean(hover.markdown) && hover.markdown.length > 0,
+      `raw: ${JSON.stringify(hover)}`,
+    );
+    run.check(
+      "lsp_hover for Greeter names Greeter",
+      hover.markdown.includes("Greeter"),
+      `got:\n${hover.markdown}`,
+    );
     console.log(`hover OK (${hover.markdown.length} chars)`);
 
     // 2. Definition of `greet` from the call site in main.php.
@@ -99,11 +116,12 @@ async function main(): Promise<void> {
       line: callSite.line,
       col: callSite.col,
     });
-    if (defs.length === 0) throw new Error("lsp_definition(greet) returned no locations");
-    const inGreeter = defs.some((d) => d.file.endsWith("Greeter.php"));
-    if (!inGreeter) {
-      throw new Error(`expected definition in Greeter.php; got ${JSON.stringify(defs)}`);
-    }
+    run.check("lsp_definition(greet) returns a location", defs.length > 0, "got none");
+    run.check(
+      "lsp_definition(greet) lands in Greeter.php",
+      defs.some((d) => d.file.endsWith("Greeter.php")),
+      `got ${JSON.stringify(defs)}`,
+    );
     console.log(`definition OK -> ${defs[0]!.file}:${defs[0]!.line}`);
 
     // 3. References for greet() — should be >= 2 (decl + call site).
@@ -113,12 +131,10 @@ async function main(): Promise<void> {
       col: findIdentifier(join(FIX, "Greeter.php"), "greet").col,
       include_declaration: true,
     });
-    if (refs.length < 2) {
-      throw new Error(`lsp_references(greet) returned ${refs.length} (<2)`);
-    }
+    run.check("lsp_references(greet) returns at least 2", refs.length >= 2, `got ${refs.length}`);
     console.log(`references OK -> ${refs.length} hits`);
 
-    console.log("LSP_PHP_SMOKE_PASS");
+    run.finish(FLOORS);
   } finally {
     await lsp.shutdown();
     cleanup();

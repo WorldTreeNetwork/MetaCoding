@@ -14,6 +14,19 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 import { resolveDataDir, repoIdentity } from "../src/cli/data-dir";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): the count is derived from
+// the calls that run, so a deleted assertion is visible instead of silent.
+const run = beginRun("data-dir");
+
+const FLOORS: Floor[] = [
+  {
+    min: 5,
+    measuredAs: "checks",
+    why: "counted from the source: 5 assertion sites, one per numbered case - explicit flag, legacy .metacoding, XDG default, worktree collapse, remote-url collapse",
+  },
+];
 
 const TMP_REPO = resolve("./tmp-data-dir-smoke-repo");
 const TMP_WORKTREE = resolve("./tmp-data-dir-smoke-wt");
@@ -45,26 +58,20 @@ async function main(): Promise<void> {
 
   // 1. --data-dir flag wins.
   const explicit = await resolveDataDir(TMP_REPO, "/tmp/custom-data-dir");
-  if (explicit !== "/tmp/custom-data-dir") {
-    throw new Error(`expected explicit flag to win, got ${explicit}`);
-  }
+  run.check("--data-dir flag wins", explicit === "/tmp/custom-data-dir", `got ${explicit}`);
   console.log(`explicit override OK: ${explicit}`);
 
   // 2. Legacy .metacoding/ wins.
   const legacy = join(TMP_REPO, ".metacoding");
   mkdirSync(legacy, { recursive: true });
   const resolvedLegacy = await resolveDataDir(TMP_REPO, undefined);
-  if (!resolvedLegacy.endsWith(".metacoding")) {
-    throw new Error(`expected legacy path, got ${resolvedLegacy}`);
-  }
+  run.check("legacy .metacoding/ wins when present", resolvedLegacy.endsWith(".metacoding"), `got ${resolvedLegacy}`);
   console.log(`legacy .metacoding/ OK: ${resolvedLegacy}`);
   rmSync(legacy, { recursive: true, force: true });
 
   // 3. XDG default.
   const xdg = await resolveDataDir(TMP_REPO, undefined);
-  if (!xdg.startsWith(xdgAbs)) {
-    throw new Error(`expected XDG path, got ${xdg}`);
-  }
+  run.check("XDG default is used otherwise", xdg.startsWith(xdgAbs), `got ${xdg}`);
   console.log(`xdg default OK: ${xdg}`);
 
   // 4. Worktree-collapse via repoIdentity. Use absolute paths because
@@ -73,9 +80,7 @@ async function main(): Promise<void> {
 
   const idA = await repoIdentity(TMP_REPO);
   const idB = await repoIdentity(TMP_WORKTREE);
-  if (idA !== idB) {
-    throw new Error(`worktree collapse failed: ${idA} (main) vs ${idB} (worktree)`);
-  }
+  run.check("worktrees of one repo collapse to one id", idA === idB, `${idA} (main) vs ${idB} (worktree)`);
   console.log(`worktree collapse OK: ${idA}`);
 
   // 5. Same identity by remote URL across "clones" — two separate paths with
@@ -88,14 +93,12 @@ async function main(): Promise<void> {
   await Bun.$`git -C ${TMP_CLONE} config user.name "Smoke Test"`.quiet();
   await Bun.$`git -C ${TMP_CLONE} config remote.origin.url "https://example.com/test.git"`.quiet();
   const idClone = await repoIdentity(TMP_CLONE);
-  if (idClone !== idA) {
-    throw new Error(`remote-url-based identity should match across clones: ${idA} vs ${idClone}`);
-  }
+  run.check("clones sharing a remote collapse to one id", idClone === idA, `${idA} vs ${idClone}`);
   console.log(`remote-url collapse OK: ${idClone}`);
   rmSync(TMP_CLONE, { recursive: true, force: true });
 
   cleanup();
-  console.log("DATA_DIR_SMOKE_PASS");
+  run.finish(FLOORS);
 }
 
 main().catch((err) => {

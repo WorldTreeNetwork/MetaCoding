@@ -16,6 +16,19 @@
 
 import { rmSync, existsSync } from "node:fs";
 import { Database, Connection, VERSION, STORAGE_VERSION } from "@ladybugdb/core";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): the count is derived from
+// the calls that run, so a deleted assertion is visible instead of silent.
+const run = beginRun("ladybug");
+
+const FLOORS: Floor[] = [
+  {
+    min: 3,
+    measuredAs: "checks",
+    why: "counted from the source: 3 assertion sites - trivial RETURN, CONTAINS round-trip, storage file on disk",
+  },
+];
 
 const DB_PATH = "./tmp-smoke.lbug";
 
@@ -45,7 +58,7 @@ async function main(): Promise<void> {
   try {
     // 1. Trivial RETURN
     const ones = await query<{ x: number }>(conn, "RETURN 1 AS x;");
-    if (ones[0]?.x !== 1) throw new Error(`RETURN 1 failed: got ${JSON.stringify(ones)}`);
+    run.check("RETURN 1 round-trips", ones[0]?.x === 1, `got ${JSON.stringify(ones)}`);
 
     // 2. Create a node table
     await query(
@@ -75,14 +88,16 @@ async function main(): Promise<void> {
       conn,
       "MATCH (a:Symbol)-[:CONTAINS]->(b:Symbol) RETURN a.id AS id, b.id AS child_id;"
     );
-    if (rows.length !== 1 || rows[0]?.id !== "a" || rows[0]?.child_id !== "b") {
-      throw new Error(`MATCH result unexpected: ${JSON.stringify(rows)}`);
-    }
+    run.check(
+      "CONTAINS edge round-trips a->b",
+      rows.length === 1 && rows[0]?.id === "a" && rows[0]?.child_id === "b",
+      `got ${JSON.stringify(rows)}`,
+    );
 
     // 6. Confirm files landed
-    if (!existsSync(DB_PATH)) throw new Error(`expected ${DB_PATH} on disk`);
+    run.check(`${DB_PATH} landed on disk`, existsSync(DB_PATH), "missing");
 
-    console.log("SMOKE_PASS");
+    run.finish(FLOORS);
   } finally {
     // Mitigation 1: explicit close in reverse order of construction.
     await conn.close();
