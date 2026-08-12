@@ -41,11 +41,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Store } from "../store";
-import { indexDirectory } from "./walker";
+import { GRAMMARS, indexDirectory } from "./walker";
 import { makeParser } from "./parser";
 import { issueIngestTicket } from "../ingest/ticket.ts";
 import {
   digestBytes,
+  grammarLane,
   isDigest,
   loadedArtifacts,
   registerLoadedArtifact,
@@ -206,4 +207,29 @@ test("a build that parsed NOTHING still states its toolchain", async () => {
   expect(stats.filesUpdated).toBe(0); // nothing was parsed …
   expect(isDigest(stats.toolchain_digest)).toBe(true); // … and it is still keyed
   expect(stats.toolchain_digest).toBe(toolchainDigest(loadedArtifacts()));
+
+  // COVERAGE, not non-emptiness (bead MetaCoding-x0g, mutation W3).
+  //
+  // The equality above is SELF-REFERENTIAL: it compares the walker's digest to
+  // the registry the walker itself just left behind, so it cannot notice that
+  // the registry is SHORT. Replacing `for (const g of GRAMMARS) await
+  // loadLanguage(g)` in getParsers()'s cache-HIT path with a single
+  // `loadLanguage(GRAMMARS[0]!)` survived all 43 fixtures for exactly that
+  // reason — leg 1 asserts `length >= 4` but is the FIRST test in the file, so
+  // it runs on the COLD cache and never touches the hit path; leg 2 restores by
+  // calling makeParser for all four explicitly; and this leg, the only one that
+  // resets the registry and then indexes, was satisfied by one lane.
+  //
+  // That is not academic. A long-lived process — `metacoding watch`, an
+  // index-all over many repos, the MCP server — takes the MISS path once and
+  // the HIT path for every build after it. Under W3 each of those builds parses
+  // TypeScript, TSX, Python and PHP and reports a digest covering the
+  // TypeScript grammar alone: swap the php .wasm and the digest does not move,
+  // which is graph-as-cache.md:165 restored inside the fix for it.
+  //
+  // Derived, not a second hand-written list: GRAMMARS is the walker's own
+  // declaration and f04bf12 already tied it to detectGrammar.
+  expect(loadedArtifacts().map((a) => a.lane).sort()).toEqual(
+    [...GRAMMARS].map(grammarLane).sort(),
+  );
 });

@@ -157,6 +157,37 @@ describe("a key over an unmeasured toolchain is refused, not computed", () => {
     );
   });
 
+  // FOUND BY MUTATION W10 (bead MetaCoding-vj7). Deleting the per-lane
+  // `isDigest` recheck INSIDE toolchainDigest survived all 43 fixtures. Not an
+  // equivalent mutant: `registerLoadedArtifact` validates digests ENTERING the
+  // registry, so the default-argument path is covered by that earlier check —
+  // but this function takes an EXPLICIT array too, and nothing on that path
+  // went through the registry. Every MALFORMED_DIGEST fixture in this file goes
+  // through `registerLoadedArtifact`, so the copy of the check living here was
+  // asserted by nothing.
+  //
+  // It is the same unreached-refusal shape mutation M6 fixed for NO_ARTIFACTS
+  // three lines above it, and the same answer: a refusal no fixture reaches is
+  // the same object as no refusal (identity.ts:277, quoting
+  // oracle_preflight.py:351).
+  test("MALFORMED_DIGEST: an EXPLICIT array bypasses the registry, and is rechecked here", () => {
+    // The costume from N1, worn on the path the registry never sees.
+    const bad: ArtifactIdentity = {
+      lane: "x", kind: "file", source: "s", digest: "sha256:TODO",
+    };
+    expect(() => toolchainDigest([bad])).toThrow(/MALFORMED_DIGEST/);
+    // ...and it refuses even when a WELL-FORMED lane is present alongside it,
+    // so the guard is per-artifact rather than "the set contains no digest".
+    const good: ArtifactIdentity = {
+      lane: "a", kind: "file", source: "s", digest: digestBytes("1"),
+    };
+    expect(() => toolchainDigest([good, bad])).toThrow(/MALFORMED_DIGEST/);
+
+    // CONTRAST. Without it the two refusals above are satisfied by a function
+    // that refuses every explicit array.
+    expect(isDigest(toolchainDigest([good]))).toBe(true);
+  });
+
   test("toolchainDigest is order-independent but NOT lane-name-independent", () => {
     const a: ArtifactIdentity = { lane: "x", kind: "file", source: "s", digest: digestBytes("1") };
     const b: ArtifactIdentity = { lane: "y", kind: "file", source: "s", digest: digestBytes("2") };
