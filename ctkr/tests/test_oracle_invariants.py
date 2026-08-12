@@ -7,7 +7,7 @@ are measured results from the adversarial review of 2026-07-20
 (``eval/ctkr/results/wave1-readiness-v2-2026-07-20.md``).
 
   I1  every value declares its authority
-  I2  the defendant never holds a pen that touches the verdict
+  I2  the thesis does not write its own reading
   I3  absence of an answer is never an answer
 """
 
@@ -630,7 +630,7 @@ def test_a_port_that_declines_where_it_would_be_wrong_is_not_clean() -> None:
 
     A bridge that declined exactly the inputs it would get wrong reported
     ``answered 24, UNANSWERABLE 6, failed 0, reproduced 24/24 = 100.0%``, versus
-    ``5 proven-wrong values, EXIT=1`` when it did not decline. The defendant
+    ``5 proven-wrong values, EXIT=1`` when it did not decline. The thesis
     chose whether its own refusal counted as a gap or a failure, and nothing
     flagged "declared this probe, then declined 6/30 of its calls".
     """
@@ -720,7 +720,7 @@ def test_a_dead_bridge_becomes_no_verdict_not_a_crash() -> None:
 
 def test_response_correlation_is_mandatory() -> None:
     """Risk 7. ``if resp.get("id") not in (None, req["id"])`` made correlation
-    opt-out by the defendant: a bridge omitting ``id`` may answer out of order,
+    opt-out by the thesis: a bridge omitting ``id`` may answer out of order,
     including replaying a previous fixture's correct answer."""
     script = (
         "import sys, json\n"

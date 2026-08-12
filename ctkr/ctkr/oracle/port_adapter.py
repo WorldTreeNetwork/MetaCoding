@@ -177,7 +177,7 @@ class PortBridge:
         except json.JSONDecodeError as exc:
             raise BridgeError(f"port bridge answered {op!r} with non-JSON: {line!r}") from exc
         # Correlation is MANDATORY. Accepting `id: None` made correlation
-        # opt-out by the defendant: a bridge that omits the field may answer out
+        # opt-out by the thesis: a bridge that omits the field may answer out
         # of order, including replaying a previous fixture's correct answer.
         if resp.get("id") != req["id"]:
             raise BridgeError(

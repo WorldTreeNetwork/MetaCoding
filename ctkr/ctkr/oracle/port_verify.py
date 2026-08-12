@@ -22,12 +22,21 @@ validated against. A derived value with no such validation is **not evidence**:
 calls the port at all. This is why the C1 result inverts — a port that matches
 farmOS can no longer be failed by a probe that never asked farmOS.
 
-**I2 — the defendant never holds a pen that touches the verdict.** The only
+**I2 — the thesis does not write its own reading.** (Formerly *"the defendant
+never holds a pen that touches the verdict"*. The property is unchanged; the
+vocabulary is, per ``docs/design/epistemology-charter.md``, which retired the
+courtroom for the dialectic — thesis, antithesis, synthesis — on the grounds that
+prosecution *"abandoned the search"*. A defendant is someone you are trying to
+convict; a thesis is a mind's best faithful work, stated with citations, which is
+what a port actually is. The fresh reading exists because the builder is
+SATURATED, not suspect. Renamed 2026-08-12 at Duke's instruction, in the code as
+well as the prose, because the charter changed the words everywhere except the
+place they were load-bearing.) The only
 inputs to this function that shape the score are the probe contract (repo), the
 sealed pack (recorder), and the decision registry (repo). The port supplies its
 capabilities and its divergences: two claims *about itself*, both of which can
 only hurt it. There is no ``marks`` parameter, because there is no artifact in
-which the party being judged may say which evidence counts.
+which the work being read may say which evidence counts.
 
 **I3 — absence of an answer is never an answer.** One bucket,
 :data:`AssertionStatus.NO_VERDICT`, absorbs every shape of "we did not learn the
@@ -734,7 +743,7 @@ def verify_port(
     * ``decisions`` — the repo's decision registry, resolved from a fixed path.
 
     There is no ``marks`` parameter and no ``fixtures`` parameter. Removing them
-    is the fix: they were the two places the defendant reached into the verdict.
+    is the fix: they were the two places the thesis reached into its own reading.
     """
     fixtures = list(pack.fixtures)
     declaration_problems: list[str] = []

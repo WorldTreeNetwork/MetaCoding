@@ -1,6 +1,6 @@
 """What a port DECLARES **about itself** — and nothing else.
 
-INVARIANT 2: *the defendant never holds a pen that touches the verdict.*
+INVARIANT 2: *the thesis does not write its own reading.*
 
 A port may state exactly two kinds of thing, and both are claims about the port:
 

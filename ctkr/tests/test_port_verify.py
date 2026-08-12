@@ -450,7 +450,7 @@ def test_an_order_sensitive_fixture_cannot_pass_for_the_wrong_reason() -> None:
     assert report.score.scored_passed == 0
 
 
-# ---- INVARIANT 2: the defendant holds no pen that touches the verdict ------- #
+# ---- INVARIANT 2: the thesis holds no pen that touches its own reading ------- #
 def test_a_port_manifest_cannot_carry_fixture_marks() -> None:
     """C2. The attack, in full: a deliberately-broken port scored
     `passed 25 / failed 5 / reproduced 83.3% / EXIT=1`. Adding five

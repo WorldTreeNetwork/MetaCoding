@@ -1,6 +1,15 @@
-"""The SEALED PACK — evidence with a chain of custody the defendant cannot hold.
+"""The SEALED PACK — evidence whose citations the thesis cannot author.
 
-INVARIANT 2: *the defendant never holds a pen that touches the verdict.*
+The charter (``docs/design/epistemology-charter.md``) states what a seal is and is
+not, and this module is the implementation of that sentence: *"A seal is not a
+tamper barrier; it is a STATEMENT OF IDENTITY — 'this is the pack I mean,' so two
+minds discuss the same evidence."* Likewise a fixture citing its witness *"is not
+a chain of custody; it is a CITATION — 'how do you know?' answered inside the
+artifact."* Against deception there is no internal defence, only external anchors;
+against error, saturation and drift — the actual failure modes of honest work —
+this machinery is cheap, effective and kind.
+
+INVARIANT 2: *the thesis does not write its own reading.*
 
 A recorded fixture pack used to be three loose files in a directory, named on the
 command line by whoever was being judged. That gave the port four pens it should
@@ -69,7 +78,7 @@ internal machinery can (every defense here is built by the hands it would
 defend against; there is no fixed point inside the system). Its authorities
 are external and named: the live source, reviewed history, human eyes. The
 seal IDENTIFIES a pack; the witness CITES an observation; the ledger REMEMBERS
-what was recorded; none of them prosecutes. Further tamper-resistance against
+what was recorded; none of them accuses. Further tamper-resistance against
 ourselves is out of scope — see docs/design/epistemology-charter.md.
 """
 
@@ -540,7 +549,7 @@ def load_pack(fixtures_path: str | Path, *, require_seal: bool = True) -> Pack:
             raise PackError(
                 f"no {SEAL_NAME} beside {fx_path}. An unsealed pack states nothing "
                 f"about its own completeness, so the party being judged chooses "
-                f"its scope — which is not a thing a defendant may do. There is "
+                f"its scope — which is not a thing the thesis may do. There is "
                 f"no verb that seals a pack you already have: a seal is issued "
                 f"by the act of recording (`ctkr oracle-record`), against the "
                 f"live source. Re-record it."

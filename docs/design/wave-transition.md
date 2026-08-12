@@ -108,17 +108,36 @@ so" is not.
 - **Probe without the ledger.** Already an admitted hole (`ledger.py` docstring):
   six lines of urllib gets you an OAuth token. Unchanged by this design.
 
+## Decisions
+
+**1. `wave open` REFUSES, with an override — ruled by Duke, 2026-08-12.**
+
+Refusal is the mechanism; the override is what keeps it usable. The two failure
+modes are symmetric and both are fatal: a gate that only warns becomes advisory
+within a week, and a gate with no escape hatch gets bypassed by editing the ledger
+by hand — at which point you have neither enforcement nor a record.
+
+So the override is not a weakening, it is *where the record comes from*:
+
+- `ctkr wave open <name>` exits non-zero while the predecessor is open.
+- `--force <reason>` proceeds AND writes the reason into `WAVES.jsonl` as a row of
+  its own. An override is a first-class recorded event, not a silence.
+- A `--force` with no reason, or a reason under a few words, is refused. The
+  friction is the point: the cost of overriding should be stating why, and that
+  cost should land on the person overriding rather than on the next reader.
+
+This mirrors what the flags already do correctly — the mechanism reports, the human
+decides, and the deciding is recorded. What it refuses is the *unrecorded* skip.
+
 ## Open decisions — these are Duke's, not an implementer's
 
-1. **Does `wave open` refuse, or warn loudly?** Refusing is the design; warning is
-   the safer first version and is also how a gate quietly becomes advisory forever.
-2. **Is `wave1-c1` a wave, a variant, or a lane?** The naming is already ambiguous
+1. **Is `wave1-c1` a wave, a variant, or a lane?** The naming is already ambiguous
    and the answer decides what `predecessor` means and what `verdict_currency`
    should scope to (`hy6.56`).
-3. **Should the Elenchus be an A-check (artifact exists) or a B-affirmation (it was
+2. **Should the Elenchus be an A-check (artifact exists) or a B-affirmation (it was
    read)?** Both, probably — but B has no teeth and A is satisfiable by producing a
    document nobody read.
-4. **What closes wave 2?** It is open now, by this design's own definition, with 49
+3. **What closes wave 2?** It is open now, by this design's own definition, with 49
    open beads and 12 identity builds lacking verdicts. Closing it is the first use
    of the ritual and the honest test of whether it is usable.
 
