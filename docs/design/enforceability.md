@@ -8,7 +8,17 @@ taste.
 
 ## The measurement that starts it
 
-**There is no CI and there are no git hooks. In either repo.**
+**There is no CI and there are no git *repo* hooks. In either repo.**
+
+**Correction, same day:** the first draft of this document stopped there and concluded
+the surface was three things. It missed one, and it is the most valuable one — Claude
+Code's own `PreToolUse`/`PostToolUse` hooks in `.claude/settings.json`. Those *do*
+execute, unconditionally, before every matching tool call, for the main session and
+for every subagent. A process-observing agent caught the omission and proposed the
+first one: a refusal of `cd <path> && <interpreter>`, which is the only failure this
+week with a purely syntactic signature and would have prevented `hy6.52` outright.
+It is now live and proven to fire. **Tool hooks are the strongest surface available
+here — stronger than the import path, because an agent cannot route around them.**
 
 ```
 .github/workflows        — absent, MetaCoding and farmos-port
@@ -21,7 +31,8 @@ So the execution surface of this project is exactly three things:
 1. what a human or an agent types,
 2. `bun test` and `bun run smoke`, which are typed often enough to count as habit,
 3. **the import path** — code you cannot avoid running, because it is how the job
-   gets done at all.
+   gets done at all,
+4. **Claude Code tool hooks** (`.claude/settings.json`) — see the correction above.
 
 Nothing else runs. Ever. A "gate" outside those three is a document with an exit
 code.

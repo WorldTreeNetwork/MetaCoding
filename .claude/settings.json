@@ -21,6 +21,18 @@
         ],
         "matcher": ""
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | grep -qE 'cd[[:space:]]+[^&|;]+&&.*(python3|node|sed[[:space:]]+-i)' && printf '%s' \"{\\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PreToolUse\\\", \\\"permissionDecision\\\": \\\"deny\\\", \\\"permissionDecisionReason\\\": \\\"cwd does not reliably hold for a 'cd <path> && <interpreter>' compound in this harness, so relative reads/writes land in the REAL tree instead of your temp copy. On 2026-08-12 that put four mutations into ctkr/ctkr/verdict_currency.py and shipped a gate that passed everything (MetaCoding-hy6.52). Use absolute paths instead: python3 /abs/path/script.py, or git -C /abs/repo ..., or write the script to a file and reference every path absolutely. See docs/design/enforceability.md.\\\"}}\"; exit 0",
+            "statusMessage": "checking for cd+interpreter"
+          }
+        ]
+      }
     ]
   }
 }

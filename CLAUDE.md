@@ -146,6 +146,37 @@ status-check calls, exponentially back off the boulder cadence. Filing an
 issue against `oh-my-claudecode` is tracked separately — see bead
 `MetaCoding-4jw` for the discussion.
 
+### Command timing, measured — and why agents die here
+
+`bun test` over this repo takes **~16 minutes**. `bun run smoke` runs 22 scripts and
+is slower. A subagent that calls either in the FOREGROUND is killed by the ~180s
+stall watchdog before it returns.
+
+Measured across 12 agents on 2026-08-11/12: every agent whose longest single
+blocking call stayed under 200s delivered its work (4/4). Six of seven agents whose
+longest call exceeded 960s were killed (`iteration-methodology.md` mandates a clean
+baseline *before and after* a mutation round — that is two full-suite runs, and it is
+what kills them).
+
+So, for any subagent:
+- `run_in_background: true`, or an explicit `timeout`, for anything that could exceed
+  ~120s. Never a bare foreground `bun test`.
+- Scope the run: `bun test src/testkit/` finishes in seconds.
+- **COMMIT INCREMENTALLY.** A killed agent's uncommitted work is worse than lost —
+  it is a poison pill. On 2026-08-12 one agent finished correct work, died before
+  committing, and five successive retries each spent their entire budget
+  re-discovering the dirty tree it left behind: 3h22m of wall clock and ~1.77M tokens
+  for zero output, until the 375 orphaned lines were rescued by hand.
+- **File beads before composing the report.** A judge killed mid-run that night had
+  already filed `hy6.52`–`hy6.57`; its prose was lost and its findings survived.
+
+### Absolute paths, always
+
+A `cd <path> && <interpreter>` compound does not reliably hold cwd here. On
+2026-08-12 that landed four mutations in the real source and shipped a gate that
+passed everything (`MetaCoding-hy6.52`). A `PreToolUse` hook in
+`.claude/settings.json` now refuses that shape — see `docs/design/enforceability.md`.
+
 ### Reporting data-dir scope on artifact-producing tasks
 
 **Anti-pattern.** In the 2026-05-28 session, three executor agents reindexed
