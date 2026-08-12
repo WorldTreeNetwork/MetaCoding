@@ -139,6 +139,50 @@ test("the reported digest MOVES with the registry, and moves back", async () => 
   expect(restored.toolchain_digest).toBe(before.toolchain_digest);
 });
 
+test("a build whose measurement VANISHED mid-walk is REFUSED, not reported", async () => {
+  // FOUND BY MUTATION M6. Swallowing `toolchainDigest()`'s refusal and
+  // reporting "" survived the three legs above, because after the eager load
+  // the registry is never empty at key time — so the production refusal, the
+  // thing the whole module turns on, was computed and never exercised.
+  //
+  // This stages the one condition that empties it: the loader stopped
+  // measuring. `indexDirectory` takes its writer by parameter, so a writer that
+  // clears the registry as the first symbol is written puts the run in exactly
+  // the state a de-registering loader would. The build must REFUSE. Reporting
+  // parse-derived facts with no toolchain behind them is the defect, and "" is
+  // not a milder version of it.
+  writeFileSync(join(repoDir, "c.ts"), "export class C { m() { return 1; } }\n", "utf-8");
+  const repo = "0bm-vanished";
+
+  const saboteur = {
+    dataDir: store.dataDir,
+    async upsertSymbol(...args: Parameters<typeof store.upsertSymbol>) {
+      resetLoadedArtifacts(); // the measurement is gone; the parse already happened
+      return store.upsertSymbol(...args);
+    },
+    addEdge: store.addEdge.bind(store),
+    writeTokens: store.writeTokens.bind(store),
+  };
+
+  await expect(
+    indexDirectory(saboteur, repoDir, { repo, branch: "main", ticket: ticketFor(repo) }),
+  ).rejects.toThrow(/NO_ARTIFACTS/);
+
+  // CONTRAST, same writer shape and same tree, with the sabotage removed: it
+  // returns, and returns a digest. Without this the refusal above could be the
+  // fake writer failing for any reason at all.
+  const honest = {
+    dataDir: store.dataDir,
+    upsertSymbol: store.upsertSymbol.bind(store),
+    addEdge: store.addEdge.bind(store),
+    writeTokens: store.writeTokens.bind(store),
+  };
+  const ok = await indexDirectory(honest, repoDir, {
+    repo, branch: "main", ticket: ticketFor(repo),
+  });
+  expect(isDigest(ok.toolchain_digest)).toBe(true);
+});
+
 test("a build that parsed NOTHING still states its toolchain", async () => {
   // Not a hypothetical: a tree of docs, or an excluded-everything run. The
   // registry is emptied first so this cannot pass on residue from the tests
