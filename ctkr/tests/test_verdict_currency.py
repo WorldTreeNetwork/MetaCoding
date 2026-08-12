@@ -63,9 +63,17 @@ def workspace(tmp_path, builds, verdicts=(), wave="wave2", partition=(),
         pr = tmp_path / "port_runs"
         pr.mkdir(parents=True, exist_ok=True)
         with (pr / "PACKS.jsonl").open("a") as fh:
-            for seal, reason in retired:
-                fh.write(json.dumps({"record": "retirement", "seal": seal,
-                                     "reason": reason}) + "\n")
+            for entry in retired:
+                # (seal, reason) keeps the old call sites meaning what they meant:
+                # scoped to the wave under test. (seal, reason, scope) is the
+                # knob MetaCoding-hy6.58's reds need — including scope=None, a
+                # retirement that names no wave and must therefore exempt nothing.
+                seal, reason = entry[0], entry[1]
+                scope = entry[2] if len(entry) > 2 else {"wave": wave}
+                row = {"record": "retirement", "seal": seal, "reason": reason}
+                if scope is not None:
+                    row["scope"] = scope
+                fh.write(json.dumps(row) + "\n")
     return str(tmp_path)
 
 
@@ -437,3 +445,73 @@ def test_main_exits_0_when_every_gating_build_is_current(tmp_path):
     workspace(tmp_path, {"identity-a": {"seal": "abc"}, "spine-b": {"seal": None}},
               [("a.json", verdict("w2-identity-a", "abc"))])
     assert main(["--workspace", str(tmp_path)]) == 0
+
+
+# ---------------------------------------------------------------------------
+# hy6.58 — a retirement excuses the wave it NAMES, and no other
+# ---------------------------------------------------------------------------
+
+def test_a_LIVE_build_carrying_a_RETIRED_seal_from_another_wave_GATES(tmp_path):
+    """THE P0, as a fresh judge demonstrated it: copy wave0-pilot's 40-byte
+    pack.seal.json into a brand-new build in a brand-new wave and the gate said
+    '1 exempt (pack RETIRED) ... of the 0 live' and EXITED 0 on a build with no
+    verdict anywhere. Exemption keyed on the seal STRING ALONE, unscoped.
+
+    It is not adversarial: _find_seal ascends directories on purpose, so any
+    manifest dropped under a wave root holding a retired seal inherited it."""
+    ws = workspace(tmp_path, {"identity-brandnew": {"seal": "RETIRED-SEAL"}},
+                   wave="wave9",
+                   retired=[("RETIRED-SEAL", "wave0 pilot: fixtures no longer re-hash",
+                             {"wave": "wave0-pilot"})])
+    r = rows_of(ws)["wave9/identity-brandnew"]
+    assert r.gates, "a copied retirement seal exempted a live build in another wave"
+    assert r.state == "undeterminable"
+    assert "retires FOR 'wave0-pilot'" in r.detail
+
+
+def test_the_SAME_seal_IS_an_exemption_inside_the_wave_it_names(tmp_path):
+    """The contrast, and it is what keeps the retirement record useful: an
+    exemption that excused nothing would make wave0-pilot permanently red, which
+    is the always-red failure mode the original recency rule was answering."""
+    ws = workspace(tmp_path, {"w0a-build": {"seal": "RETIRED-SEAL"}},
+                   wave="wave0-pilot",
+                   retired=[("RETIRED-SEAL", "wave0 pilot: fixtures no longer re-hash",
+                             {"wave": "wave0-pilot"})])
+    r = rows_of(ws)["wave0-pilot/w0a-build"]
+    assert not r.gates
+    assert r.build.retired_reason
+
+
+def test_a_retirement_that_names_NO_wave_exempts_NOTHING(tmp_path):
+    """An unscoped retirement is a skeleton key. Absence of an answer is never a
+    yes — and the row is reported as a defect in the record rather than ignored."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "LOOSE"}},
+                   retired=[("LOOSE", "retired, scope unstated", None)])
+    _out, errors = load_retirements(ws)
+    assert any("skeleton key" in e for e in errors), errors
+    assert rows_of(ws)["wave2/identity-a"].gates
+
+
+def test_an_ORDINARY_pack_row_carrying_a_seal_is_not_a_retirement(tmp_path):
+    """The judge's J01, which SURVIVED: dropping the `record == "retirement"`
+    filter exempted TEN more live builds and no test noticed, because every
+    fixture wrote only retirement rows — so the filtered and unfiltered readings
+    agreed on every case. The real PACKS.jsonl is 43 rows and ALL 43 carry a
+    seal; that one `continue` is the entire exemption mechanism."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "PACKSEAL"}})
+    with open(f"{ws}/port_runs/PACKS.jsonl", "a") as fh:
+        fh.write(json.dumps({"pack_id": "p1", "seal": "PACKSEAL",
+                             "recorded_at": "2026-07-23"}) + "\n")
+    out, errors = load_retirements(ws)
+    assert out == {}, f"an ordinary pack row was read as a retirement: {out}"
+    assert rows_of(ws)["wave2/identity-a"].gates
+    # AND the discriminating half. `out == {}` alone does NOT distinguish the two
+    # readings any more: with the filter dropped, an ordinary pack row falls out
+    # at the scope requirement instead — same empty result, different reason. The
+    # scope check was masking the missing discriminator, which is the exact shape
+    # 2527935 was about (a rule tested only where its two readings agree).
+    # An ordinary pack row must never be EXAMINED as a retirement, so it must not
+    # produce a retirement's complaint about scope.
+    assert not any("scope" in e for e in errors), (
+        "an ordinary pack row was examined as a retirement and complained about "
+        f"its missing scope: {errors}")

@@ -239,8 +239,25 @@ def resolve_tier(partition, dirname, package="", feature=""):
 # ---------------------------------------------------------------------------
 
 def load_retirements(workspace):
-    """Seals `port_runs/PACKS.jsonl` records as RETIRED, with the reason given.
-    This — not directory recency — is what exempts a build."""
+    """Seals `port_runs/PACKS.jsonl` records as RETIRED, **with the scope they
+    retire**, as {seal: (reason, wave)}. This — not directory recency — is what
+    exempts a build.
+
+    THE SCOPE IS REQUIRED, AND THAT IS THE WHOLE FIX (MetaCoding-hy6.58). The
+    first version keyed exemption on the seal STRING ALONE, unscoped by wave,
+    build or date. A fresh judge copied wave0-pilot's 40-byte `pack.seal.json`
+    into a brand-new build in a brand-new wave and the gate reported
+    "1 exempt (pack RETIRED) ... of the 0 live" and EXITED 0 on a build with no
+    verdict anywhere. `_find_seal` ascends directories on purpose (wave1-c1
+    shares one pack across portA/portB), so any manifest dropped under a wave
+    root holding a retired seal inherited the exemption silently.
+
+    A RETIREMENT ROW WITH NO SCOPE NOW EXEMPTS NOTHING. That direction is not
+    arbitrary: the retirement reason on both live rows is "fixtures no longer
+    re-hash", i.e. the pack CANNOT BE REPLAYED — the strongest form of "we did
+    not learn the answer", which everywhere else in this file gates. An unscoped
+    retirement is a skeleton key, and absence of an answer is never a yes.
+    """
     out, errors = {}, []
     path = os.path.join(workspace, "port_runs", "PACKS.jsonl")
     if not os.path.isfile(path):
@@ -262,8 +279,20 @@ def load_retirements(workspace):
         if str(row.get("record") or "") != "retirement":
             continue
         seal = str(row.get("seal") or "")
-        if seal:
-            out[seal] = str(row.get("reason") or "(no reason recorded)")
+        if not seal:
+            continue
+        reason = str(row.get("reason") or "(no reason recorded)")
+        scope = row.get("scope") or {}
+        wave = str(scope.get("wave") or "") if isinstance(scope, dict) else ""
+        if not wave:
+            errors.append(
+                f"PACKS.jsonl:{n}: retirement of seal {seal[:12]} names no "
+                f"scope.wave — it exempts NOTHING. A retirement without a scope "
+                f"is a skeleton key: any build in any wave carrying a copy of "
+                f"that seal file would be excused. Add "
+                f'"scope": {{"wave": "<the wave this pack belongs to>"}}.')
+            continue
+        out[seal] = (reason, wave)
     return out, errors
 
 
@@ -279,6 +308,11 @@ class Build:
     tier: str
     tier_source: str
     manifest: str
+    #: The wave this build lives in. Carried rather than re-split out of `name`
+    #: at the use site: a retirement is scoped BY WAVE (MetaCoding-hy6.58), so
+    #: this is decision input, not display.
+    wave: str = ""
+
     dirname: str = ""         # the build directory the old name rule would read
     port_id: str = ""         # the id its manifest declares
     seal: str = ""            # what its pack says TODAY
@@ -336,7 +370,7 @@ def discover(workspace, wave=None, partition=None, retired=None):
 
         tier, source = resolve_tier(partition, dirname, package, feature)
         b = Build(name=name, tier=tier, tier_source=source, manifest=manifest,
-                  dirname=dirname, port_id=port_id)
+                  wave=this_wave, dirname=dirname, port_id=port_id)
         if doc_error:
             b.id_error = doc_error + " — its declared port id is unreadable"
 
@@ -352,7 +386,20 @@ def discover(workspace, wave=None, partition=None, retired=None):
             except (OSError, ValueError) as exc:
                 b.seal_error = f"cannot read {sealp}: {exc}"
         if b.seal and b.seal in retired:
-            b.retired_reason = retired[b.seal]
+            reason, scope_wave = retired[b.seal]
+            # THE SCOPE CHECK (MetaCoding-hy6.58). The retirement excuses the
+            # wave it names and no other. A build carrying a copy of a retired
+            # seal from somewhere else is NOT excused — it is a build whose pack
+            # cannot be replayed, which gates.
+            if b.wave == scope_wave:
+                b.retired_reason = reason
+            else:
+                b.seal_error = (
+                    f"carries seal {b.seal[:12]}, which PACKS.jsonl retires FOR "
+                    f"{scope_wave!r} — this build is in {b.wave!r}. A retired "
+                    f"pack cannot be replayed, so outside the wave it was "
+                    f"retired for it is not an exemption, it is an unanswerable "
+                    f"build.")
         builds.append(b)
 
     # An ambiguous identifier is not an identifier: if two builds declare the
