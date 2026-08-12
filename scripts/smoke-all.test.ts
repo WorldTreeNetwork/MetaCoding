@@ -71,6 +71,24 @@ describe("exit 0 without a record is not a pass", () => {
 // suite floors whole; lower the runner's own checks floor 5 -> 1) all survived
 // the full test suite. Each case below drives runSuite() over a real stub
 // suite in a real subprocess, and each names the mutation it kills.
+//
+// MEASURED, not assumed. Isolated clone at /tmp/rjx-mut, absolute paths, each
+// anchor matched EXACTLY ONCE, each mutant parse-checked, baseline 75 pass /
+// 0 fail before AND after the run. 12 mutants, 12 KILLED:
+//   N6   delete `silent.push(script)`                            KILLED
+//   N7   the bracket's refusal -> literal `true`                 KILLED
+//   N9   scriptsReported = selected.length, not records parsed   KILLED
+//   N10  the checksAcrossSuite floor dropped whole               KILLED
+//   N10b the scriptsReported floor dropped whole                 KILLED
+//   N11  the runner's own checks floor 5 -> 1                    KILLED
+//   N12  the exit-code verdict back to check() (shadows again)   KILLED
+//   V1   finish() swallows held verdicts                         KILLED
+//   V2   a FAILING verdict counted as a passing check            KILLED
+//   V3   a refused label re-used to count a passing check        KILLED
+//   P1   measure() accepts a value with no provenance            KILLED
+//   P2   every floor reported as `derived`                       KILLED
+// N6/N7/N9/N10/N11 are five of the ten the judge ran that SURVIVED before this
+// block existed.
 // ---------------------------------------------------------------------------
 
 const SUITE_FIXTURE = "src/testkit/fixtures/smoke-suite-fixture.ts";
