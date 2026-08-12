@@ -146,29 +146,42 @@ status-check calls, exponentially back off the boulder cadence. Filing an
 issue against `oh-my-claudecode` is tracked separately — see bead
 `MetaCoding-4jw` for the discussion.
 
-### Command timing, measured — and why agents die here
+### Command timing — MEASURED, and the number I first wrote here was wrong
 
-`bun test` over this repo takes **~16 minutes**. `bun run smoke` runs 22 scripts and
-is slower. A subagent that calls either in the FOREGROUND is killed by the ~180s
-stall watchdog before it returns.
+**Measured 2026-08-12, by running them:**
 
-Measured across 12 agents on 2026-08-11/12: every agent whose longest single
-blocking call stayed under 200s delivered its work (4/4). Six of seven agents whose
-longest call exceeded 960s were killed (`iteration-methodology.md` mandates a clean
-baseline *before and after* a mutation round — that is two full-suite runs, and it is
-what kills them).
+| command | wall clock |
+|---|---|
+| `bun test` (MetaCoding, 580 tests / 43 files) | **~38-41s** |
+| `bun test` (farmos-port, 980 tests / 76 files) | **~2s** |
+| `bun run smoke` | **~0.7s** — it fails fast at `smoke-extractor.ts` (`6ep`) |
 
-So, for any subagent:
-- `run_in_background: true`, or an explicit `timeout`, for anything that could exceed
-  ~120s. Never a bare foreground `bun test`.
-- Scope the run: `bun test src/testkit/` finishes in seconds.
-- **COMMIT INCREMENTALLY.** A killed agent's uncommitted work is worse than lost —
-  it is a poison pill. On 2026-08-12 one agent finished correct work, died before
-  committing, and five successive retries each spent their entire budget
-  re-discovering the dirty tree it left behind: 3h22m of wall clock and ~1.77M tokens
-  for zero output, until the 375 orphaned lines were rescued by hand.
-- **File beads before composing the report.** A judge killed mid-run that night had
-  already filed `hy6.52`–`hy6.57`; its prose was lost and its findings survived.
+**Nothing in this project takes 16 minutes.** An earlier version of this section said
+`bun test` took ~16 minutes and told agents never to foreground it. That figure was
+inferred from stall-gap adjacency in agent transcripts — the longest gap in a dying
+agent happened to follow a `bun test` call — and I wrote it here as measured fact
+without running the command. Running it takes 40 seconds. Correlation was read as
+causation and then promoted to documentation; this is the same failure the rest of
+this file is about, committed while writing the file about it.
+
+**So we do not know what stalled those agents.** The `bun test` explanation is
+refuted. Candidates not yet tested: long model-streaming gaps with no tool call,
+`metacoding index` / `loadScip` (genuinely slow — ~170-220s per repo, see the
+data-dir section below), or a harness-level stall. **Do not optimize the test suite
+on the strength of this — it is not the bottleneck.**
+
+What survives the correction, because it was observed rather than inferred:
+
+- **A killed agent's uncommitted work is a poison pill.** On 2026-08-12 one agent
+  finished correct work, died before committing, and five successive retries each
+  spent their whole budget re-discovering the dirty tree it left: 3h22m of wall clock
+  and ~1.77M tokens for zero output, until 375 orphaned lines were rescued by hand.
+  **COMMIT INCREMENTALLY.** If you are about to start something long, commit first.
+- **File beads before composing the report.** A judge killed that same night had
+  already filed `hy6.52`-`hy6.57`; its prose was lost and its findings survived.
+- Still use `run_in_background` or an explicit `timeout` for anything genuinely long
+  (indexing, scip, an external process) — the advice is sound even though the example
+  that motivated it was wrong.
 
 ### Absolute paths, always
 
