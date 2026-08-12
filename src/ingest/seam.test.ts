@@ -50,7 +50,7 @@ import {
   revokeIngestTicket,
   type IngestTicket,
 } from "./ticket.ts";
-import { discriminate, explain } from "../testkit/discriminate.ts";
+import { discriminate } from "../testkit/discriminate.ts";
 
 const SRC = join(import.meta.dir, "..");
 const REPO_ROOT = join(SRC, "..");
@@ -534,7 +534,10 @@ describe("the ticket check discriminates between input classes", () => {
       },
     });
 
-    if (!result.ok) throw new Error(explain(result));
+    // `discriminate` itself throws the named difference — the hand-rolled
+    // `if (!result.ok) throw new Error(explain(result))` that used to sit here
+    // was the failure mode MetaCoding-3ad names: a gate that must remember to
+    // check a return value is a gate that can be green while the pair refuses.
     expect(result.observed).toEqual({ ...EXPECTED_CODES });
   });
 });

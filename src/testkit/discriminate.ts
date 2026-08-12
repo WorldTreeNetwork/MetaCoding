@@ -41,6 +41,31 @@
 //    stops appearing. Publishing that record into the smoke suite's own output
 //    is floors.ts / mechanism 4 and is NOT shipped here; what is shipped is the
 //    registry it will read, plus an optional JSONL sink via DISCRIMINATE_RECORD.
+//    A sink that was ASKED for and could not be written FAILS the pair
+//    (RECORD_SINK_UNWRITABLE). Absence of a record is never a pass: a silent
+//    swallow here would be this document's own property violated inside the
+//    mechanism that enforces it, and mechanism 4 is specified to read this file.
+//
+// TWO VERBS, AND THE SHORT NAME IS THE ONE THAT ENFORCES
+// -------------------------------------------------------
+// `discriminate(spec)` THROWS the named difference when the pair does not hold.
+// It is what the design document, CLAUDE.md and this file's name advertise, so
+// it is what a gate gets by reaching for the obvious thing. `observeDiscrimination`
+// returns the result without throwing; this module's own fixtures need to see a
+// REFUSAL without the suite dying, and that argues for its existence, not for it
+// owning the short name. It previously did, and the consequence was measured
+// (MetaCoding-3ad): a pair that refused with DUPLICATE_TAG + UNREACHED_TAG left
+// its containing test GREEN, because nothing made the caller read the result.
+//
+// TAGS ARE NAMES, AND INTEGER-LIKE TAGS ARE REFUSED
+// -------------------------------------------------
+// `cases` is a plain object, and JavaScript enumerates array-index-like keys
+// FIRST, in ascending numeric order, regardless of insertion order: declaring
+// {"2": …, "10": …, "1": …} runs 1, 2, 10. Declaration order is load-bearing —
+// seam.test.ts's class 6 depends on the state class 5 established — so a silent
+// reorder would run a DIFFERENT experiment than the one declared and still
+// report ok. Rather than let that be quiet, an integer-like tag is an instrument
+// failure by name (INDEX_LIKE_TAG). Name the pass: `PASS_1`, not `1`.
 //
 // HOW THIS IS STILL FAKEABLE, stated at the point of use
 // ------------------------------------------------------
@@ -70,6 +95,8 @@ export type PairFailureKind =
   | "NOT_A_PAIR" // fewer than two cases
   | "RESERVED_TAG_DECLARED" // a declared tag starts with OTHER:
   | "EMPTY_TAG" // a declared tag is empty/blank
+  | "INDEX_LIKE_TAG" // a declared tag is integer-like; JS would reorder it
+  | "RECORD_SINK_UNWRITABLE" // DISCRIMINATE_RECORD was set and could not be written
   | "NON_TAG_VERDICT" // verdict returned a boolean/number/undefined/…
   | "UNCAUGHT_THROW" // verdict threw; observed OTHER:<message>
   | "UNDECLARED_TAG" // observed a tag outside the closed vocabulary
@@ -106,9 +133,19 @@ export interface DiscriminateSpec<I> {
    * Cases run SEQUENTIALLY in declaration order, never concurrently, so a case
    * may depend on state a previous case established (see seam.test.ts, where
    * class 6 is "the same call once the slice reads HEALTHY").
+   *
+   * Declaration order is only honoured because integer-like tags are REFUSED
+   * (INDEX_LIKE_TAG) — JS enumerates array-index keys first, ascending, so
+   * {"2","10","1"} would silently run 1,2,10. Name the tag; do not number it.
    */
   cases: Record<Tag, I>;
 }
+
+/**
+ * Tags JavaScript would reorder, plus the near-misses ("007", "-1") that read as
+ * numbers to a human. Refused by name; see the header.
+ */
+const INDEX_LIKE = /^[+-]?\d+$/;
 
 const registry: DiscriminationResult[] = [];
 
@@ -128,11 +165,19 @@ function messageOf(e: unknown): string {
 }
 
 /**
- * Run one contrast pair. Returns the result; it does NOT throw on a failed
- * pair, because the fixtures for this module must be able to observe a REFUSAL
- * without the suite dying. Use `assertDiscriminates` in a gate.
+ * Run one contrast pair and RETURN the result without throwing.
+ *
+ * This is the raw form, and it deliberately does not own the short name. The
+ * fixtures in discriminate.test.ts must be able to OBSERVE a refusal without
+ * the suite dying, which argues for this function's existence — not for it
+ * being what a gate reaches for. A gate that calls a non-throwing verb and
+ * drops the result is green while the pair is refused; that is a check that
+ * cannot fail, wearing the name of the mechanism against checks that cannot
+ * fail. Gates call `discriminate`, which throws.
+ *
+ * Intended caller: src/testkit/discriminate.test.ts, and nothing else.
  */
-export async function discriminate<I>(
+export async function observeDiscrimination<I>(
   spec: DiscriminateSpec<I>,
 ): Promise<DiscriminationResult> {
   const declared = Object.keys(spec.cases);
@@ -152,6 +197,19 @@ export async function discriminate<I>(
         kind: "EMPTY_TAG",
         declared: tag,
         detail: "a declared tag must be a non-empty name",
+      });
+    }
+    if (INDEX_LIKE.test(tag)) {
+      failures.push({
+        kind: "INDEX_LIKE_TAG",
+        declared: tag,
+        detail:
+          `"${tag}" is integer-like. JavaScript enumerates array-index-like ` +
+          `keys FIRST and in ascending numeric order, so a declaration of ` +
+          `{"2","10","1"} runs 1,2,10 — a DIFFERENT experiment than the one ` +
+          `written down, reported as ok. Declaration order is load-bearing ` +
+          `(a case may depend on state an earlier case established). Name the ` +
+          `tag instead of numbering it: PASS_1, not 1.`,
       });
     }
     if (tag.startsWith(OTHER_PREFIX)) {
@@ -259,7 +317,24 @@ export async function discriminate<I>(
     failures,
   };
   registry.push(result);
-  emit(result);
+
+  // Rule 3's sink. A record that was ASKED for and could not be written is a
+  // failure of the pair, not a shrug: "nothing was written and nothing was
+  // said" is exactly the report-a-result-for-a-check-that-did-not-run shape
+  // this module exists to refuse. `failures` is the same array the result
+  // holds, so the registry entry (pushed above) carries this too.
+  const sinkError = emit(result);
+  if (sinkError !== null) {
+    failures.push({
+      kind: "RECORD_SINK_UNWRITABLE",
+      observed: sinkError,
+      detail:
+        `DISCRIMINATE_RECORD was set to "${process.env.DISCRIMINATE_RECORD}" ` +
+        `and the pair could not be appended to it: ${sinkError}. A record ` +
+        `nobody can write is not a record; absence of an answer is never a pass.`,
+    });
+    result.ok = false;
+  }
   return result;
 }
 
@@ -274,18 +349,25 @@ export function explain(r: DiscriminationResult): string {
   return lines.join("\n");
 }
 
-/** Run a pair and throw, with the named difference, if it does not hold. */
-export async function assertDiscriminates<I>(
+/**
+ * Run one contrast pair and THROW, with the named difference, if it does not
+ * hold. This is the verb the design document, CLAUDE.md and this file's name
+ * advertise, so it is the one that enforces: a caller who ignores the return
+ * value still fails. See `observeDiscrimination` for the non-throwing form and
+ * why it does not own this name.
+ */
+export async function discriminate<I>(
   spec: DiscriminateSpec<I>,
 ): Promise<DiscriminationResult> {
-  const r = await discriminate(spec);
+  const r = await observeDiscrimination(spec);
   if (!r.ok) throw new Error(explain(r));
   return r;
 }
 
-function emit(r: DiscriminationResult): void {
+/** Append the pair to DISCRIMINATE_RECORD. Returns null, or the error message. */
+function emit(r: DiscriminationResult): string | null {
   const path = process.env.DISCRIMINATE_RECORD;
-  if (!path) return;
+  if (!path) return null;
   try {
     appendFileSync(
       path,
@@ -298,9 +380,8 @@ function emit(r: DiscriminationResult): void {
       }) + "\n",
       "utf-8",
     );
-  } catch {
-    // A record sink that cannot be written must not turn a real pair into a
-    // failure — but it must not silently claim a record either. Mechanism 4
-    // owns the published record; this sink is a convenience.
+    return null;
+  } catch (e) {
+    return messageOf(e);
   }
 }
