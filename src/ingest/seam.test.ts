@@ -50,6 +50,7 @@ import {
   revokeIngestTicket,
   type IngestTicket,
 } from "./ticket.ts";
+import { discriminate, explain } from "../testkit/discriminate.ts";
 
 const SRC = join(import.meta.dir, "..");
 const REPO_ROOT = join(SRC, "..");
@@ -440,12 +441,47 @@ describe("the judge's end-to-end bypass (24 -> 52 symbols under a stale HEALTHY)
 // THE INSTRUMENT'S OWN MUTATION TESTS. Each input class must produce a DIFFERENT
 // refusal code, so a check that had collapsed into "always throw" — or into
 // "never throw" — would be visible here.
+//
+// F1.3 (docs/design/lessons-as-mechanism.md). This block was the hand-rolled
+// original of src/testkit/discriminate.ts — six `expect(await codeOf(...))`
+// lines. It now runs THROUGH the primitive, and asserts the observed tag map is
+// byte-identical to the six values the hand-rolled version asserted. That map,
+// EXPECTED_CODES below, is the migration evidence: if the primitive were weaker,
+// these strings would be the thing that stopped being checked.
+//
+// What the migration gained, stated so it can be checked rather than believed:
+//   - the hand-rolled version stopped at the FIRST mismatching class, so a
+//     collapse in class 6 was invisible whenever class 1 also broke;
+//   - "no two classes share a code" was implied by six literal equalities and
+//     is now checked by name (DUPLICATE_TAG), which is the half that catches a
+//     verdict collapsed to a constant;
+//   - an `OTHER:` fallthrough was previously only caught because it happened to
+//     be unequal to the expected string; it is now refused by rule 1.
+// What it did NOT gain: nothing here proves the six codes are the RIGHT codes.
+// Non-constancy is not correctness.
+//
+// Cases run sequentially in declaration order — class 6 depends on the
+// runIndexSession that its own case performs, after class 5 has run.
 // ---------------------------------------------------------------------------
+
+const EXPECTED_CODES = {
+  NO_TICKET: "NO_TICKET",
+  FORGED_TICKET: "FORGED_TICKET",
+  REVOKED_TICKET: "REVOKED_TICKET",
+  WRONG_SLICE: "WRONG_SLICE",
+  NO_THROW: "NO_THROW",
+  ESTABLISHED_FITNESS_WOULD_GO_STALE: "ESTABLISHED_FITNESS_WOULD_GO_STALE",
+} as const;
 
 describe("the ticket check discriminates between input classes", () => {
   test("no ticket / forged ticket / revoked ticket / wrong slice / stale-healthy", async () => {
     const { indexDirectory } = await import("../extractor/walker.ts");
-    const codeOf = async (opts: Record<string, unknown>): Promise<string> => {
+
+    /** A case is a factory, so a class may set up the state it is about. */
+    type Class = () => Promise<Record<string, unknown>>;
+
+    const codeOf = async (mkOpts: Class): Promise<string> => {
+      const opts = await mkOpts();
       try {
         await indexDirectory(store, repoDir, opts as never);
         return "NO_THROW";
@@ -454,31 +490,52 @@ describe("the ticket check discriminates between input classes", () => {
       }
     };
 
-    // 1. no ticket at all — the type error, executed past the type system.
-    expect(await codeOf({ repo: REPO, branch: BRANCH })).toBe("NO_TICKET");
+    const result = await discriminate<Class>({
+      name: "the ingest ticket check, over six input classes",
+      verdict: codeOf,
+      cases: {
+        // 1. no ticket at all — the type error, executed past the type system.
+        NO_TICKET: async () => ({ repo: REPO, branch: BRANCH }),
 
-    // 2. a hand-rolled object cast to the nominal type.
-    const forged = { repo: REPO, branch: BRANCH, runStamp: "x", mode: "session" };
-    expect(await codeOf({ ticket: forged, repo: REPO, branch: BRANCH })).toBe("FORGED_TICKET");
+        // 2. a hand-rolled object cast to the nominal type.
+        FORGED_TICKET: async () => ({
+          ticket: { repo: REPO, branch: BRANCH, runStamp: "x", mode: "session" },
+          repo: REPO,
+          branch: BRANCH,
+        }),
 
-    // 3. a REAL ticket, revoked (what a session does on finalize).
-    const revoked = attackerTicket();
-    revokeIngestTicket(revoked);
-    expect(await codeOf({ ticket: revoked, repo: REPO, branch: BRANCH })).toBe("REVOKED_TICKET");
+        // 3. a REAL ticket, revoked (what a session does on finalize).
+        REVOKED_TICKET: async () => {
+          const revoked = attackerTicket();
+          revokeIngestTicket(revoked);
+          return { ticket: revoked, repo: REPO, branch: BRANCH };
+        },
 
-    // 4. a real live ticket for ANOTHER slice — "open a session on a scratch
-    //    repo, write into the real one" is otherwise a one-line bypass.
-    const elsewhere = issueIngestTicket({ repo: "other", branch: BRANCH, runStamp: "y" });
-    expect(await codeOf({ ticket: elsewhere, repo: REPO, branch: BRANCH })).toBe("WRONG_SLICE");
+        // 4. a real live ticket for ANOTHER slice — "open a session on a scratch
+        //    repo, write into the real one" is otherwise a one-line bypass.
+        WRONG_SLICE: async () => ({
+          ticket: issueIngestTicket({ repo: "other", branch: BRANCH, runStamp: "y" }),
+          repo: REPO,
+          branch: BRANCH,
+        }),
 
-    // 5. a real live ticket for THIS slice, against an UNKNOWN record: allowed.
-    expect(await codeOf({ ticket: attackerTicket(), repo: REPO, branch: BRANCH })).toBe("NO_THROW");
+        // 5. a real live ticket for THIS slice, against an UNKNOWN record: allowed.
+        NO_THROW: async () => ({ ticket: attackerTicket(), repo: REPO, branch: BRANCH }),
 
-    // 6. the same call once the slice reads HEALTHY: refused.
-    await runIndexSession(store, dataDir, intent({ runStamp: new Date(Date.now() + 1_000).toISOString() }));
-    expect(await codeOf({ ticket: attackerTicket(), repo: REPO, branch: BRANCH })).toBe(
-      "ESTABLISHED_FITNESS_WOULD_GO_STALE",
-    );
+        // 6. the same call once the slice reads HEALTHY: refused.
+        ESTABLISHED_FITNESS_WOULD_GO_STALE: async () => {
+          await runIndexSession(
+            store,
+            dataDir,
+            intent({ runStamp: new Date(Date.now() + 1_000).toISOString() }),
+          );
+          return { ticket: attackerTicket(), repo: REPO, branch: BRANCH };
+        },
+      },
+    });
+
+    if (!result.ok) throw new Error(explain(result));
+    expect(result.observed).toEqual({ ...EXPECTED_CODES });
   });
 });
 

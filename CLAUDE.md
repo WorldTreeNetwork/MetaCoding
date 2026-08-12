@@ -195,6 +195,10 @@ not. Ask what would satisfy the check while defeating its purpose, before shippi
   fixture. An instrument that is cheap to change is one nobody can trust.
 - **Definition of done: a fix ships with the evidence that would catch its
   regression.** A fix in the code and not in the evidence has a half-life.
+- **A contrast pair and a mutation test are one operation** — `src/testkit/discriminate.ts`.
+  Two inputs, one verdict function returning a NAMED tag (never a boolean, never a
+  throw), and tags that must differ. The argument lives in that file's header, at the
+  point of import; this is a pointer, not the home.
 - **Self-verification is never load-bearing.** Measured, not assumed: builds have
   documented "load-bearing" gates that were not, comments have claimed source
   semantics the code did not implement, and a test called a hook that does not
