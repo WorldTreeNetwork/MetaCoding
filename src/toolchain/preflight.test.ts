@@ -263,6 +263,39 @@ describe("the lock must COVER what the process actually loaded", () => {
     expect(cov.length).toBe(GRAMMARS.length);
     resetLoadedArtifacts();
   });
+
+  // GRAMMARS is a DECLARATION, and a check derived from a declaration cannot
+  // notice the declaration being wrong — the fixture above would stay green if
+  // GRAMMARS lost a member, because it would then load, cover and assert three.
+  // This ties the list to the RUNTIME DETECTOR: detectGrammar is what actually
+  // decides which grammar parses a file, so anything it can return must be in
+  // the list, and everything in the list must be reachable from it.
+  test("GRAMMARS is what detectGrammar can actually return — both directions", async () => {
+    const { GRAMMARS, detectGrammar } = await import("../extractor/walker.ts");
+    const probes = [
+      "a.ts", "a.tsx", "a.py", "a.php", "a.phtml", "a.inc",
+      "a.module", "a.install", "a.theme", "a.profile", "a.engine",
+      "a.d.ts", "a.go", "a.rs", "README.md",
+    ];
+    const reachable = new Set<string>();
+    for (const p of probes) {
+      const g = detectGrammar(p);
+      if (g !== null) {
+        // FORWARD: nothing the detector routes to may be absent from the list,
+        // or it parses facts into the graph with no lock lane behind it.
+        expect(`${p}->${g}:${GRAMMARS.includes(g) ? "DECLARED" : "UNDECLARED"}`).toBe(
+          `${p}->${g}:DECLARED`,
+        );
+        reachable.add(g);
+      }
+    }
+    // BACKWARD: nothing in the list may be unreachable — a phantom member would
+    // inflate the floor and demand a lock lane for a grammar nobody parses with.
+    expect([...reachable].sort()).toEqual([...GRAMMARS].sort());
+    // and the probe set is not vacuous: some of it must NOT match.
+    expect(detectGrammar("a.go")).toBeNull();
+    expect(detectGrammar("a.d.ts")).toBeNull();
+  });
 });
 
 describe("the lock's COVERAGE of what the design document names", () => {
