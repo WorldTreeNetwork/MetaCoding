@@ -16,7 +16,7 @@ from ctkr.oracle import glossary
 from ctkr.oracle.adapter import ImplementationAdapter
 from ctkr.oracle.fixtures import SemanticFixture
 from ctkr.oracle.port_adapter import PortAdapter, Unanswerable
-from ctkr.oracle.pack import Pack, PackSeal
+from ctkr.oracle.pack import Pack, PackSeal, PreflightAttestation
 from ctkr.oracle.port_contract import ContractError, Divergence, PortManifest
 from ctkr.oracle.port_verify import (
     AssertionStatus,
@@ -25,6 +25,7 @@ from ctkr.oracle.port_verify import (
     score_verdicts,
     verify_port,
 )
+from tests._synthetic_ledger import preflight_report
 from ctkr.oracle.probes import (
     OPERATION_CONTRACT,
     PROBE_CONTRACT,
@@ -154,12 +155,24 @@ def make_manifest(
     )
 
 
-def pack(fixtures, invalid=()) -> Pack:
+def pack(fixtures, invalid=(), *, gated: bool = True) -> Pack:
     """An in-memory sealed pack. `verify_port` takes NOTHING else that can move
-    the score, which is the point: there is no `marks` argument to pass."""
-    return Pack(path=Path("t/fixtures.jsonl"),
-                seal=PackSeal(fixture_ids=[f.fixture_id for f in fixtures]).sealed(),
-                fixtures=list(fixtures), invalid=list(invalid))
+    the score, which is the point: there is no `marks` argument to pass.
+
+    GATED BY DEFAULT, because a recording is made behind the oracle preflight and
+    the default fixture must be the ordinary case. `gated=False` is the legacy
+    pack — sealed before the attestation existed — and the two must not be
+    testable only where they agree: pass it and `clean` goes False on a run whose
+    every other number is identical (MetaCoding-hy6.48).
+    """
+    return Pack(
+        path=Path("t/fixtures.jsonl"),
+        seal=PackSeal(
+            fixture_ids=[f.fixture_id for f in fixtures],
+            preflight=(PreflightAttestation.from_report(preflight_report())
+                       if gated else None),
+        ).sealed(),
+        fixtures=list(fixtures), invalid=list(invalid))
 
 
 def make_adapter(

@@ -86,6 +86,18 @@ def _emit_text(report: PortVerifyReport) -> None:
     w(
         f"\n  port            : {report.port}\n"
         f"  pack            : {report.pack_id or '(unsealed)'}  seal {report.pack_seal[:16]}\n"
+        # The gate, on the same screen as the score. A reader who sees 100%
+        # and has to go look up whether the pack was gated will not look.
+        + (
+            f"  preflight       : {report.preflight.base_url} — "
+            f"{len(report.preflight.types_cleared)} type(s) cleared, module "
+            f"drift checked, oracle {report.preflight.oracle_fingerprint[:12]}"
+            f" ({report.preflight.oracle_advertises} types advertised)\n"
+            if report.preflight is not None
+            else "  preflight       : NONE — UNGATED PACK, no verdict here is a "
+                 "gated verdict\n"
+        )
+        +
         f"  fixtures        : {s.fixtures_total}"
         f" ({s.fixtures_unrunnable} could not run,"
         f" {s.fixtures_excluded} corroboration-only,"

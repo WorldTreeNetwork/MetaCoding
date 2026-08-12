@@ -61,6 +61,13 @@ def run(args: argparse.Namespace) -> int:
                     "fixtures": len(fixtures),
                     "invalid": invalid,
                     "issues": [i.model_dump() for i in all_issues],
+                    # A machine reader gets the gate too, or it will conclude
+                    # from `invalid: []` that the pack is fine.
+                    "ungated": pack.ungated_reason,
+                    "preflight": (
+                        pack.seal.preflight.model_dump()
+                        if pack.seal.preflight is not None else None
+                    ),
                 },
                 indent=2, default=str,
             ) + "\n"
@@ -78,9 +85,18 @@ def run(args: argparse.Namespace) -> int:
             )
         for bad in invalid:
             sys.stderr.write(f"  [invalid] {bad}\n")
+        # BEFORE the clean bill, never instead of the exit code. Schema validity
+        # and chain of custody are what this command decides, and an ungated pack
+        # is sound in both — so the exit code stays where it is. What must not
+        # happen is the reassuring sentence below standing alone over a pack
+        # nothing gated (MetaCoding-hy6.48).
+        if pack.ungated_reason:
+            sys.stderr.write(f"  [UNGATED] {pack.ungated_reason}\n")
         if not all_issues and not invalid:
             sys.stderr.write(
                 f"  all fixtures valid + storage-free; pack seal "
-                f"{pack.seal.seal[:16] or '(none)'} verified.\n")
+                f"{pack.seal.seal[:16] or '(none)'} verified"
+                + (" — but UNGATED (see above): sound custody, no oracle gate.\n"
+                   if pack.ungated_reason else ".\n"))
 
     return 1 if (all_issues or invalid) else 0

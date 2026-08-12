@@ -58,6 +58,19 @@ a path. :func:`seal_recording` takes the in-memory
 three files itself; the public CLI has ``oracle-validate`` (which VERIFIES a seal)
 and no verb that issues one.
 
+**THE GATE IS IN THE SEAL (MetaCoding-hy6.48).** Everything above defends the
+values against being rewritten. It says nothing about whether the SOURCE was the
+source: a probe against a bundle that was never enabled returns 404s and 422s
+that read like findings about farmOS and are measurements of the oracle, which is
+why an oracle preflight became a precondition of recording (hy6.25/hy6.28). That
+gate ran outside the artifact and left no trace in it, so a gated pack and an
+ungated one were byte-indistinguishable downstream and a 100%-clean verdict over
+either read the same. :func:`seal_recording` now refuses without a
+:class:`PreflightAttestation`, and it travels in the seal. A pack sealed before
+the field existed cannot acquire one — minting it today would attest to a
+preflight that never ran — so it reads UNGATED wherever a verdict is produced
+(:meth:`PackSeal.ungated_reason`), which is neither an accusation nor a pass.
+
 **What this still does not buy, stated plainly.** The seal is an unkeyed hash.
 Anyone who can import this module can construct a ``SessionResult`` and seal it,
 so a determined forger with write access can still produce a self-consistent
@@ -115,12 +128,151 @@ OBSERVATIONS_NAME = "observations.jsonl"
 REGISTRY_NAME = "PACKS.jsonl"
 
 
+#: The detail string ``tools/oracle_preflight.py::_collection_ok`` emits for a
+#: resource type that RESOLVED. Every other detail in the report's ``types`` map
+#: is a failure sentence ("MISSING (absent from /api index)", "-> 200 but body is
+#: not JSON", …) or a string this file does not understand — and an answer we
+#: cannot read is not a yes. Matched exactly, on purpose: if that file changes
+#: its wording, sealing must REFUSE loudly rather than quietly accept a report it
+#: is no longer reading.
+CLEARED_DETAIL_SUFFIX = "200, JSON:API collection"
+
+
 class PackError(RuntimeError):
     """The pack is not the pack the recorder sealed. There is no verdict."""
 
 
 def file_digest(path: str | Path) -> str:
     return blake3(Path(path).read_bytes()).hexdigest()[:32]
+
+
+class PreflightAttestation(BaseModel):
+    """That the oracle gate RAN before these observations were made.
+
+    WHY THIS IS IN THE SEAL (MetaCoding-hy6.48). The oracle preflight became a
+    non-optional precondition of recording on 2026-08-07 (hy6.25/hy6.28) because
+    two ports had probed bundles that were never enabled and written down as
+    findings about farmOS what were measurements of the ORACLE. The gate was
+    real; nothing it produced survived into the artifact. A pack recorded behind
+    a passing preflight and a pack recorded with the gate skipped were
+    byte-indistinguishable downstream, so a 100%-clean verdict over an ungated
+    pack read exactly like a clean verdict over a gated one.
+
+    An attestation is not a proof — it is a CITATION, in the same sense as the
+    seal and the witness (see the module docstring): "this is the oracle, these
+    are the types it cleared, the drift check ran." Against a forger it buys
+    nothing new; against error, drift and a skipped step — the actual failure
+    modes — it makes the difference legible in the artifact instead of in
+    somebody's memory of the terminal.
+
+    :attr:`oracle_fingerprint` is the identity half: the hash of the resource
+    types the oracle's ``/api`` index advertised, which is what ``advertised``
+    exists for upstream ("so a caller can prove which oracle it was talking to").
+    It distinguishes an oracle with ``farm_sensor`` from one without; it does NOT
+    distinguish two identically-configured instances, and does not pretend to —
+    :attr:`base_url` is carried beside it for that, and it is a name, not a
+    credential.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Which oracle the gate was pointed at. A name, not a proof.
+    base_url: str = ""
+    #: The resource types the gate CLEARED — every one advertised by the index
+    #: and answering with a real JSON:API collection.
+    types_cleared: list[str] = Field(default_factory=list)
+    #: The enabled-module-drift half. Always ``True`` in a minted attestation: a
+    #: drift check that could not run is a refusal, not a pass (hy6.25), so the
+    #: ``False`` case never reaches a seal — it raises in :meth:`from_report`.
+    modules_checked: bool = False
+    #: Installed non-core modules not reachable from any ``drush en`` in
+    #: bring-up.sh. None of them provides a type this build named (that is fatal
+    #: upstream), but they are drift and they travel with the pack.
+    modules_unexplained: list[str] = Field(default_factory=list)
+    #: How many resource types the ``/api`` index advertised, and their hash.
+    oracle_advertises: int = 0
+    oracle_fingerprint: str = ""
+    attested_at: str = ""
+
+    @classmethod
+    def from_report(cls, report: Any) -> PreflightAttestation:
+        """Mint an attestation from an ``oracle_preflight.preflight()`` report.
+
+        Every refusal here is the same rule read from a different side: *absence
+        of an answer is never a yes.* An unreadable report, a report over zero
+        types, a type whose detail we cannot recognise as a pass, a drift check
+        that did not run — none of them is evidence the gate cleared this
+        recording, so none of them may become an attestation that says it did.
+        """
+        if isinstance(report, PreflightAttestation):
+            return report
+        if not isinstance(report, dict):
+            raise PackError(
+                f"preflight report is a {type(report).__name__}, not a report "
+                f"dict. Pass what `oracle_preflight.preflight()` returned (or "
+                f"the JSON that `oracle_preflight.py --json` printed)."
+            )
+        if report.get("ok") is False:
+            raise PackError(
+                "preflight report says ok=false — this is the report of a gate "
+                f"that FAILED: {str(report.get('error', ''))[:300]}"
+            )
+        base_url = str(report.get("base_url") or "").strip()
+        if not base_url:
+            raise PackError(
+                "preflight report carries no base_url, so it does not say which "
+                "oracle was gated. An attestation that cannot name its oracle "
+                "cannot tell one instance from another."
+            )
+        types = report.get("types")
+        if not isinstance(types, dict) or not types:
+            raise PackError(
+                "preflight report cleared ZERO resource types. A preflight over "
+                "zero types is a pass that means nothing, and an attestation to "
+                "it is worse — it looks like a gate."
+            )
+        unclear = sorted(
+            t for t, detail in types.items()
+            if not str(detail).endswith(CLEARED_DETAIL_SUFFIX)
+        )
+        if unclear:
+            raise PackError(
+                f"preflight report does not show {len(unclear)} type(s) CLEARED "
+                f"(first: {unclear[0]} -> {str(types[unclear[0]])[:120]!r}). "
+                f"Expected every detail to end {CLEARED_DETAIL_SUFFIX!r}, which "
+                f"is what tools/oracle_preflight.py writes for a type that "
+                f"resolved. A detail this file cannot read is not a pass."
+            )
+        drift = report.get("module_drift")
+        if not isinstance(drift, dict) or not drift.get("checked"):
+            reason = (drift or {}).get("reason", "") if isinstance(drift, dict) else ""
+            raise PackError(
+                "the preflight's module-drift check did not run"
+                + (f" ({reason})" if reason else "")
+                + ". A drift check that could not run is a REFUSAL, not a pass "
+                "(hy6.25): a hand-enabled module vanishes on the next rebuild "
+                "and takes the reproducibility of this pack with it. Re-run the "
+                "preflight with the drift check, then record."
+            )
+        advertised = report.get("advertised")
+        if not isinstance(advertised, list) or not advertised:
+            raise PackError(
+                "preflight report carries no `advertised` type list, so there is "
+                "nothing to identify the oracle by. That field exists precisely "
+                "so a caller can prove which oracle it was talking to."
+            )
+        adv = sorted(str(a) for a in advertised)
+        return cls(
+            base_url=base_url,
+            types_cleared=sorted(str(t) for t in types),
+            modules_checked=True,
+            modules_unexplained=sorted(
+                str(m) for m in (drift.get("unexplained") or [])
+            ),
+            oracle_advertises=len(adv),
+            oracle_fingerprint=blake3("\n".join(adv).encode("utf-8")).hexdigest()[:32],
+            attested_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        )
 
 
 class PackSeal(BaseModel):
@@ -138,10 +290,15 @@ class PackSeal(BaseModel):
     observations_blake3: str = ""
     #: ``{assertion: derivation_id}`` in force when the values were observed.
     derivations: dict[str, str] = Field(default_factory=dict)
+    #: That the oracle gate ran before these observations were made
+    #: (MetaCoding-hy6.48). ``None`` means UNGATED — see :meth:`ungated_reason`.
+    #: Every seal issued by :func:`seal_recording` carries one; ``None`` is
+    #: reachable only for a pack sealed before this field existed.
+    preflight: PreflightAttestation | None = None
     seal: str = ""
 
     def _body(self) -> dict[str, Any]:
-        return {
+        body = {
             "recorded_at": self.recorded_at,
             "source_system": self.source_system,
             "source_version": self.source_version,
@@ -150,6 +307,44 @@ class PackSeal(BaseModel):
             "observations_blake3": self.observations_blake3,
             "derivations": dict(sorted(self.derivations.items())),
         }
+        # PRESENT-ONLY, and this is a decision, not an oversight. Adding the key
+        # unconditionally would change the hash of every seal ever issued, so the
+        # four packs recorded on 2026-07-23 would stop loading with "the seal
+        # itself was edited" — an accusation of tampering against packs whose
+        # only sin is being old, and it would hide the real fact (they were never
+        # gated) behind a false one. Omitting it keeps a legacy seal verifiable
+        # and lets the UNGATED reading be produced where verdicts are, which is
+        # where a reader can act on it.
+        #
+        # It is still bound: strip `preflight` from an attested seal on disk and
+        # the recomputed hash no longer matches the stored one, so the downgrade
+        # is refused by load_pack rather than silently accepted.
+        if self.preflight is not None:
+            body["preflight"] = self.preflight.model_dump()
+        return body
+
+    def ungated_reason(self) -> str:
+        """Why this pack is NOT witnessed as gated by an oracle preflight, or ``""``.
+
+        The four wave-2 packs cited by step 8 were recorded 2026-07-23, two weeks
+        before the preflight became a precondition (hy6.25/hy6.28). They cannot
+        acquire an attestation now — minting one today would be a claim that a
+        gate ran in July, which is the exact defect this closes, told backwards.
+        So they read as UNGATED: not fraudulent, not fine, and never silent. The
+        only honest way for such a pack to become attested is re-observation.
+        """
+        if self.preflight is not None:
+            return ""
+        return (
+            "this pack's seal carries NO PREFLIGHT ATTESTATION: nothing recorded "
+            "that the oracle gate ran before these observations were made. A "
+            "probe against a bundle that was never enabled does not crash — it "
+            "returns 404s and 422s that read like findings about the source and "
+            "are measurements of the oracle (hy6.25). UNGATED EVIDENCE: not "
+            "wrong, not verified, and not a clean pass. Only re-observation "
+            "behind the gate can change this; an attestation minted today would "
+            "attest to a preflight that never ran."
+        )
 
     def compute_seal(self) -> str:
         return blake3(
@@ -185,6 +380,18 @@ class Pack:
     observation_ids: set[str] = field(default_factory=set)
 
     @property
+    def ungated_reason(self) -> str:
+        """Why no verdict over this pack is a gated one, or ``""``.
+
+        Carried, never raised. An ungated pack still LOADS — its fixtures are
+        real observations and its seal is intact — but every surface that
+        produces a verdict must say the gate is missing, or "100% clean" over an
+        ungated pack reads identically to one over a gated one. That equality is
+        the whole defect (MetaCoding-hy6.48).
+        """
+        return self.seal.ungated_reason()
+
+    @property
     def all_fixture_ids(self) -> set[str]:
         return {f.fixture_id for f in self.fixtures} | {
             i.fixture_id for i in self.invalid
@@ -199,6 +406,7 @@ def seal_recording(
     observations: list[Any],
     out_dir: str | Path,
     *,
+    preflight: Any = None,
     source_system: str = "",
     source_version: str = "",
     recorded_at: str = "",
@@ -220,11 +428,33 @@ def seal_recording(
 
     It is not a cryptographic barrier and does not pretend to be one: see the
     module docstring for exactly what a forger must still do.
+
+    **IT REFUSES WITHOUT A PREFLIGHT ATTESTATION (MetaCoding-hy6.48).** The
+    oracle gate was made a precondition of recording upstream and left no trace
+    in the artifact, so nothing downstream could tell a gated pack from an
+    ungated one. It is enforced HERE — rather than in a runner, a recipe or a
+    review checklist — because this project has no CI and no git hooks, and
+    recording a pack must traverse this function
+    (``docs/design/enforceability.md``): a refusal on the import path cannot be
+    routed around, and three gates in this repo were already built correct and
+    wired to nothing. Pass the dict ``oracle_preflight.preflight()`` returned;
+    :meth:`PreflightAttestation.from_report` says what makes one acceptable.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     fx_path = out / "fixtures.jsonl"
     obs_path = out / OBSERVATIONS_NAME
+
+    if preflight is None:
+        raise PackError(
+            f"cannot seal {fx_path}: no preflight attestation. A recording is "
+            f"made behind the oracle gate (tools/oracle_preflight.py) and the "
+            f"seal must say so, or a verdict over this pack cannot tell whether "
+            f"its values are facts about the source or measurements of a "
+            f"half-installed oracle. Run the preflight over the resource types "
+            f"this pack touches and pass its report as `preflight=`."
+        )
+    attestation = PreflightAttestation.from_report(preflight)
 
     if not observations:
         raise PackError(
@@ -247,6 +477,7 @@ def seal_recording(
         fixtures_blake3=file_digest(fx_path),
         observations_blake3=file_digest(obs_path),
         derivations=current_derivations(),
+        preflight=attestation,
     ).sealed()
     (out / SEAL_NAME).write_text(
         seal.model_dump_json(indent=2) + "\n", encoding="utf-8"

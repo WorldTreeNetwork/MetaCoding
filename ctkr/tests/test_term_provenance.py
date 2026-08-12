@@ -20,6 +20,7 @@ from blake3 import blake3
 from ctkr.oracle import glossary_provenance as gp
 from ctkr.oracle.fixtures import SemanticFixture, probe_descriptor, write_fixtures
 from ctkr.oracle.pack import PackError, seal_recording
+from tests._synthetic_ledger import preflight_report
 from ctkr.oracle.port_verify import AssertionStatus, NoVerdictCause, verify_port
 from tests.test_port_verify import ALL_OPS, fixture, make_adapter, make_manifest, pack, soh
 
@@ -188,7 +189,7 @@ def _observations(fixtures: list[SemanticFixture]) -> list:
 
 def _sealed_pack(pack_dir: Path, fixtures: list[SemanticFixture]):
     return seal_recording(fixtures, _observations(fixtures), pack_dir,
-                          register=False)
+                          register=False, preflight=preflight_report())
 
 
 # --------------------------------------------------------------------------- #

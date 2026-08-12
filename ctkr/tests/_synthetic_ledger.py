@@ -51,6 +51,33 @@ from ctkr.oracle.pack import retire_seal, seal_recording
 from ctkr.oracle.probes import current_derivations
 
 
+def preflight_report(
+    *,
+    base_url: str = "http://synthetic-oracle:8095",
+    types: tuple[str, ...] = ("log--observation", "asset--plant"),
+    checked: bool = True,
+) -> dict:
+    """A report shaped exactly like ``oracle_preflight.preflight()`` returns.
+
+    Synthetic packs are recordings, so they are gated recordings: a helper that
+    sealed without an attestation would make every mechanism test a test of the
+    ungated path, and the one thing the suite must be able to distinguish would
+    be the only thing it never exercised. ``checked=False`` is the contrast case
+    — a drift check that did not run — and it must NOT seal.
+    """
+    return {
+        "base_url": base_url,
+        "types": {t: f"GET /api/{t.replace('--', '/')} -> "
+                     f"200, JSON:API collection" for t in types},
+        "module_drift": {
+            "checked": checked, "unexplained": [], "declared_missing": [],
+            "reason": "" if checked else "docker not available",
+            "unknown_provider": [],
+        },
+        "advertised": sorted({*types, "user--user", "file--file"}),
+    }
+
+
 class _Row:
     """A recorded row the sealer can serialise, standing in for an Observation."""
 
@@ -181,6 +208,7 @@ class SyntheticLedger:
         fixtures: list[SemanticFixture] | None = None,
         *,
         register: bool = True,
+        preflight: dict | None = None,
     ) -> tuple[Path, str]:
         """Record and seal one pack under ``port_runs/<lane>/observe``.
 
@@ -199,6 +227,7 @@ class SyntheticLedger:
             source_system="synthetic",
             source_version="0",
             register=register,
+            preflight=preflight if preflight is not None else preflight_report(),
         )
         return pack_dir / "fixtures.jsonl", seal.seal
 

@@ -57,7 +57,7 @@ from pydantic import BaseModel, Field, computed_field
 from ctkr.oracle import glossary_provenance
 from ctkr.oracle.adapter import AdapterError
 from ctkr.oracle.fixtures import SemanticFixture, ThenAssertion
-from ctkr.oracle.pack import Pack
+from ctkr.oracle.pack import Pack, PreflightAttestation
 from ctkr.oracle.port_adapter import (
     BridgeError,
     FalseDeclaration,
@@ -279,6 +279,16 @@ class PortVerifyReport(BaseModel):
     pack_id: str = ""
     #: Fixtures the pack could not vouch for, with the reason, verbatim.
     invalid_evidence: list[str] = Field(default_factory=list)
+    #: Why the pack that was judged is not witnessed as gated by an oracle
+    #: preflight, verbatim from the seal, or ``""`` (MetaCoding-hy6.48). This is
+    #: a fact about the EVIDENCE, not about the port: the port did nothing wrong
+    #: and its numbers below are still its numbers. What it blocks is the word
+    #: "clean", because a clean verdict over ungated evidence is a claim about
+    #: the source that the recording never established.
+    pack_ungated: str = ""
+    #: The attestation itself, when there is one, so a reader can see WHICH
+    #: oracle cleared WHICH types without going back to the pack.
+    preflight: PreflightAttestation | None = None
 
     @property
     def failed(self) -> int:
@@ -301,6 +311,12 @@ class PortVerifyReport(BaseModel):
             and not self.invalid_evidence
             and self.score.scored_diverged == 0
             and not self.score.scored_nothing
+            # UNGATED EVIDENCE (MetaCoding-hy6.48). Same shape as every other
+            # clause here: each was earned by an attack that produced green
+            # without it, and this one's attack needed no attacker — four packs
+            # recorded two weeks before the oracle gate existed were scoring
+            # 100% clean, and the artifact said nothing about it.
+            and not self.pack_ungated
         )
 
     @computed_field  # type: ignore[prop-decorator]
@@ -308,6 +324,8 @@ class PortVerifyReport(BaseModel):
     def needs_review(self) -> list[str]:
         """Why this run is not a clean pass, in words. Empty iff `clean`."""
         why: list[str] = []
+        if self.pack_ungated:
+            why.append("UNGATED PACK — " + self.pack_ungated)
         if self.score.scored_failed:
             why.append(f"{self.score.scored_failed} value failure(s)")
         if self.score.no_verdict:
@@ -881,4 +899,6 @@ def verify_port(
         pack_seal=pack.seal.seal, pack_id=pack.seal.pack_id,
         invalid_evidence=[f"{i.fixture_id[:8]} {i.title}: {i.reason}"
                           for i in pack.invalid],
+        pack_ungated=pack.ungated_reason,
+        preflight=pack.seal.preflight,
     )

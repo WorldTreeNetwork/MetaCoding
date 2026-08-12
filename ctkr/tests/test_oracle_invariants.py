@@ -42,6 +42,7 @@ from ctkr.oracle.probes import (
     current_derivations,
     unvalidated_probes,
 )
+from tests._synthetic_ledger import preflight_report
 from tests.test_oracle_flow_bridge import FakeFarmOS, _adapter
 from tests.test_port_verify import (
     ALL_OPS,
@@ -385,7 +386,8 @@ def _reseal(tmp_path: Path, rows: list[dict], *, prune: bool = False) -> None:
         claimed = {t.get("witness") for r in rows for t in r["then"]}
         obs = [o for o in obs
                if o.get("record") != "witness" or o["obs_id"] in claimed]
-    seal_recording(forged, [_Row(o) for o in obs], tmp_path, register=False)
+    seal_recording(forged, [_Row(o) for o in obs], tmp_path, register=False,
+                   preflight=preflight_report())
 
 
 def test_attack_a_surgical_forgery_is_refused_by_the_fixtures_own_witness(
@@ -490,11 +492,12 @@ def test_attack_b_a_subset_that_also_strips_the_witnesses_is_caught_by_the_ledge
     fixtures = [_recorded(tmp_path, "stock_on_hand", value=float(i))
                 for i in range(3)]
     honest = seal_recording(fixtures, [_Row(r) for r in _observations(fixtures)],
-                            pack_dir)
+                            pack_dir, preflight=preflight_report())
     assert len(load_pack(pack_dir / "fixtures.jsonl").fixtures) == 3
 
     kept = fixtures[:2]
-    seal_recording(kept, [_Row(r) for r in _observations(kept)], pack_dir)
+    seal_recording(kept, [_Row(r) for r in _observations(kept)], pack_dir,
+                   preflight=preflight_report())
     with pytest.raises(PackError) as exc:
         load_pack(pack_dir / "fixtures.jsonl")
     assert "STRICT SUBSET" in str(exc.value)
@@ -856,7 +859,8 @@ def _write_pack(tmp_path: Path, fixtures: list[SemanticFixture],
         (tmp_path / "observations.jsonl").write_text(
             "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         return
-    seal_recording(fixtures, [_Row(r) for r in rows], tmp_path, register=False)
+    seal_recording(fixtures, [_Row(r) for r in rows], tmp_path, register=False,
+                   preflight=preflight_report())
 
 
 class _Row:

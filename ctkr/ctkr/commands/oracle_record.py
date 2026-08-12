@@ -14,6 +14,7 @@ live instance; validation + the schema tests run without it.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from ctkr.oracle.fixtures import validate_fixture, write_fixtures
 from ctkr.oracle.flowspec_io import FlowSpecError, load_flows
 from ctkr.oracle.health import DEFAULT_TIMEOUT, OracleDown
 from ctkr.oracle.lens import lens_names, resolve_lens, use_lens
-from ctkr.oracle.pack import PackError, seal_recording
+from ctkr.oracle.pack import PackError, PreflightAttestation, seal_recording
 from ctkr.oracle.recorder import (
     build_client,
     record_session_result,
@@ -63,11 +64,62 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--pack", default="core", choices=("core", "hardening", "all"),
                    help=("Which built-in flow pack to record when --flows is not "
                          "given (default: %(default)s)."))
+    p.add_argument("--preflight-report", default="", metavar="FILE",
+                   help=("REQUIRED. The JSON report of the oracle preflight "
+                         "that cleared this recording — `python3 "
+                         "tools/oracle_preflight.py --json <types> > FILE`. It "
+                         "is minted into the pack seal, so a verdict reached "
+                         "later can tell a gated pack from an ungated one. "
+                         "Distinct from --skip-preflight, which is about the "
+                         "liveness probe below."))
     p.add_argument("--preflight-timeout", type=float, default=DEFAULT_TIMEOUT,
                    help="Seconds for the oracle liveness probe (default: %(default)s).")
     p.add_argument("--skip-preflight", action="store_true",
                    help="Skip the oracle liveness probe (not recommended).")
     p.set_defaults(func=run)
+
+
+def _load_preflight(args: argparse.Namespace) -> dict:
+    """The preflight report that will be minted into the seal, or raise.
+
+    Read BEFORE the oracle is touched, for the same reason the flow pack is: a
+    recording writes to a shared live system, and discovering at seal time that
+    the gate was never named costs those writes and produces a pack that cannot
+    be sealed. :func:`ctkr.oracle.pack.seal_recording` refuses too — that refusal
+    is the enforceable one, on the import path; this is the early, kind one.
+    """
+    if not args.preflight_report:
+        raise PackError(
+            "--preflight-report is required. Recording happens behind the oracle "
+            "gate (tools/oracle_preflight.py), and the pack seal must carry the "
+            "proof, or nothing downstream can tell this pack from one recorded "
+            "against a half-installed oracle.\n"
+            "  python3 tools/oracle_preflight.py --json <types...> > preflight.json\n"
+            "  ctkr oracle-record ... --preflight-report preflight.json"
+        )
+    try:
+        report = json.loads(Path(args.preflight_report).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        # A report we cannot read is not a report. Absence of an answer is never
+        # a yes — the whole point of the gate is that silence looked like a pass.
+        raise PackError(
+            f"cannot read preflight report {args.preflight_report}: {exc}"
+        ) from exc
+    if not isinstance(report, dict):
+        raise PackError(
+            f"{args.preflight_report} is not a preflight report object"
+        )
+    # SAME ORACLE, both halves. A preflight against one farmOS and a recording
+    # against another is a gate on something else — the identical defect
+    # tools/ledger.py closes between its preflight and its transport (hy6.28).
+    gated = str(report.get("base_url") or "").rstrip("/")
+    recording = str(args.base_url or "").rstrip("/")
+    if gated and recording and gated != recording:
+        raise PackError(
+            f"the preflight cleared {gated} but this recording is against "
+            f"{recording}. A gate on a different oracle is not a gate on this one."
+        )
+    return report
 
 
 def _select_flows(args: argparse.Namespace):
@@ -96,6 +148,13 @@ def _run(lens, args: argparse.Namespace) -> int:
         flows, origin = _select_flows(args)
     except FlowSpecError as exc:
         sys.stderr.write(f"\nINVALID FLOW PACK: {exc}\n")
+        return 2
+
+    try:
+        preflight = _load_preflight(args)
+        PreflightAttestation.from_report(preflight)
+    except PackError as exc:
+        sys.stderr.write(f"\nNO PREFLIGHT ATTESTATION — NOT RECORDING: {exc}\n")
         return 2
 
     if lens.preflight is not None and not args.skip_preflight:
@@ -135,7 +194,7 @@ def _run(lens, args: argparse.Namespace) -> int:
     seal_error = ""
     n_fx, n_obs = len(fixtures), len(observations)
     try:
-        seal = seal_recording(fixtures, observations, out)
+        seal = seal_recording(fixtures, observations, out, preflight=preflight)
     except PackError as exc:
         seal_error = str(exc)
         n_fx = write_fixtures(fixtures, fx_path)

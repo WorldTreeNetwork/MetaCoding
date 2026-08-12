@@ -42,13 +42,31 @@ def test_the_shipped_membership_pack_discriminates_the_c1_fix() -> None:
     matching = _report("portB")   # RECURSIVE=1 — matches GroupMembership.php
     diverging = _report("portA")  # RECURSIVE=0 — the pre-fix adapter's belief
 
-    # The right port is clean and whole.
-    assert matching.clean, matching.needs_review
+    # The right port answers everything and fails nothing.
     assert matching.score.scored_failed == 0
+    assert matching.score.no_verdict == 0
+    assert not matching.invalid_evidence
+    assert not matching.declaration_problems
+
+    # It is still NOT `clean`, and the only reason is the pack (MetaCoding-hy6.48):
+    # wave1-c1 was recorded before the oracle preflight was a precondition, so
+    # nothing witnesses that the bundles it probed were the ones bring-up.sh
+    # rebuilds. That is a fact about the EVIDENCE, and it does not move any of the
+    # port's numbers above — which is exactly why the reading must be spelled out
+    # here rather than inferred from a green tick. Only re-observation behind the
+    # gate can clear it; nothing this suite does may.
+    assert matching.pack_ungated
+    assert matching.needs_review == [
+        "UNGATED PACK — " + matching.pack_ungated
+    ], matching.needs_review
+    assert not matching.clean
 
     # The wrong port FAILS — visibly, not as a gap or an exclusion.
     assert not diverging.clean
     assert diverging.score.scored_failed > 0
 
-    # And the ranking is strict: wrong can never tie right on this pack.
+    # And the ranking is strict: wrong can never tie right on this pack. The
+    # ungated flag is not a way out of this — it is identical on both reports, so
+    # it cannot flatten the discrimination it sits beside.
     assert matching.score.value_score > diverging.score.value_score
+    assert diverging.pack_ungated == matching.pack_ungated

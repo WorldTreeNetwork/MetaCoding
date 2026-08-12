@@ -77,11 +77,12 @@ def test_a_pack_whose_witness_disagrees_is_refused(
 
     pack_dir = synthetic_ledger.port_runs / "forged" / "observe"
     pack_dir.mkdir(parents=True)
-    from _synthetic_ledger import _Row
+    from _synthetic_ledger import _Row, preflight_report
 
     from ctkr.oracle.pack import seal_recording
 
-    seal_recording(fixtures, [_Row(r) for r in rows], pack_dir, register=True)
+    seal_recording(fixtures, [_Row(r) for r in rows], pack_dir, register=True,
+                   preflight=preflight_report())
     loaded = load_pack(pack_dir / "fixtures.jsonl")
     assert loaded.fixtures == [], "a value its own witness contradicts must not be scorable"
     assert len(loaded.invalid) == 1
