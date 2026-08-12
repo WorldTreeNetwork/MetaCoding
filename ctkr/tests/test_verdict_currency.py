@@ -784,3 +784,122 @@ def test_a_tier_INSIDE_the_vocabulary_is_read_as_written(tmp_path):
                                 "asset/mystery": "unknown"}
     r = rows_of(ws)["wave2/identity-sensor"]
     assert r.build.tier == SPINE and not r.gates
+
+
+# ---------------------------------------------------------------------------
+# hy6.61 — say which reading decided, and let the manifest RAISE scrutiny only
+# ---------------------------------------------------------------------------
+
+def test_a_row_the_partition_named_by_a_GUESSED_key_says_so(tmp_path):
+    """31 of 41 live rows printed `tier: partition via …` about a lookup whose
+    KEY came from a directory name. The docstring promises a fallback "is visible
+    as such", and that held for the 6 rows reaching the literal NAME_RULE and for
+    nothing else. `quick-folds` is the case: there is no `quick/folds` module row
+    at all, so its tier comes from a `quick/*` family-prefix guess."""
+    rows = rows_for(tmp_path, {"quick-folds": {"seal": "abc"}},
+                    partition=[("partition-1.jsonl", QUICK)])
+    r = rows["wave2/quick-folds"]
+    assert r.build.tier == "identity"
+    assert not r.build.tier_anchored
+    assert "GUESSED" in r.build.tier_source
+    out = render([r], [], all_tiers=True)
+    assert "1 build(s) were tiered from a partition row found by GUESSING" in out
+    assert "0 from a module their own manifest declares" in out
+
+
+def test_a_manifest_may_declare_a_LIST_of_modules_and_that_is_RECORD_ANCHORED(tmp_path):
+    """The contrast, and the fix: `feature` was read as a single string, so
+    quick-folds — which ports five modules — could not declare them. Declaring
+    them makes the same row record-anchored instead of a name guess."""
+    rows = rows_for(tmp_path, {"quick-folds": {"seal": "abc",
+                                               "feature": ["quick/birth",
+                                                           "quick/group",
+                                                           "quick/movement"]}},
+                    partition=[("partition-1.jsonl", QUICK)])
+    r = rows["wave2/quick-folds"]
+    assert r.build.tier == "identity"
+    assert r.build.tier_anchored
+    assert "manifest declares module" in r.build.tier_source
+    assert "GUESSED" not in r.build.tier_source
+    out = render([r], [], all_tiers=True)
+    assert "0 build(s) were tiered from a partition row found by GUESSING" in out
+    assert "1 from a module their own manifest declares" in out
+
+
+def test_a_DECLARED_module_may_RAISE_scrutiny_above_the_name_reading(tmp_path):
+    """The direction that is allowed. Nothing about the name `spine-widget`
+    reaches a partition row, so the name proxy calls it spine — advisory, never
+    gates. Its manifest declares a module the partition tiers IDENTITY, and that
+    is believed: a build asking to be judged harder is not the failure mode."""
+    rows = rows_for(tmp_path, {"spine-widget": {"seal": None,
+                                                "feature": ["asset/sensor"]}},
+                    partition=[("partition-1.jsonl", [prow("asset/sensor", "identity")])])
+    r = rows["wave2/spine-widget"]
+    assert tier_of("spine-widget") == SPINE       # what the name proxy says
+    assert r.build.tier == "identity"             # what its declaration raises it to
+    assert r.build.tier_anchored and r.gates
+
+
+def test_a_DECLARED_module_can_NEVER_LOWER_the_tier(tmp_path):
+    """THE INVARIANT (`oracle/port_verify.py` I2): the thesis does not write its
+    own reading. `port.manifest.json` is written BY THE PORT, so accepting a
+    declaration that tiers a build DOWN hands the defendant the pen — a build
+    could declare a spine module and buy its way out of the gate.
+
+    Here the name reading says identity (nothing else names this build) and the
+    declared module is spine. The stricter reading stands, the declaration is
+    printed with its reason, and the row is NOT record-anchored: it did not get
+    to decide."""
+    rows = rows_for(tmp_path, {"identity-widget": {"seal": None,
+                                                   "feature": ["asset/compost"]}},
+                    partition=[("partition-1.jsonl", [prow("asset/compost", "spine")])])
+    r = rows["wave2/identity-widget"]
+    assert r.build.tier == "identity", "a manifest tiered its own build DOWN"
+    assert r.gates
+    assert not r.build.tier_anchored
+    assert "may only RAISE scrutiny" in r.build.tier_source
+    assert "asset/compost" in r.build.tier_source, (
+        "the overruled declaration must still be visible")
+
+
+def test_DECLARED_modules_that_DISAGREE_resolve_UNKNOWN_which_is_STRICTER(tmp_path):
+    """A list is not a licence to pick. quick-folds' family guess gives identity;
+    declaring one identity module and one spine module is not unanimous, and
+    UNKNOWN gates — so an ambiguous declaration raises scrutiny rather than
+    resolving in the declarer's favour."""
+    rows = rows_for(tmp_path, {"quick-folds": {"seal": "abc",
+                                               "feature": ["quick/birth",
+                                                           "asset/compost"]}},
+                    partition=[("partition-1.jsonl",
+                                QUICK + [prow("asset/compost", "spine")])])
+    r = rows["wave2/quick-folds"]
+    assert r.build.tier == "unknown" and r.gates
+    assert "rows disagree" in r.build.tier_source
+
+
+def test_a_declared_module_the_partition_does_not_NAME_changes_nothing(tmp_path):
+    """The contrast that keeps the declaration from being a second proxy: a
+    `feature` naming a module no partition row mentions is not evidence, so the
+    name reading stands unchanged and still says it guessed."""
+    rows = rows_for(tmp_path, {"quick-folds": {"seal": "abc",
+                                               "feature": ["not/a/module"]}},
+                    partition=[("partition-1.jsonl", QUICK)])
+    r = rows["wave2/quick-folds"]
+    assert r.build.tier == "identity"
+    assert not r.build.tier_anchored
+    assert "GUESSED" in r.build.tier_source
+
+
+def test_a_single_STRING_feature_still_works(tmp_path):
+    """Backwards compatibility, counted: 2 of the 41 live manifests declare a
+    `feature` and both declare a string."""
+    rows = rows_for(tmp_path, {"identity-quantity-test": {"seal": "abc",
+                                                          "feature": "quantity/test"}},
+                    partition=[("partition-1.jsonl", [prow("quantity/test", "spine")])])
+    r = rows["wave2/identity-quantity-test"]
+    # spine, and only because the name reading independently reaches the same
+    # row (module tail `quantity/test`) — a declaration alone could not lower it.
+    assert r.build.tier == SPINE and r.build.tier_anchored
+    assert resolve_tier(load_partition(workspace(tmp_path / "b", {},
+                        partition=[("partition-1.jsonl", [prow("quantity/test", "spine")])])),
+                        "identity-quantity-test", "", "quantity/test")[0] == SPINE

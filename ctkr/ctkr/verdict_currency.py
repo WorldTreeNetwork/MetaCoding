@@ -91,6 +91,29 @@ from "the record says a word I do not recognise". A tier outside
 `identity|spine|unknown` is now an ERROR, and the module it names resolves to
 UNKNOWN, which gates: absence of an answer is never a yes.
 
+THE MANIFEST MAY RAISE ITS OWN SCRUTINY AND NEVER LOWER IT (`MetaCoding-hy6.61`)
+===============================================================================
+Two of 41 manifests declared a `feature`; the other 39 were tiered by a lookup
+whose KEY came from a directory name, and 31 of those rows printed
+`tier: partition via …` as though a record had named the build. It had not — the
+record named a module somebody GUESSED the build implements. The docstring above
+promises "a build tiered by the fallback is visible as such"; that was true only
+of the 6 rows reaching the literal NAME_RULE. Both readings are now printed,
+distinguishably, and the headline counts the guesses separately.
+
+`feature` accepts a LIST, because `quick-folds` ports five modules and a single
+string could not say so — its tier rested on `quick/*`, a family-prefix guess
+that happens to agree with the record.
+
+But the manifest is written by the PORT, and `oracle/port_verify.py` I2 binds
+this project: *the thesis does not write its own reading*. So the declared
+modules are read ASYMMETRICALLY. The name-derived reading is computed FIRST,
+without them; the declared reading is then allowed to decide only when it is
+STRICTER (`spine` < `identity` < `unknown` by how much they gate). A declaration
+that would make a build LESS gated than the heuristic already makes it is
+recorded, printed with its reason, and OVERRULED. A build that can tier itself
+down is a defendant holding the pen.
+
 `hy6.51`'s prose enumeration lists `quick-folds` among the spine builds; the
 recorded partition says identity. The gate follows the RECORD and prints the
 disagreement rather than quietly picking — reconciling the two is `hy6.55`'s job,
@@ -126,9 +149,17 @@ IDENTITY, SPINE, UNKNOWN = "identity", "spine", "unknown"
 #: The closed tier vocabulary, ordered by HOW MUCH EACH ONE GATES. `spine` is
 #: advisory, `identity` gates, and `unknown` gates and additionally means nobody
 #: decided — the strictest reading, because absence of an answer is never a yes.
+#: This order is also what makes "may only RAISE scrutiny" a computable rule.
 TIER_RANK = {SPINE: 0, IDENTITY: 1, UNKNOWN: 2}
 
 NAME_RULE = "directory name (FALLBACK — the partition does not name this build)"
+
+#: Appended to a partition-sourced label whose LOOKUP KEY came from a directory
+#: name rather than from the manifest. `hy6.61`: 31 of 41 rows said "partition
+#: via …" about a guess.
+GUESSED = ("KEY GUESSED FROM THE DIRECTORY NAME — the manifest declares no "
+           "module, so this is the partition's answer about a module somebody "
+           "inferred this build implements")
 
 
 def tier_of(build_name):
@@ -225,15 +256,16 @@ def _norm(s):
     return s.replace("-", "_")
 
 
-def _candidate_lookups(partition, dirname, package, feature):
-    """Ordered ways to find a build's modules in the RECORDED partition. The
-    first lookup that names any module decides, and its label is printed."""
+def _candidate_lookups(partition, dirname, package):
+    """Ordered ways to find a build's modules in the RECORDED partition BY NAME.
+    The first lookup that names any module decides, and its label is printed.
+
+    Every lookup here keys off a DIRECTORY NAME. That is the point of the split
+    (`hy6.61`): what the manifest itself declares is resolved separately, in
+    `resolve_tier`, and is the only record-anchored path."""
     tails = lambda s: [m for m in partition.tier_by_module
                        if m.split("/")[-1] == _norm(s)]
     out = []
-    if feature:
-        out.append((f"manifest declares module {feature}",
-                    [feature] if feature in partition.tier_by_module else []))
     if package:
         out.append((f"cluster {dirname} / package {package}",
                     [m for m in partition.modules_by_cluster.get(dirname, ())
@@ -256,18 +288,58 @@ def _candidate_lookups(partition, dirname, package, feature):
     return out
 
 
-def resolve_tier(partition, dirname, package="", feature=""):
-    """(tier, source). The partition is the source of truth; the directory name
-    is consulted only when no recorded row names this build."""
-    for how, modules in _candidate_lookups(partition, dirname, package, feature):
+def _detail(modules):
+    return ", ".join(sorted(modules)[:4]) + ("…" if len(modules) > 4 else "")
+
+
+def _name_derived_tier(partition, dirname, package):
+    """(tier, source) from the directory name alone — the reading that exists
+    whether or not the manifest declares anything, and therefore the floor the
+    declaration is measured against."""
+    for how, modules in _candidate_lookups(partition, dirname, package):
         if not modules:
             continue
         tier = partition.unanimous(modules)
-        detail = ", ".join(sorted(modules)[:4]) + ("…" if len(modules) > 4 else "")
         if tier == UNKNOWN:
-            return UNKNOWN, f"partition via {how} — rows disagree ({detail})"
-        return tier, f"partition via {how} ({detail})"
+            return UNKNOWN, (f"partition via {how} — rows disagree "
+                             f"({_detail(modules)}) — {GUESSED}")
+        return tier, f"partition via {how} ({_detail(modules)}) — {GUESSED}"
     return tier_of(dirname), NAME_RULE
+
+
+def _features(value):
+    """`feature` as declared: one module, or a LIST of them (`hy6.61` — a build
+    porting five modules could not say so, and its tier fell to a family-prefix
+    guess)."""
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value if str(v)]
+    return [str(value)] if value else []
+
+
+def resolve_tier(partition, dirname, package="", feature=""):
+    """(tier, source, record_anchored). The partition is the source of truth; the
+    directory name is consulted only when no recorded row names this build.
+
+    THE ASYMMETRY (`MetaCoding-hy6.61`). `feature` is written by the PORT — the
+    thing being judged — and this project's invariant is that the thesis does not
+    write its own reading (`oracle/port_verify.py` I2). So the name-derived
+    reading is computed FIRST, without the declaration, and the declaration is
+    allowed to decide only when it is STRICTER. A declaration that would tier a
+    build DOWN is recorded, printed, and overruled: a build that can tier itself
+    down is a defendant holding the pen."""
+    tier, source = _name_derived_tier(partition, dirname, package)
+    named = [f for f in _features(feature) if f in partition.tier_by_module]
+    if not named:
+        return tier, source, False
+    declared = partition.unanimous(named)
+    if TIER_RANK[declared] >= TIER_RANK[tier]:
+        disagree = " — rows disagree" if declared == UNKNOWN and len(named) > 1 else ""
+        return (declared,
+                f"partition via manifest declares module {_detail(named)}{disagree}",
+                True)
+    return tier, (f"{source} — the manifest declares module {_detail(named)}, which "
+                  f"the partition tiers {declared}; a manifest may only RAISE "
+                  f"scrutiny, never lower it, so the {tier} reading stands"), False
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +416,11 @@ class Build:
     tier: str
     tier_source: str
     manifest: str
+    #: True only when the MANIFEST named the module the deciding partition row is
+    #: about. False for every lookup keyed off a directory name — including the
+    #: ones labelled "partition via …", which is what `hy6.61` was: 31 of 41 rows
+    #: claimed a record had named the build when a name had guessed it.
+    tier_anchored: bool = False
     #: The wave this build lives in. Carried rather than re-split out of `name`
     #: at the use site: a retirement is scoped BY WAVE (MetaCoding-hy6.58), so
     #: this is decision input, not display.
@@ -400,13 +477,14 @@ def discover(workspace, wave=None, partition=None, retired=None):
             with open(manifest) as fh:
                 doc = json.load(fh)
             port_id = str(doc.get("port") or "")
-            feature = str(doc.get("feature") or "")
+            feature = doc.get("feature") or ""
         except (OSError, ValueError) as exc:
             doc_error = f"cannot read {manifest}: {exc}"
 
-        tier, source = resolve_tier(partition, dirname, package, feature)
+        tier, source, anchored = resolve_tier(partition, dirname, package, feature)
         b = Build(name=name, tier=tier, tier_source=source, manifest=manifest,
-                  wave=this_wave, dirname=dirname, port_id=port_id)
+                  tier_anchored=anchored, wave=this_wave, dirname=dirname,
+                  port_id=port_id)
         if doc_error:
             b.id_error = doc_error + " — its declared port id is unreadable"
 
@@ -587,6 +665,8 @@ def render(rows, extra_errors, all_tiers):
     ident = [r for r in live if r.build.tier != SPINE]
     blocking = gating_rows(rows)
     fallback = [r for r in live if r.build.tier_source == NAME_RULE]
+    guessed = [r for r in live if r.build.tier_source != NAME_RULE
+               and not r.build.tier_anchored]
     lines.append("")
     lines.append(f"{len(rows)} build(s) declare a manifest — one row per manifest; "
                  f"{len(rows) - len(live)} exempt (pack RETIRED).")
@@ -594,6 +674,10 @@ def render(rows, extra_errors, all_tiers):
                  f"{len(live) - len(ident)} advisory (spine).")
     lines.append(f"{len(fallback)} build(s) were tiered by the FALLBACK name rule "
                  "(the partition does not name them).")
+    lines.append(f"{len(guessed)} build(s) were tiered from a partition row found by "
+                 "GUESSING the module from a directory name (their manifest declares "
+                 f"none); {len(live) - len(fallback) - len(guessed)} from a module "
+                 "their own manifest declares.")
     lines.append(f"{len(blocking)} gating build(s) lack a current, clean verdict.")
     return "\n".join(lines)
 
