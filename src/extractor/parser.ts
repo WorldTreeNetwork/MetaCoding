@@ -10,6 +10,12 @@ import { dirname, join } from "node:path";
 
 import Parser from "web-tree-sitter";
 
+import {
+  digestBytes,
+  grammarLane,
+  registerLoadedArtifact,
+} from "../toolchain/identity.ts";
+
 const require_ = createRequire(import.meta.url);
 const wasmDir = dirname(require_.resolve("tree-sitter-wasms/package.json"));
 
@@ -31,6 +37,18 @@ export async function loadLanguage(grammarName: string): Promise<TsLanguage> {
   if (cached) return cached;
   const path = join(wasmDir, "out", `tree-sitter-${grammarName}.wasm`);
   const bytes = readFileSync(path);
+  // TOOLCHAIN IDENTITY (bead MetaCoding-0bm). The digest is taken from the SAME
+  // buffer that is about to become the grammar — between the read and the load,
+  // with no second read and no path-to-digest indirection where a different
+  // file could substitute. A grammar upgrade changes every parse tree, every
+  // symbol and every edge; before this line it moved no key.
+  registerLoadedArtifact({
+    lane: grammarLane(grammarName),
+    kind: "file",
+    source: path,
+    digest: digestBytes(bytes),
+    bytes: bytes.length,
+  });
   const lang = await Parser.Language.load(bytes);
   languages.set(grammarName, lang);
   return lang;

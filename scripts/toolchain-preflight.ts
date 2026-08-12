@@ -1,0 +1,119 @@
+// scripts/toolchain-preflight.ts — the human-runnable form of the toolchain
+// drift check (docs/design/lessons-as-mechanism.md mechanism 3, bead 0bm).
+//
+// WHICH SURFACE THIS SITS ON, said plainly (docs/design/enforceability.md)
+// ------------------------------------------------------------------------
+// NOT this script. enforceability.md was written after two correct gates were
+// built in three days and NOTHING CALLED EITHER. A standalone script is a
+// document with an exit code, and oracle_preflight.py is the proof in both
+// directions: run by one build in five as a script, unavoidable the moment
+// ledger.py imported it.
+//
+// So the enforcing surfaces for this mechanism are, in order:
+//   1. THE IMPORT PATH — src/extractor/parser.ts registers the digest of the
+//      .wasm blob it just read, between the read and the load. You cannot parse
+//      without measuring the parser. `layer2Key()` then REFUSES to produce a
+//      key when nothing was measured, so a parse-derived build cannot be keyed
+//      blind to the grammar that produced it.
+//   2. `bun test` — src/toolchain/preflight.test.ts runs THIS check against the
+//      REAL toolchain.lock.json and the REAL node_modules, so `bun install`
+//      pulling a different grammar turns the habitual command red.
+//
+// This file exists for the third case: a human who wants the report, and
+// `--write` to re-declare the lock deliberately. It is born with published
+// floors (docs/design/lessons-as-mechanism.md:288) rather than acquiring them
+// later, because it is an instrument.
+//
+// Usage:
+//   bun run scripts/toolchain-preflight.ts [--require-lanes] [--write] [--json]
+
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { beginRun } from "../src/testkit/floors.ts";
+import { toolchainDigest } from "../src/toolchain/identity.ts";
+import {
+  explainToolchain,
+  observeToolchain,
+  relock,
+  artifactsFrom,
+  LOUD_OUTCOMES,
+} from "../src/toolchain/preflight.ts";
+
+const ROOT = join(import.meta.dir, "..");
+const LOCK = join(ROOT, "toolchain.lock.json");
+
+const argv = process.argv.slice(2);
+const requireLanes = argv.includes("--require-lanes");
+const write = argv.includes("--write");
+const asJson = argv.includes("--json");
+
+if (write) {
+  // Deliberate re-declaration. This is the fakeable path and it says so.
+  const next = relock({ root: ROOT, lockPath: LOCK });
+  writeFileSync(LOCK, JSON.stringify(next, null, 2) + "\n", "utf-8");
+  console.log(
+    `toolchain.lock.json REWRITTEN from the installed toolchain ` +
+      `(${Object.keys(next.lanes).length} lanes). This makes any drift green by ` +
+      `construction — the only thing standing between that and a silent ` +
+      `regrade is the diff you are about to commit. Read it.`,
+  );
+  process.exit(0);
+}
+
+const result = observeToolchain({ root: ROOT, lockPath: LOCK, requireLanes });
+console.log(explainToolchain(result));
+
+const grammarLanes = result.lanes.filter((l) => l.lane.startsWith("tree-sitter:"));
+const notChecked = result.lanes.filter((l) => LOUD_OUTCOMES.includes(l.outcome));
+const measured = artifactsFrom(result);
+
+if (asJson) {
+  console.log(JSON.stringify(result, null, 2));
+}
+
+// The toolchain digest the layer-2 key would fold in for THIS install. Printing
+// it is what makes "the key moved" a thing a human can see rather than infer.
+if (measured.length > 0) {
+  console.log(`toolchain_digest (layer-2 key input) = ${toolchainDigest(measured)}`);
+}
+
+const run = beginRun("toolchain-preflight");
+for (const l of result.lanes) {
+  const acceptable =
+    l.outcome === "OK" || (!requireLanes && LOUD_OUTCOMES.includes(l.outcome));
+  // verdict(), not check(): check() throws on the first false, so one drifted
+  // lane would shadow every later one and the report would name a single lane
+  // when six had moved (the MetaCoding-u0l shape, recorded in floors.ts:401).
+  run.verdict(`lane ${l.lane}`, acceptable, `${l.outcome} — ${l.detail}`);
+}
+run.measure("lanesDeclared", result.lanes.length, "count of lanes in toolchain.lock.json");
+run.measure("lanesOk", result.counts.OK, "lanes whose installed digest equals the declared one");
+run.measure("grammarLanes", grammarLanes.length, "declared lanes named tree-sitter:*");
+run.measure(
+  "lanesNotChecked",
+  notChecked.length,
+  "lanes reporting UNPINNED or SKIP_UNAVAILABLE — no answer, which is not no drift",
+);
+
+run.finish([
+  {
+    min: 8,
+    measuredAs: "lanesDeclared",
+    why:
+      "the 8 lanes this repo's parse- and scip-derived facts come from today, " +
+      "counted from toolchain.lock.json when it was first written: 4 tree-sitter " +
+      "grammars + web-tree-sitter + scip-typescript + scip-python + scip-php. " +
+      "Deleting a lane from the declaration is how this check gets quietly " +
+      "narrowed, and it is the one thing a lock cannot report about itself.",
+  },
+  {
+    min: 4,
+    measuredAs: "grammarLanes",
+    why:
+      "src/extractor/walker.ts:117-120 loads exactly four grammars — typescript, " +
+      "tsx, python, php. Counted from that call site, not guessed. Fewer declared " +
+      "lanes than the walker loads means a grammar is parsing facts into the graph " +
+      "with no digest in the key, which is bead 0bm restated.",
+  },
+]);

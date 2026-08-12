@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "why": "The committed declaration of the toolchain every parse- and scip-derived fact in this repo came from (bead MetaCoding-0bm; docs/design/lessons-as-mechanism.md mechanism 3). Each digest is over the artifact's OWN BYTES as installed, never over a version range: a grammar upgrade changes every parse tree, every symbol and every edge, and before this file it moved no key. Regenerate deliberately with `bun run scripts/toolchain-preflight.ts --write`, and read the diff — that regeneration is the one way to make drift green.",
+  "lanes": {
+    "docker:scip-php": {
+      "kind": "docker",
+      "source": "davidrjenni/scip-php:latest",
+      "digest": null,
+      "why": "UNPINNED, deliberately and loudly. The image is not pulled on the machine that wrote this lock, so `docker image inspect` has NO ANSWER for it — and no answer is not no drift. The lane is declared anyway so that its absence is REPORTED (SKIP_UNAVAILABLE, naming the lane) instead of being invisible, and so `--require-lanes` can refuse it. A machine that has pulled the image should `--write` and commit the resulting id. Note also that `:latest` is mutable by definition, which is why the digest — not the tag — is what a key may fold in."
+    },
+    "npm:@sourcegraph/scip-python": {
+      "kind": "package",
+      "source": "@sourcegraph/scip-python",
+      "digest": "sha256:8546a9ca635b81aada486e8734ee3b6cfe9b3db06b497559ef9268663dd2a737"
+    },
+    "npm:@sourcegraph/scip-typescript": {
+      "kind": "package",
+      "source": "@sourcegraph/scip-typescript",
+      "digest": "sha256:f9c3107306182f4cd6160f343e1fc41596f56c0053f91dfff350193506c03320"
+    },
+    "npm:web-tree-sitter": {
+      "kind": "package",
+      "source": "web-tree-sitter",
+      "digest": "sha256:6134968726179766a0ce4206cbf3a2a5fe27cac6a4109fe9387ed17e93466c92"
+    },
+    "tree-sitter:php": {
+      "kind": "file",
+      "source": "node_modules/tree-sitter-wasms/out/tree-sitter-php.wasm",
+      "digest": "sha256:55bb617b6f01e14bab997861f0b20a2420cf6ba3199ffeb295b9ec398966d8a3"
+    },
+    "tree-sitter:python": {
+      "kind": "file",
+      "source": "node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm",
+      "digest": "sha256:9056d0fb0c337810d019fae350e8167786119da98f0f282aceae7ab89ee8253b"
+    },
+    "tree-sitter:tsx": {
+      "kind": "file",
+      "source": "node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm",
+      "digest": "sha256:6aa3b2c70e76f5d48eafef1093e9c4de383e13f2fdde2f4e9b98a378f6a8f1b6"
+    },
+    "tree-sitter:typescript": {
+      "kind": "file",
+      "source": "node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm",
+      "digest": "sha256:8515404dceed38e1ed86aa34b09fcf3379fff1b4ff9dd3967bcd6d1eb5ac3d8f"
+    }
+  }
+}
