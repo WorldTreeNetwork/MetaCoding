@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 
 from ctkr.verdict_currency import (NAME_RULE, SPINE, _matches, discover,
-                                   evaluate, load_partition, load_retirements,
-                                   load_verdicts, main, render, resolve_tier,
-                                   tier_of)
+                                   evaluate, gating_rows, load_partition,
+                                   load_retirements, load_verdicts, main, render,
+                                   resolve_tier, tier_of)
 
 
 # ---------------------------------------------------------------------------
@@ -515,3 +515,192 @@ def test_an_ORDINARY_pack_row_carrying_a_seal_is_not_a_retirement(tmp_path):
     assert not any("scope" in e for e in errors), (
         "an ordinary pack row was examined as a retirement and complained about "
         f"its missing scope: {errors}")
+
+
+# ---------------------------------------------------------------------------
+# hy6.59 — the nine surviving mutations, each with the fixture that separates
+# the two readings. THE SHAPE THIS FILE KEEPS GETTING BITTEN BY: a rule tested
+# only where its two candidate readings AGREE is not tested (`_matches`/endswith,
+# the PACKS.jsonl discriminator, `_find_seal`'s ascent). Every fixture below is
+# built so that the mutant and the real rule give DIFFERENT answers.
+# ---------------------------------------------------------------------------
+
+def test_a_RETIRED_seal_is_matched_EXACTLY_not_by_PREFIX(tmp_path):
+    """J02. Exemption is keyed on the seal a pack carries; a seal that merely
+    BEGINS with a retired one is a different pack. Every fixture until now used
+    a seal that either equalled a retired one or shared no prefix with it, so
+    `==` and `startswith` agreed everywhere. Seals are hex digests, and a
+    truncated or re-recorded digest sharing a prefix is exactly the case the
+    exemption must not swallow."""
+    ws = workspace(tmp_path, {"w0a-build": {"seal": "d2942d62e1b0-v2"}},
+                   wave="wave0-pilot",
+                   retired=[("d2942d62e1b0", "wave0 pilot: fixtures no longer re-hash")])
+    r = rows_of(ws)["wave0-pilot/w0a-build"]
+    assert not r.build.retired_reason, "a seal was excused for sharing a PREFIX"
+    assert r.gates
+
+
+def test_the_seal_the_record_names_EXACTLY_is_still_exempt(tmp_path):
+    """The contrast: tightening to `==` must not stop the retirement record
+    working, or wave0-pilot goes permanently red."""
+    ws = workspace(tmp_path / "b", {"w0a-build": {"seal": "d2942d62e1b0"}},
+                   wave="wave0-pilot",
+                   retired=[("d2942d62e1b0", "wave0 pilot: fixtures no longer re-hash")])
+    r = rows_of(ws)["wave0-pilot/w0a-build"]
+    assert r.build.retired_reason and not r.gates
+
+
+def test_a_verdict_with_NO_clean_KEY_is_not_clean(tmp_path):
+    """J03. Every fixture set `clean` explicitly, so present-and-false was tested
+    and ABSENT was not — and absent is the reading a truncated or older recorder
+    produces. Absence of an answer is never a yes."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+                   [("a.json", {"port": "w2-identity-a", "pack_seal": "abc",
+                                "score": {}})])
+    r = rows_of(ws)["wave2/identity-a"]
+    assert r.state == "unclean" and r.gates
+
+
+def test_ONE_unclean_verdict_among_TWO_current_ones_still_gates(tmp_path):
+    """J04. `all()` -> `any()` survived because no fixture ever gave one build
+    two current verdicts, so the two readings agreed on every case in the suite.
+    Two verdicts naming the same port against the same pack is not exotic — it is
+    what re-running port-verify under a second filename produces, and under
+    `any()` the older clean one would excuse the newer dirty one."""
+    rows = rows_for(tmp_path, {"identity-a": {"seal": "abc"}},
+                    [("a1-clean.json", verdict("w2-identity-a", "abc", clean=True)),
+                     ("a2-dirty.json", verdict("w2-identity-a", "abc", clean=False))])
+    r = rows["wave2/identity-a"]
+    assert r.state == "unclean" and r.gates
+    assert "a2-dirty.json" in r.detail and "a1-clean.json" not in r.detail
+
+
+def test_TWO_current_verdicts_that_are_BOTH_clean_are_ok(tmp_path):
+    """The contrast: duplication is not dirt."""
+    rows = rows_for(tmp_path, {"identity-a": {"seal": "abc"}},
+                    [("a1.json", verdict("w2-identity-a", "abc")),
+                     ("a2.json", verdict("w2-identity-a", "abc"))])
+    assert rows["wave2/identity-a"].state == "ok"
+
+
+def test_two_modules_in_ONE_lookup_that_disagree_resolve_to_UNKNOWN(tmp_path):
+    """J05. `Partition.unanimous` across MODULES — the path the live tree uses
+    (identity-birth resolves over {log/birth, quick/birth}), and a different path
+    from two FILES disagreeing about one module, which is all that was tested.
+    Picking `sorted(tiers)[0]` LOOSENS: here it would return `spine`, and spine
+    does not gate at all."""
+    rows = rows_for(tmp_path, {"identity-mixed": {"seal": None}},
+                    partition=[("partition-1.jsonl",
+                                [prow("asset/one", "spine", "identity-mixed"),
+                                 prow("asset/two", "unknown", "identity-mixed")])])
+    r = rows["wave2/identity-mixed"]
+    assert r.build.tier == "unknown", "a gate picked between two records"
+    assert r.gates, "picking the alphabetically-first tier makes this ADVISORY"
+    assert "rows disagree" in r.build.tier_source
+
+
+def test_two_modules_in_ONE_lookup_that_AGREE_resolve_normally(tmp_path):
+    """The contrast: a cluster of modules that agree is the ordinary case and
+    must not be read as a contradiction."""
+    rows = rows_for(tmp_path, {"identity-mixed": {"seal": None}},
+                    partition=[("partition-1.jsonl",
+                                [prow("asset/one", "spine", "identity-mixed"),
+                                 prow("asset/two", "spine", "identity-mixed")])])
+    r = rows["wave2/identity-mixed"]
+    assert r.build.tier == SPINE and not r.gates
+
+
+def test_the_NEAREST_pack_seal_decides_when_TWO_are_on_the_path(tmp_path):
+    """J07, and the judge called it one of the two highest-value holes.
+    `_find_seal`'s docstring names TWO conventions it must serve — a pack shared
+    by a whole wave (wave1-c1) and a per-build pack — but every fixture wrote
+    exactly ONE seal per build, so nearest-first and outermost-first agreed on
+    every fixture AND on all 41 live builds. Reversing the ascent survived.
+
+    Here both conventions are present at once: `near` has its own pack AND sits
+    under a wave-level one. Its own must decide, or its verdict reads as stale."""
+    ws = workspace(tmp_path, {"near": {"seal": "NEARSEAL", "port": "p-near"},
+                              "far-only": {"seal": None, "port": "p-far"}},
+                   wave="wave9",
+                   verdicts=[("n.json", verdict("p-near", "NEARSEAL")),
+                             ("f.json", verdict("p-far", "WAVESEAL"))])
+    wave_pack = tmp_path / "port_runs" / "wave9" / "observe"
+    wave_pack.mkdir(parents=True, exist_ok=True)
+    (wave_pack / "pack.seal.json").write_text(json.dumps({"seal": "WAVESEAL"}))
+    rows = rows_of(ws)
+    near = rows["wave9/near"]
+    assert near.build.seal == "NEARSEAL", "the OUTERMOST pack decided"
+    assert near.state == "ok" and not near.gates
+    # ... and the contrast, in the same tree: the ascent is REAL. A build with no
+    # pack of its own still inherits the wave-level one (wave1-c1's portA/portB
+    # share one pack), so this must not be "fixed" by refusing to ascend at all.
+    far = rows["wave9/far-only"]
+    assert far.build.seal == "WAVESEAL"
+    assert far.state == "ok" and not far.gates
+
+
+def test_the_reported_gating_COUNT_is_the_population_main_EXITS_on(tmp_path, capsys):
+    """J10. `hy6.53` WAS a divergence between the population the headline counts
+    and the population the exit code is taken from. It was fixed and then nothing
+    bound the two, so blanking the report's list left the suite silent. The tree
+    below holds one of everything that must NOT be counted — a retired pack, a
+    spine build, a verified build — so the two populations can actually differ."""
+    workspace(tmp_path, {"w0a-build": {"seal": "PILOT"}}, wave="wave0-pilot",
+              retired=[("PILOT", "wave0 pilot: fixtures no longer re-hash")])
+    workspace(tmp_path, {"identity-ok": {"seal": "abc"},
+                         "identity-bad": {"seal": "xyz"},
+                         "spine-quiet": {"seal": None},
+                         "mystery": {"seal": None}},
+              verdicts=[("a.json", verdict("w2-identity-ok", "abc"))])
+    assert main(["--workspace", str(tmp_path)]) == 2
+    cap = capsys.readouterr()
+    headline = [ln for ln in cap.out.splitlines() if "gating build(s) lack" in ln]
+    assert len(headline) == 1, cap.out
+    reported = int(headline[0].split()[0])
+    named = sorted(cap.err.strip().splitlines()[-1].strip().split(", "))
+    assert named == ["wave2/identity-bad", "wave2/mystery"], cap.err
+    assert reported == len(named), (
+        f"the report announces {reported} gating build(s); the exit is taken on "
+        f"{len(named)} — hy6.53 exactly")
+    rows = rows_of(str(tmp_path))
+    assert len(gating_rows(list(rows.values()))) == reported
+
+
+def test_an_UNREADABLE_manifest_is_UNDETERMINABLE_and_gates(tmp_path):
+    """J14. `test_an_UNREADABLE_verdict_counts_as_NO_verdict` exists; the manifest
+    counterpart did not. The discriminating half: with the manifest unreadable the
+    declared port id is empty, but `_matches` also accepts the BUILD KEY — so a
+    verdict filed under the key satisfies a build whose manifest nobody could
+    read. A build that cannot say what it is has not been driven."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+                   verdicts=[("a.json", verdict("wave2/identity-a", "abc"))])
+    (tmp_path / "port_runs" / "wave2" / "identity-a" / "build"
+     / "port.manifest.json").write_text("{not json")
+    r = rows_of(ws)["wave2/identity-a"]
+    assert r.state == "undeterminable", "an unreadable manifest was scored"
+    assert r.gates
+    assert "unreadable" in r.detail
+
+
+def test_a_READABLE_manifest_is_satisfied_by_a_verdict_under_its_build_key(tmp_path):
+    """The contrast, and what makes the test above discriminate: the same verdict,
+    filed under the same build key, against a manifest that parses, is ok."""
+    ws = workspace(tmp_path / "b", {"identity-a": {"seal": "abc"}},
+                   verdicts=[("a.json", verdict("wave2/identity-a", "abc"))])
+    assert rows_of(ws)["wave2/identity-a"].state == "ok"
+
+
+def test_a_pack_seal_file_carrying_NO_seal_is_an_ERROR_not_an_empty_seal(tmp_path):
+    """J18. Dropping the check leaves `seal == ""`, and then a verdict that
+    records no `pack_seal` compares EQUAL to it — an unsealed pack and an
+    unsealed verdict agreeing that nothing was checked, scored `ok`. Two
+    absences do not make a currency."""
+    ws = workspace(tmp_path, {"identity-a": {"seal": "abc"}},
+                   verdicts=[("a.json", {"port": "w2-identity-a", "clean": True,
+                                         "score": {}})])
+    (tmp_path / "port_runs" / "wave2" / "identity-a" / "observe"
+     / "pack.seal.json").write_text(json.dumps({"pack_id": "p1"}))
+    r = rows_of(ws)["wave2/identity-a"]
+    assert r.state == "undeterminable", "an empty seal matched an empty pack_seal"
+    assert r.gates
+    assert "carries no" in r.detail

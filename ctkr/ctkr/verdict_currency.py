@@ -471,6 +471,15 @@ class Row:
         return self.state != "ok"
 
 
+def gating_rows(rows):
+    """THE blocking population — one definition, read by both the report and the
+    exit code (`MetaCoding-hy6.59` J10). `hy6.53` was exactly a divergence between
+    the population the headline counted and the population the exit was taken
+    from; the divergence was fixed and then nothing bound the two together, so a
+    judge could blank the report's count and the suite noticed nothing."""
+    return [r for r in rows if r.gates]
+
+
 def evaluate(builds, verdicts):
     rows = []
     for b in builds:
@@ -540,7 +549,7 @@ def render(rows, extra_errors, all_tiers):
 
     live = [r for r in rows if not r.build.retired_reason]
     ident = [r for r in live if r.build.tier != SPINE]
-    blocking = [r for r in ident if r.gates]
+    blocking = gating_rows(rows)
     fallback = [r for r in live if r.build.tier_source == NAME_RULE]
     lines.append("")
     lines.append(f"{len(rows)} build(s) declare a manifest — one row per manifest; "
@@ -584,7 +593,7 @@ def main(argv=None):
     rows = evaluate(builds, verdicts)
     print(render(rows, errors + retire_errors + partition.errors, args.all_tiers))
 
-    blocking = [r for r in rows if r.gates]
+    blocking = gating_rows(rows)
     if blocking:
         print("\nREFUSING: these builds declare a bridge and have no current, clean "
               "verdict of record.\n"
