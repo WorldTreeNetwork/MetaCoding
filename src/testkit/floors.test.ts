@@ -104,9 +104,26 @@ describe("F4.1 truncation", () => {
 
   test("the count is DERIVED: `checks` cannot be written by hand", () => {
     const run = beginRun("x");
-    expect(() => run.measure("checks", 99)).toThrow(InstrumentMisuse);
+    expect(() => run.measure("checks", 99, "counted")).toThrow(InstrumentMisuse);
     // Contrast: a field the run does NOT derive is measurable.
-    expect(() => run.measure("rows", 99)).not.toThrow();
+    expect(() => run.measure("rows", 99, "rows returned by the query")).not.toThrow();
+  });
+
+  // MetaCoding-8mh: the reserved vocabulary is two names wide. A judge published
+  // `assertionsRun: 500` — a literal — and carried a min-500 floor to a PASS.
+  test("a measured field must say what derived it, and is LABELLED measured", () => {
+    const run = beginRun("x");
+    // REFUTING: no provenance is refused.
+    expect(() => run.measure("assertionsRun", 500, "")).toThrow(InstrumentMisuse);
+    expect(() => run.measure("assertionsRun", 500, "   ")).toThrow(InstrumentMisuse);
+    expect(() =>
+      (run as unknown as { measure: (f: string, v: number) => void }).measure("assertionsRun", 500),
+    ).toThrow(InstrumentMisuse);
+    // CONTRAST: with provenance it publishes — and the record says it is only
+    // `measured`, not `derived`, so a floor standing on a literal is visible.
+    run.measure("assertionsRun", 500, "len(ASSERTIONS) at the top of this file");
+    expect(run.provenance().assertionsRun).toContain("ASSERTIONS");
+    expect(run.provenance().checks).toContain("run.check()");
   });
 
   test("the count cannot be inflated by counting one check twice", () => {
@@ -405,5 +422,106 @@ describe("the record sink", () => {
     expect(bad.code).toBe(1);
     expect(bad.err).toContain("RECORD_SINK_UNWRITABLE");
     expect(bad.out).not.toContain("FIXTURE_SMOKE_PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deferred verdicts (MetaCoding-u0l): a guard that a more ordinary failure
+// pre-empts is a guard that is not there.
+// ---------------------------------------------------------------------------
+
+describe("verdict() defers the refusal so nothing shadows anything", () => {
+  test("TODAY's shape: check() throws on the FIRST false and the second is never asked", () => {
+    const run = beginRun("x");
+    const asked: string[] = [];
+    const ask = (label: string, ok: boolean) => {
+      asked.push(label);
+      run.check(label, ok, `${label} was false`);
+    };
+    expect(() => {
+      ask("ordinary failure", false);
+      ask("the fundamental guard", false);
+    }).toThrow(SmokeCheckFailed);
+    // The second guard was never reached. That is the defect, as an equality.
+    expect(asked).toEqual(["ordinary failure"]);
+  });
+
+  test("CONTRAST: verdict() reaches both, and finish() names BOTH at once", () => {
+    const run = beginRun("x");
+    run.verdict("ordinary failure", false, "a script exited 1");
+    run.verdict("the fundamental guard", false, "a script exited 0 with no record");
+    run.check("something that held", true);
+    let refused: FloorsRefused | null = null;
+    try {
+      run.finish([{ min: 1, measuredAs: "checks", why: "at least one check must pass" }]);
+    } catch (e) {
+      refused = e as FloorsRefused;
+    }
+    expect(refused).toBeInstanceOf(FloorsRefused);
+    const named = refused!.result.failures.filter((f) => f.kind === "CHECK_REFUSED");
+    expect(named.length).toBe(2);
+    expect(refused!.message).toContain("the fundamental guard");
+    expect(refused!.message).toContain("a script exited 0 with no record");
+  });
+
+  test("a held refusal is not counted, and the floors are still EVALUATED", () => {
+    const run = beginRun("x");
+    run.verdict("held", false, "d");
+    run.check("counted", true);
+    expect(run.publish().checks).toBe(1);
+    // The floor over a field nobody publishes still fires: the run reached the
+    // gate, which is the whole point of deferring rather than throwing early.
+    try {
+      run.finish([{ min: 1, measuredAs: "sectionsCovered", why: "w" }]);
+      throw new Error("unreachable: finish did not refuse");
+    } catch (e) {
+      expect(e).toBeInstanceOf(FloorsRefused);
+      expect(kinds((e as FloorsRefused).result)).toContain("UNPUBLISHED_FIELD");
+      expect(kinds((e as FloorsRefused).result)).toContain("CHECK_REFUSED");
+    }
+  });
+
+  test("a PASSING verdict is an ordinary counted check", () => {
+    const run = beginRun("x");
+    run.verdict("held true", true);
+    expect(run.publish().checks).toBe(1);
+    expect(run.finish([{ min: 1, measuredAs: "checks", why: "one" }]).ok).toBe(true);
+  });
+
+  test("verdict() is subject to every rule check() is", () => {
+    const run = beginRun("x");
+    expect(() => run.verdict("", false)).toThrow(InstrumentMisuse);
+    expect(() => run.verdict("a", "no" as unknown as boolean)).toThrow(InstrumentMisuse);
+    run.verdict("dup", false, "d");
+    // A refused label cannot be re-used to count a passing check of the same name.
+    expect(() => run.verdict("dup", true)).toThrow(/DUPLICATE_CHECK/);
+    expect(() => run.check("dup", true)).toThrow(/DUPLICATE_CHECK/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The record says where each floor's number STANDS (MetaCoding-8mh).
+// ---------------------------------------------------------------------------
+
+describe("floors are recorded with the basis of the field they name", () => {
+  test("derived, measured and unpublished are told apart in the record", async () => {
+    const dir = `/tmp/floors-basis-${process.pid}-${Date.now()}`;
+    const sink = `${dir}/rec.jsonl`;
+    await Bun.write(sink, "");
+    process.env.SMOKE_RECORD_FILE = sink;
+    try {
+      const run = beginRun("basis");
+      run.check("a", true);
+      run.measure("rows", 4, "len(rows) returned by the query");
+      run.finish([
+        { min: 1, measuredAs: "checks", why: "one check" },
+        { min: 1, measuredAs: "rows", why: "one row" },
+      ]);
+    } finally {
+      delete process.env.SMOKE_RECORD_FILE;
+    }
+    const rec = JSON.parse((await Bun.file(sink).text()).trim().split("\n").pop()!);
+    expect(rec.floors.map((f: { basis: string }) => f.basis)).toEqual(["derived", "measured"]);
+    expect(rec.provenance.rows).toContain("len(rows)");
   });
 });

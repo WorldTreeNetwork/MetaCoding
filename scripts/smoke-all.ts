@@ -189,8 +189,16 @@ async function main(): Promise<void> {
     (n, o) => n + (o.record?.published.checks ?? 0),
     0,
   );
-  run.measure("scriptsReported", scriptsWithRecords);
-  run.measure("checksAcrossSuite", checksAcrossSuite);
+  run.measure(
+    "scriptsReported",
+    scriptsWithRecords,
+    "counted: outcomes whose stdout carried a parseable SMOKE_RECORD",
+  );
+  run.measure(
+    "checksAcrossSuite",
+    checksAcrossSuite,
+    "summed: published.checks over every record parsed this run",
+  );
 
   const floors: Floor[] = [
     {
