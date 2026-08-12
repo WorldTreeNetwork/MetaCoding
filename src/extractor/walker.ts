@@ -101,8 +101,17 @@ export interface WalkStats {
    * produced its facts, taken from the process registry — the same default
    * binding F3.1b holds. 0bm's own description is what this serves: "the cache
    * model requires a reader to RECOMPUTE a key from the artifact's own recorded
-   * inputs". This is that input, recorded, by the code path that produces the
-   * facts it describes.
+   * inputs".
+   *
+   * AND IT IS RECORDED, which for one release it was not (bead
+   * MetaCoding-1j5). This field's whole consumer chain ended at a
+   * `console.log` in src/cli/main.ts while this comment already called it
+   * "recorded", so nothing that later opened the store could recover which
+   * grammar produced its facts — a claim in a comment the code did not
+   * implement. `runIndexSession` now writes it into the health record beside
+   * `index_identities`, the persisted channel that already carries the SCIP
+   * lane's input identities and is already read back from the store
+   * (src/ingest/toolchain-recorded.test.ts).
    *
    * NOT YET the sealed keyed entry. `layer2Key` still has no production caller
    * because there is no manifest to put a key in (bead MetaCoding-ev9, named in

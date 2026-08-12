@@ -194,6 +194,24 @@ export interface IndexHealthRecord {
    */
   freshness?: FreshnessBlock | null;
   index_identities: IndexIdentity[];
+  /**
+   * THE TOOLCHAIN THE TREE-SITTER LANE PARSED WITH (bead MetaCoding-1j5, under
+   * MetaCoding-0bm).
+   *
+   * `index_identities` above records the identity of every PRE-BUILT index this
+   * run consumed. The tree-sitter lane consumes no file — it consumes GRAMMARS,
+   * and their identity is `toolchainDigest()` over the loader's registry. That
+   * digest was computed in production from the day 9880f18 landed and reached
+   * nothing but `console.log`: walker.ts called it "recorded", and a reader who
+   * opened the store afterwards could not recover which grammar produced its
+   * facts. Same channel, same purpose, the other lane.
+   *
+   * OPTIONAL, and absent MEANS UNRECORDED — records written before 1j5, and the
+   * RUNNING record, which is written before the walk that measures it. It is
+   * never a claim that the toolchain was empty; `toolchainDigest()` refuses
+   * that case at the source rather than writing a null here.
+   */
+  toolchain_digest?: string | null;
   /** Set when an operator flag waived a failure. Visible at read time forever. */
   override: { flag: string; value: string } | null;
   /** True while a `metacoding watch` owns this slice (incremental writes). */

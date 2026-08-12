@@ -217,6 +217,9 @@ export async function runIndexSession(
       fitness: null,
       correspondence: null,
       index_identities: [],
+      // Not yet measured: the walk that loads the grammars has not run. Absent
+      // means UNRECORDED, never "no toolchain" (bead MetaCoding-1j5).
+      toolchain_digest: null,
       override: null,
     };
     health.write(record);
@@ -406,6 +409,19 @@ export async function runIndexSession(
       correspondence,
       freshness,
       index_identities: identities,
+      // THE TREE-SITTER LANE'S IDENTITY, PERSISTED (bead MetaCoding-1j5).
+      //
+      // The walker has computed this on every whole-tree build since 9880f18
+      // and it went to stdout and nowhere else, while `index_identities` — the
+      // channel built to record exactly this for the SCIP lane, already read
+      // back from the store by fitness.test.ts — sat beside it holding none of
+      // it. A digest that is printed is not an input a reader can recompute
+      // from; it is the same distance from the artifact as no digest at all.
+      //
+      // Taken from the walk's own return value rather than re-read from the
+      // registry here: this must be the toolchain THAT BUILD parsed with, and
+      // the registry at finalize time is a different moment.
+      toolchain_digest: tsStats.toolchain_digest,
       override,
     };
     if (timer) { clearInterval(timer); timer = null; }
