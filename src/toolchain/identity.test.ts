@@ -98,6 +98,44 @@ describe("F3.1 — the key moves with the grammar, and only with the grammar", (
     const b = layer2Key({ ...SAME_TREE, tree_digest: "sha256:" + "c".repeat(64) }, artifactFor(real));
     expect(a).not.toBe(b);
   });
+
+  // FOUND BY MUTATION, not by design (M0 in the session recorded on this
+  // commit). Replacing `inputs.extractor_version` with a literal SURVIVED the
+  // whole suite: the key would have been blind to the extractor, which is the
+  // exact defect 0bm is about, one field over. A key input nobody asserts is
+  // an input the key can quietly stop having.
+  test("EVERY declared input moves the key — one field at a time", () => {
+    const baseline = layer2Key(SAME_TREE, artifactFor(real));
+    const moved: Record<string, string> = {
+      store_schema_version: "8",
+      extractor_version: "2026-09-01",
+      recipe: "tree-sitter-only",
+      tree_digest: "sha256:" + "c".repeat(64),
+      path_mapping: "prefixed",
+      achieved_fidelity_profile: "partial",
+    };
+    for (const [field, value] of Object.entries(moved)) {
+      const key = layer2Key({ ...SAME_TREE, [field]: value }, artifactFor(real));
+      expect(`${field}:${key === baseline ? "UNMOVED" : "MOVED"}`).toBe(`${field}:MOVED`);
+    }
+    // The list itself is checked: a field added to Layer2Inputs and not to this
+    // table would otherwise be silently unasserted.
+    const declared = Object.keys(SAME_TREE).filter((k) => k !== "scip_layer1_keys");
+    expect(Object.keys(moved).sort()).toEqual(declared.sort());
+  });
+
+  // ALSO FOUND BY MUTATION (M8): dropping the .sort() on scip_layer1_keys
+  // survived. Two ingests of the same .scip set in different order must key the
+  // same, or the key reports drift that did not happen.
+  test("scip_layer1_keys: content moves the key, ORDER does not", () => {
+    const k1 = "sha256:" + "1".repeat(64);
+    const k2 = "sha256:" + "2".repeat(64);
+    const ab = layer2Key({ ...SAME_TREE, scip_layer1_keys: [k1, k2] }, artifactFor(real));
+    const ba = layer2Key({ ...SAME_TREE, scip_layer1_keys: [k2, k1] }, artifactFor(real));
+    const only = layer2Key({ ...SAME_TREE, scip_layer1_keys: [k1] }, artifactFor(real));
+    expect(ab).toBe(ba);
+    expect(ab).not.toBe(only);
+  });
 });
 
 describe("a key over an unmeasured toolchain is refused, not computed", () => {
@@ -160,5 +198,20 @@ describe("the loader registers the blob it loaded (the import-path half)", () =>
     // The digest is over the SAME BYTES the parser consumed — which is why this
     // compares against a fresh read of the file rather than against the lock.
     expect(php!.digest).toBe(digestBytes(readFileSync(REAL_PHP_WASM)));
+  });
+
+  // THE REGRESSION FIXTURE FOR THE HOLE THE FULL SUITE FOUND. The first version
+  // of parser.ts registered only on the cache MISS, so this test passed alone
+  // and failed in `bun test` — a php grammar loaded by an earlier file meant the
+  // second caller got a parser with NO measurement behind it, and a key computed
+  // there would have been blind to the grammar. Loading twice around a reset is
+  // that situation, made deliberate.
+  test("a CACHED grammar is still measured — the second load registers too", async () => {
+    const { makeParser } = await import("../extractor/parser.ts");
+    await makeParser("php"); // populate the language cache
+    resetLoadedArtifacts(); // the registry now knows nothing
+    await makeParser("php"); // served from cache — must still register
+    const php = loadedArtifacts().find((a) => a.lane === grammarLane("php"));
+    expect(php?.digest).toBe(digestBytes(readFileSync(REAL_PHP_WASM)));
   });
 });
