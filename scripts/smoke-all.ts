@@ -8,8 +8,25 @@
 // library the caller did not import — and lessons-as-mechanism.md:274 names it
 // as a known weakness of mechanisms 1, 4 and 5. The bracket is the answer
 // there, and this file is the bracket for the smoke suite: it runs the scripts
-// and REFUSES ONE THAT EMITTED NO RECORD. A script cannot opt out by not
-// importing anything, because the check is not in its import graph.
+// and REFUSES ONE THAT EMITTED NO RECORD. A script cannot opt out by staying
+// SILENT, because the check is not in its import graph.
+//
+// WHAT IT CANNOT DO, and the first draft of this comment claimed it could
+// (MetaCoding-870): it cannot detect FORGERY. A stub that imports nothing and
+// prints two console.log lines — a hand-written SMOKE_RECORD with checks:9999
+// and a PASS token — satisfies this bracket, counts toward scriptsReported, and
+// carries the checksAcrossSuite floor on its own say-so. A fresh adversary did
+// exactly that and the suite went green. Detecting forgery would need the child
+// to PROVE it ran the code, which nothing here can ask for, so the claim is
+// narrowed to what it can back rather than left overstated:
+//
+//   this bracket refuses SILENCE and MIS-EXIT. It does not authenticate counts.
+//
+// The two holes that were real defects rather than limits are closed below: the
+// child's own `ok:false` is now read and refused (it was parsed and discarded),
+// and the entrypoint's exit code is now asserted by a test (it was stated as
+// load-bearing in the source and asserted by nothing — flipping exit(1) to
+// exit(0) turned every red suite green and `bun test` stayed 75/0).
 //
 // It also refuses a suite LIST that has drifted from the directory. Today the
 // list lives in package.json's `smoke` script as a && chain, and nothing
@@ -99,7 +116,14 @@ export interface ScriptOutcome {
   script: string;
   exitCode: number;
   /** The parsed SMOKE_RECORD, or null if the script emitted none. */
-  record: { published: Record<string, number>; checkLabels: string[] } | null;
+  record: {
+    published: Record<string, number>;
+    checkLabels: string[];
+    /** The child's OWN verdict on itself. Parsed and then DISCARDED until
+     *  MetaCoding-870: a script could publish ok:false and still be counted as
+     *  a reporting script. Its own no is now a refusal. */
+    ok?: boolean;
+  } | null;
 }
 
 export function parseRecord(stdout: string): ScriptOutcome["record"] {
@@ -191,6 +215,7 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
   const outcomes: ScriptOutcome[] = [];
   const failed: string[] = [];
   const silent: string[] = [];
+  const selfRefused: string[] = [];
   for (const script of selected) {
     console.log(`\n--- ${script}`);
     const o = await runScript(dir, script);
@@ -200,7 +225,12 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
     // reached a floors gate has not said what it ran, and "it printed nothing
     // and nothing was said" is the shape this whole mechanism refuses.
     else if (o.record === null) silent.push(script);
-    if ((o.exitCode !== 0 || o.record === null) && !keepGoing) break;
+    // ...and a record that says ok:false while the script exits 0 is a script
+    // contradicting itself. This was parsed and DISCARDED (MetaCoding-870): the
+    // child's own no was the one piece of evidence here written by the party
+    // that actually ran, and it was the piece being ignored.
+    else if (o.record.ok === false) selfRefused.push(script);
+    if ((o.exitCode !== 0 || o.record === null || o.record.ok === false) && !keepGoing) break;
   }
 
   console.log(`\n=== suite summary`);
@@ -217,6 +247,11 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
     "no script exited 0 without emitting a record",
     silent.length === 0,
     `silent: ${silent.join(", ")} — exit 0 is not evidence that anything ran`,
+  );
+  run.verdict(
+    "no script exited 0 while its own record says ok:false",
+    selfRefused.length === 0,
+    `self-refused: ${selfRefused.join(", ")} — the script published its own no and exited 0`,
   );
 
   // 3. The suite's OWN floors. `scriptsReported` counts records actually
@@ -237,9 +272,9 @@ export async function runSuite(opts: SuiteOptions): Promise<void> {
 
   const floors: Floor[] = [
     {
-      min: 5,
+      min: 6,
       measuredAs: "checks",
-      why: "counted from the source: this runner makes 5 verdict() calls (list drift x2, selection non-empty, no failures, no silent scripts)",
+      why: "counted from the source: this runner makes 6 verdict() calls (list drift x2, selection non-empty, no failures, no silent scripts, no self-refused scripts)",
     },
   ];
   if (selected.length > 0) {

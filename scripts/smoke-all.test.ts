@@ -134,8 +134,9 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     expect(r.record).not.toBeNull();
     expect(r.record!.ok).toBe(true);
     expect(r.record!.refused).toEqual([]);
-    // The runner's own five verdicts, all held.
-    expect(r.record!.published.checks).toBe(5);
+    // The runner's own SIX verdicts, all held (the sixth is the self-refusal
+    // check added for MetaCoding-870).
+    expect(r.record!.published.checks).toBe(6);
     // Derived, not declared: two stub scripts, 3 + 2 checks between them.
     expect(r.record!.published.scriptsReported).toBe(2);
     expect(r.record!.published.checksAcrossSuite).toBe(5);
@@ -207,11 +208,17 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     const green = await runSuiteFixture("green");
     const own = green.record!.floors.find((f) => f.measuredAs === "checks")!;
     expect(own.min).toBe(green.record!.checkLabels.length);
-    expect(own.min).toBe(5);
+    // 6 since MetaCoding-870 added the self-refusal verdict. Bumping this is the
+    // point: the floor is pinned to the labels a green run actually recorded, so
+    // a new verdict cannot be added without someone raising the number on purpose.
+    expect(own.min).toBe(6);
     expect(own.basis).toBe("derived");
     // REFUTING: a run that reaches only 3 of them fails that floor by name.
     const red = await runSuiteFixture("red-and-silent");
-    expect(red.stderr).toContain('"checks" = 3, floor is 5');
+    // 4 of 6 since the self-refusal verdict: a partial run reaches one more check
+    // before it refuses. The pair still discriminates — the point is that the
+    // truncated run fails its own floor BY NAME, not the specific integers.
+    expect(red.stderr).toContain('"checks" = 4, floor is 6');
   });
 
   test("a script on disk the suite never runs is refused by the RUNNER", async () => {
@@ -233,4 +240,66 @@ describe("the bracket refuses a script that exited 0 and said nothing", () => {
     expect(none.code).toBe(1);
     expect(none.stderr).toContain("the selection is non-empty");
   });
+});
+
+// ---------------------------------------------------------------------------
+// The ENTRYPOINT, not runSuite() — MetaCoding-l3b and the J3 survivor
+// ---------------------------------------------------------------------------
+// A fresh adversary mutated `process.exit(1)` to `process.exit(0)` in this
+// file's entrypoint and NOTHING NOTICED: the suite went green with floors unmet
+// and `ok:false` in its own record, and `bun test` stayed 75/0. One character
+// turns every future red suite green for package.json's smoke chain.
+//
+// The cases above drive runSuite() — the seam — and the block comment claiming
+// they "drive main()" was false. These spawn the real entrypoint as a
+// subprocess, which is the only way to assert the thing the source calls
+// load-bearing: THE RUNNER'S EXIT CODE IS THE SUITE'S.
+import { test as entryTest, expect as entryExpect } from "bun:test";
+
+const ENTRY = new URL("./smoke-all.ts", import.meta.url).pathname;
+
+async function runEntrypoint(args: string[]): Promise<{ code: number; out: string }> {
+  const p = Bun.spawn(["bun", "run", ENTRY, ...args], {
+    cwd: new URL("..", import.meta.url).pathname,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
+  return { code: await p.exited, out };
+}
+
+entryTest("the entrypoint EXITS NON-ZERO when the suite refuses", async () => {
+  // smoke-extractor is red at baseline (MetaCoding-6ep) — a standing, honest
+  // red, which makes it the fixture for this. If it is ever repaired, this
+  // test must be re-pointed at another refusing selection rather than deleted.
+  const { code, out } = await runEntrypoint(["--only", "extractor"]);
+  entryExpect(out).toContain("SMOKE_ALL_FAIL");
+  entryExpect(code).not.toBe(0);
+}, 120_000);
+
+entryTest("the entrypoint EXITS ZERO when the suite is satisfied", async () => {
+  // The contrast. Without it, an entrypoint hard-wired to exit 1 would pass the
+  // test above and refuse every green run — the failure mode is symmetric.
+  const { code } = await runEntrypoint(["--only", "ladybug"]);
+  entryExpect(code).toBe(0);
+}, 120_000);
+
+entryTest("a script that exits 0 while its OWN record says ok:false is refused", async () => {
+  // MetaCoding-870. The child's `ok` was parsed and thrown away, so a script
+  // could publish its own no, exit 0, and still be counted as a healthy
+  // reporting script — with its numbers carrying the suite-wide floor. The
+  // child's self-assessment is the one piece of evidence here written by the
+  // party that actually ran; discarding it was the defect.
+  const r = await runSuiteFixture("self-refused");
+  entryExpect(r.code).toBe(1);
+  entryExpect(r.stderr).toContain("no script exited 0 while its own record says ok:false");
+  entryExpect(r.stderr).toContain("smoke-selfno.ts");
+});
+
+entryTest("CONTRAST: the same suite passes when the script's record says ok:true", async () => {
+  // Without this, a guard that refused every record would pass the test above.
+  // `green` is the identical shape with an honest ok:true.
+  const r = await runSuiteFixture("green");
+  entryExpect(r.code).toBe(0);
+  entryExpect(r.stderr).not.toContain("self-refused");
 });

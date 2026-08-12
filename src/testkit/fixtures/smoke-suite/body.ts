@@ -31,3 +31,33 @@ export function redScript(name: string): never {
   console.error(`${name} blew up`);
   process.exit(1);
 }
+
+/**
+ * THE SELF-CONTRADICTING SHAPE (MetaCoding-870): exits 0, publishes a real
+ * record, and that record says `ok:false`.
+ *
+ * It is not hypothetical. A fresh adversary demonstrated that smoke-all parsed
+ * the child's record, took its `published` counts, and DISCARDED its `ok` —
+ * so a script could announce its own failure and still be counted as a healthy
+ * reporting script, with its numbers carrying the suite-wide floor.
+ *
+ * Written by hand rather than through floors.ts's `finish()`, because finish()
+ * exits non-zero when it refuses — and the whole point of this shape is the
+ * disagreement between the exit code and the record.
+ */
+export function selfRefusingScript(name: string): void {
+  console.log(
+    "SMOKE_RECORD " +
+      JSON.stringify({
+        script: name,
+        published: { checks: 2, pairs: 0 },
+        checkLabels: [`${name} a`, `${name} b`],
+        refused: [{ label: `${name} said no`, detail: "this script refuses itself" }],
+        pairNames: [],
+        provenance: { checks: "hand-written by the fixture" },
+        floors: [],
+        ok: false,
+      }),
+  );
+  console.log(`${name.toUpperCase()}_SMOKE_PASS`);
+}

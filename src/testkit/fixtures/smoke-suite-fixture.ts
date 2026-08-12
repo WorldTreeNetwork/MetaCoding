@@ -46,6 +46,15 @@ const CASES: Record<string, SuiteOptions> = {
     keepGoing: true,
     checksAcrossSuiteFloor: 2,
   },
+  // A script that exits 0 and publishes a record saying ok:false. Its own no
+  // was parsed and discarded until MetaCoding-870.
+  "self-refused": {
+    dir: join(HERE, "self-refused"),
+    suite: ["smoke-selfno.ts", "smoke-two.ts"],
+    runName: "fixture-suite",
+    keepGoing: true,
+    checksAcrossSuiteFloor: 2,
+  },
   // A script on disk that the suite never runs.
   drift: {
     dir: join(HERE, "drift"),
