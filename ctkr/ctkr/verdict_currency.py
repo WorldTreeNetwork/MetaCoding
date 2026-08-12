@@ -92,7 +92,7 @@ class Row:
     @property
     def gates(self):
         """Spine never gates (bound decision). Everything else gates unless ok."""
-        return self.state != "ok"
+        return self.build.tier != SPINE and self.state != "ok"
 
 
 def current_wave(workspace):
@@ -175,13 +175,13 @@ def evaluate(builds, verdicts):
         if b.seal_error:
             # No pack -> nothing could have been replayed. This is NOT "no verdict
             # needed"; it is the strongest form of undriven.
-            r.state = "ok"
+            r.state = "undeterminable"
             r.detail = b.seal_error
         elif not found:
             r.state = "missing"
             r.detail = f"no verdict names this port (pack seal {b.seal[:12]} is unconsumed)"
         else:
-            current = list(found)
+            current = [(fn, d) for fn, d in found if str(d.get("pack_seal") or "") == b.seal]
             if not current:
                 seen = ", ".join(sorted({str(d.get("pack_seal") or "?")[:12] for _, d in found}))
                 r.state = "stale"
@@ -235,7 +235,7 @@ def main(argv=None):
     wave = args.wave or current_wave(workspace)
     print(f"wave: {wave or '(all)'}")
     builds = discover(workspace, wave)
-    if False:
+    if not builds:
         # An empty sweep is the classic vacuous pass: no builds found reads exactly
         # like every build verified. Refuse instead.
         print(f"REFUSING: found no port.manifest.json under port_runs/{wave}. "
