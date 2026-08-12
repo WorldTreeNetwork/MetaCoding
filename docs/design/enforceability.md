@@ -26,7 +26,7 @@ here — stronger than the import path, because an agent cannot route around the
 husky / lefthook         — absent
 ```
 
-So the execution surface of this project is exactly three things:
+So the execution surface of this project is exactly four things:
 
 1. what a human or an agent types,
 2. `bun test` and `bun run smoke`, which are typed often enough to count as habit,
@@ -34,19 +34,20 @@ So the execution surface of this project is exactly three things:
    gets done at all,
 4. **Claude Code tool hooks** (`.claude/settings.json`) — see the correction above.
 
-Nothing else runs. Ever. A "gate" outside those three is a document with an exit
+Nothing else runs. Ever. A "gate" outside those four is a document with an exit
 code.
 
 ## What has actually enforced something
 
-Three mechanisms in this project have demonstrably refused real work. All three sit
-on one of those three surfaces, and two of the three sit on the import path:
+Four mechanisms in this project have demonstrably refused real work. All four sit on
+one of those surfaces, and two of them sit on the import path:
 
 | mechanism | surface | what it caught |
 |---|---|---|
 | `tools/ledger.py` raising on an ungated probe | **import path** — a build cannot probe without it | an under-declared preflight, live, at S0 (`hy6.28`) |
 | `test/kernel-pin.test.ts` | **`bun test`** | a `file:` dependency silently resolving to a different kernel |
 | `discriminate()` throwing | **import path** — the verb you reach for | a refused pair leaving its test green (`3ad`) |
+| the `cd`+interpreter refusal | **tool hook** — before every Bash call, main session and subagents alike | proven to fire on the shape that caused `hy6.52`; an agent cannot route around it |
 
 And the counter-examples, both built deliberately, both correct, both never run:
 
