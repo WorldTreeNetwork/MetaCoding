@@ -76,9 +76,27 @@
 8. **Exercise**: the port is DRIVEN and the verdict is recorded. `ctkr
    port-verify <pack> --port <build>` replays the sealed observations through the
    port's own bridge and writes a verdict of record under
-   `results/port-verify/`. A build with a bridge and no recorded verdict is not
-   done; a build whose observations exist only as ledger transcripts is not done
-   either, because the judge cannot eat them.
+   `results/port-verify/`. **An IDENTITY-tier build with a bridge and no recorded
+   verdict is not done.**
+
+   **Scoped to identity tier, deliberately, and the first draft was not**
+   (corrected by a fresh judge, 2026-08-11). `MetaCoding-hy6` carries a bound
+   decision — *"(2) SPINE: bulk port … no per-feature ceremony — build + existing
+   regression + smoke"* and *"(4) READINGS TRAIL ASYNC — packs recorded behind the
+   builds, defects filed, nothing blocks on them."* A universal completion
+   condition here silently reverses that for 19 of 34 manifests, and a recipe
+   paragraph is not where a bound decision gets reversed. Whether the spine tier
+   should now be exercised too is a live question and an open one
+   (`MetaCoding-hy6.51`) — it needs the partition reopened and the reversal
+   recorded, not a sentence in a plan.
+
+   **What a recorded verdict does NOT establish**, so nobody reads more into it
+   than it carries: a pack covers what somebody thought to record, and a build
+   can score clean while declaring capabilities the pack never drives
+   (`hy6.47`); a pack recorded before the oracle preflight became mandatory
+   carries no attestation that it was gated (`hy6.48`); and a pack recorded by
+   the same lane that built the port establishes internal consistency before it
+   establishes correctness.
 
    **Why this step had to be added (2026-08-11).** It was missing, and its
    absence was invisible for exactly the reason a missing step always is: it was
@@ -92,13 +110,33 @@
 
    Everything wave 2 built to notice things asks whether a RUN behaved. This is
    the step that asks whether the PORT is right, and it is the only one that
-   compares the destination to the source rather than to itself.
+   compares the destination to the source rather than to itself. Step 7 does not
+   overlap it: the per-feature runners hand-transcribe observed values into
+   TypeScript and never read the pack, so step 8 catches transcription error and
+   step 7 structurally cannot.
 
-   **Not yet a step, and it should be:** the port as a RUNNING SYSTEM. There is
-   no server, no entry point, no deployable artifact anywhere in the workspace —
-   the destination is a library that answers a bridge when asked, and has never
-   been started, served or used. A methodology whose goal is a working system has
-   to make contact with one.
+## Not yet steps
+
+Kept here rather than inside the step above, where the first draft buried it. A
+known-missing step nested under the one you did write inherits its heading and
+disappears with it — which is the exact mechanism that produced the four-day-long
+absence of step 8, applied to its own successor. Counted here so it can be argued
+with:
+
+- **The port as a RUNNING SYSTEM.** No server, no entry point, no deployable
+  artifact exists anywhere in the workspace: the destination is a library that
+  answers a bridge when asked, and has never been started, served or used
+  (`MetaCoding-x5l`). A methodology whose goal is a working system has to make
+  contact with one. Deliberately not written as step 9 — nobody has decided what
+  it serves, and a step defined by nobody is the kind that gets skipped.
+- **A step that makes step 8 unskippable.** As written, step 8 is prose with
+  nothing executing it — the defect `hy6.28` spent two days removing one layer
+  down, reintroduced at the recipe layer, and a fresh judge said so plainly. The
+  gate it names (`MetaCoding-hy6.46`): enumerate every `port.manifest.json`,
+  demand a verdict under `results/port-verify/` whose `pack_seal` matches that
+  build's current seal, and exit 2 on missing, stale, unclean **or cannot-tell** —
+  wired as a precondition of wave-close sealing, where `elenchus
+  --require-current` already gates the same irreversible step.
 
 Per-feature LLM cost, measured: **≈ $0.30–0.60** (surface ~$0.13, mining ~$0.16,
 adjudication ~$0.01, builder ~$0.25). 147 features ≈ **< $100 total LLM spend**.
