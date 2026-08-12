@@ -12,10 +12,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Database as SqliteDb } from "bun:sqlite";
 import { scip } from "@sourcegraph/scip-typescript/src/scip.ts";
 
 import { Store } from "../store";
-import { readIndexHealth, isAbandonedRun, IndexHealthStore } from "../store/health.ts";
+import {
+  readIndexHealth,
+  readIndexHealthHistory,
+  isAbandonedRun,
+  IndexHealthStore,
+  HEALTH_DB_FILE,
+} from "../store/health.ts";
 import { graphCallers } from "../mcp/tools.ts";
 
 const BIN = join(import.meta.dir, "..", "cli", "bin.ts");
@@ -504,6 +511,30 @@ describe("MetaCoding-byf — the health DB agrees to WAIT rather than throw", ()
     }
   });
 
+  // MUTATION B5. The first version of the fixture above was satisfied by a
+  // concurrency() that returned `{ journalMode: "wal", busyTimeoutMs:
+  // BUSY_TIMEOUT_MS }` and touched no database at all — the instrument
+  // reporting its own declaration instead of the connection's state, which is
+  // step 3's whole subject matter reproduced in the fix for step 3's flake.
+  // Two properties, because a constant defeats either one alone.
+  test("concurrency() READS the connection — it does not recite the constant", () => {
+    const odd = 1234;
+    expect(odd).not.toBe(IndexHealthStore.BUSY_TIMEOUT_MS); // the contrast is real
+    const w = IndexHealthStore.open(dataDir, { busyTimeoutMs: odd });
+    try {
+      // A recited constant answers BUSY_TIMEOUT_MS here and dies.
+      expect(w.concurrency().busyTimeoutMs).toBe(odd);
+    } finally {
+      w.close();
+    }
+    // And the report cannot outlive the connection it claims to describe: a
+    // value read from a closed handle is not a value read from anywhere.
+    const w2 = IndexHealthStore.open(dataDir);
+    expect(w2.concurrency().busyTimeoutMs).toBe(IndexHealthStore.BUSY_TIMEOUT_MS);
+    w2.close();
+    expect(() => w2.concurrency()).toThrow();
+  });
+
   test("a reader that arrives DURING a write gets the record, not SQLITE_BUSY", () => {
     // The behavioural half. Before the fix this is exactly the interleaving the
     // full suite produced by accident and no single file could produce on
@@ -530,5 +561,115 @@ describe("MetaCoding-byf — the health DB agrees to WAIT rather than throw", ()
     // Without this the test above would pass against a reader that returns a
     // record for everything.
     expect(readIndexHealth(dataDir, "never-written", "main")).toBeNull();
+  });
+
+  // The window PAIR 7 actually polls in. The parent reads readIndexHealth in a
+  // loop from t=0 while the indexer SUBPROCESS is creating the health DB, so it
+  // routinely arrives after the FILE exists and before the DATABASE does. That
+  // is the interleaving the bead was filed for: it threw SQLITE_BUSY pre-WAL,
+  // and post-WAL it throws SQLITE_CANTOPEN or `no such table: index_health`
+  // instead. Both costumes are here, because a fix for one is not a fix.
+  test("a health DB that exists but is not READY YET is UNKNOWN, not a throw", () => {
+    // Costume A: the zero-length file `new Database(path)` leaves behind before
+    // open() commits the schema.
+    const a = join(dataDir, "starting");
+    mkdirSync(a, { recursive: true });
+    writeFileSync(join(a, HEALTH_DB_FILE), "");
+    expect(readIndexHealth(a, "repo", "main")).toBeNull();
+
+    // Costume B: a live writer has declared WAL and not yet written the `-shm`
+    // that a read-only connection needs.
+    const b = join(dataDir, "declaring");
+    mkdirSync(b, { recursive: true });
+    const raw = new SqliteDb(join(b, HEALTH_DB_FILE));
+    try {
+      raw.exec(`PRAGMA journal_mode=WAL;`);
+      expect(readIndexHealth(b, "repo", "main")).toBeNull();
+    } finally {
+      raw.close();
+    }
+
+    // CONTRAST, or the guard above would be satisfied by a reader that answers
+    // null for everything: the same reader over a READY database returns the
+    // record.
+    const w = IndexHealthStore.open(dataDir);
+    try {
+      w.write({
+        repo: "ready", branch: "main", status: "HEALTHY", run_id: "r",
+        commit_sha: null, prev_commit_sha: null, started_at: "t", finished_at: "t",
+        pid: null, heartbeat_at: "t", failures: [], lanes: [], contribution: null,
+        fitness: null, correspondence: null, index_identities: [], override: null,
+      });
+      expect(readIndexHealth(dataDir, "ready", "main")!.status).toBe("HEALTHY");
+    } finally {
+      w.close();
+    }
+  });
+
+  // The SECOND half of byf, and the one the WAL fix above CREATED. Turning the
+  // health DB into a WAL database turned it into three files, and the two
+  // migration fixtures that simulate "a store indexed before this shipped"
+  // delete one of them by name (this file's `migration:` test above and
+  // src/mcp/health-gate.test.ts's PAIR 8). bun:sqlite's close() is
+  // sqlite3_close_v2 — deferred — so whether the orphaned `-wal` was still on
+  // disk at that moment depended on when GC ran: green alone, red under the
+  // full suite, which is the whole signature of the flake.
+  //
+  // Deterministic here, because the delete happens while the writer is
+  // demonstrably open rather than at a moment GC gets a vote.
+  test("deleting the .sqlite does not let an orphan -wal resurrect half a schema", () => {
+    const healthPath = join(dataDir, HEALTH_DB_FILE);
+    const w = IndexHealthStore.open(dataDir);
+    w.write({
+      repo: "gone", branch: "main", status: "HEALTHY", run_id: "r",
+      commit_sha: null, prev_commit_sha: null, started_at: "t", finished_at: "t",
+      pid: null, heartbeat_at: "t", failures: [], lanes: [], contribution: null,
+      fitness: null, correspondence: null, index_identities: [], override: null,
+    });
+    rmSync(healthPath, { force: true });
+    // The PRECONDITION, asserted rather than assumed: without a live orphan
+    // this fixture would pass against the very bug it exists to catch.
+    expect(existsSync(`${healthPath}-wal`)).toBe(true);
+    w.close();
+
+    // A deleted health DB is UNKNOWN — the migration semantics both fixtures
+    // are actually about.
+    expect(readIndexHealth(dataDir, "gone", "main")).toBeNull();
+
+    // And the next writer gets a WHOLE database. Before the fix this line threw
+    // `SQLiteError: no such table: main.index_health_history`, because the
+    // orphan WAL replayed a sqlite_master that satisfied CREATE TABLE IF NOT
+    // EXISTS while the history table's pages had gone with the deleted file.
+    const w2 = IndexHealthStore.open(dataDir);
+    try {
+      w2.write({
+        repo: "fresh", branch: "main", status: "HEALTHY", run_id: "r2",
+        commit_sha: null, prev_commit_sha: null, started_at: "t", finished_at: "t",
+        pid: null, heartbeat_at: "t", failures: [], lanes: [], contribution: null,
+        fitness: null, correspondence: null, index_identities: [], override: null,
+      });
+      expect(readIndexHealth(dataDir, "fresh", "main")!.status).toBe("HEALTHY");
+      // CONTRAST 1: the deleted slice stayed deleted. A fix that kept the orphan
+      // and merely swallowed the error would answer non-empty here.
+      expect(readIndexHealthHistory(dataDir, "gone", "main")).toEqual([]);
+    } finally {
+      w2.close();
+    }
+
+    // CONTRAST 2, and the one that matters: deleting the sidecars is only
+    // correct when their database is GONE. A `-wal` beside a live database
+    // holds records that have not been checkpointed yet, so an open() that
+    // deleted sidecars unconditionally would pass everything above while
+    // silently eating committed history. The record written a moment ago is
+    // still in an uncheckpointed WAL right now — it must survive a reopen.
+    expect(existsSync(`${healthPath}-wal`)).toBe(true);
+    expect(existsSync(healthPath)).toBe(true);
+    const w3 = IndexHealthStore.open(dataDir);
+    try {
+      expect(w3.read("fresh", "main")!.status).toBe("HEALTHY");
+      expect(w3.history("fresh", "main").length).toBe(1);
+    } finally {
+      w3.close();
+    }
   });
 });

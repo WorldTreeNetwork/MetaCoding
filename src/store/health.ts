@@ -22,7 +22,10 @@
 //
 // **An ABSENT file (or an absent row) is UNKNOWN, never HEALTHY.** That is the
 // whole migration story, and it is the honest reading of every store indexed
-// before this shipped — including production farmOS.
+// before this shipped — including production farmOS. So is a file whose
+// database is not READY yet: `new Database(path)` creates the file before the
+// schema is committed, and a reader that arrives in that window has found no
+// record, not a broken store (bead MetaCoding-byf, `openExisting`).
 //
 // WHY A SEPARATE SQLite FILE, not the graph
 // -----------------------------------------
@@ -58,7 +61,7 @@
 //     "visible to a reader" claim true only for a reader who had recorded the
 //     previous value out of band.
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { Database as SqliteDb } from "bun:sqlite";
@@ -303,14 +306,42 @@ export class IndexHealthStore {
    */
   static readonly BUSY_TIMEOUT_MS = 5000;
 
-  static open(dataDir: string): IndexHealthStore {
+  /**
+   * `busyTimeoutMs` overrides the default wait. It exists because
+   * `concurrency()` must be shown to READ the connection rather than recite a
+   * constant: with one hardcoded value, a `concurrency()` that returned
+   * `{ journalMode: "wal", busyTimeoutMs: BUSY_TIMEOUT_MS }` and touched no
+   * database was indistinguishable from one that measured (mutation B5, which
+   * survived the first version of this fixture). A caller who wants a different
+   * wait can have one; the fixture asks for a value the constant is not.
+   */
+  static open(dataDir: string, opts: { busyTimeoutMs?: number } = {}): IndexHealthStore {
     mkdirSync(dataDir, { recursive: true });
-    const db = new SqliteDb(join(dataDir, HEALTH_DB_FILE));
+    const path = join(dataDir, HEALTH_DB_FILE);
+    // WAL made this database THREE files, and only one of them has the name
+    // anybody knows. bun:sqlite's close() is sqlite3_close_v2 — deferred — so
+    // `-wal`/`-shm` outlive close() until GC, and anything that deletes
+    // `index-health.sqlite` (a human "reset", the two migration fixtures that
+    // simulate a store predating this feature) leaves them behind. The next
+    // open then RECOVERS the orphan WAL onto a brand-new empty database and
+    // lands half a schema: `index_health` present, `index_health_history`
+    // absent, `CREATE TABLE IF NOT EXISTS` satisfied by the resurrected
+    // sqlite_master. MEASURED 10/10 (bead MetaCoding-byf).
+    //
+    // A `-wal` whose database is gone describes nothing, so it is deleted
+    // rather than replayed. This is not a retry around contention: the WAL fix
+    // for byf's SQLITE_BUSY is what created these orphans, and the invariant
+    // it owes is that the file name is the whole database.
+    if (!existsSync(path)) {
+      rmSync(`${path}-wal`, { force: true });
+      rmSync(`${path}-shm`, { force: true });
+    }
+    const db = new SqliteDb(path);
     // WAL before the schema: readers and one writer then proceed concurrently
     // instead of excluding each other. Set on the WRITER because changing the
     // journal mode needs write access.
     db.exec(`PRAGMA journal_mode=WAL;`);
-    db.exec(`PRAGMA busy_timeout=${IndexHealthStore.BUSY_TIMEOUT_MS};`);
+    db.exec(`PRAGMA busy_timeout=${opts.busyTimeoutMs ?? IndexHealthStore.BUSY_TIMEOUT_MS};`);
     db.exec(SCHEMA);
     return new IndexHealthStore(db, dataDir);
   }
@@ -322,10 +353,43 @@ export class IndexHealthStore {
   static openExisting(dataDir: string): IndexHealthStore | null {
     const path = join(dataDir, HEALTH_DB_FILE);
     if (!existsSync(path)) return null;
-    const db = new SqliteDb(path, { readonly: true });
-    // The reader half of MetaCoding-byf. A read-only connection cannot change
-    // the journal mode, but it CAN agree to wait.
-    db.exec(`PRAGMA busy_timeout=${IndexHealthStore.BUSY_TIMEOUT_MS};`);
+    // THE FILE EXISTS BEFORE THE DATABASE DOES. `new Database(path)` creates a
+    // zero-length file and declares WAL; `open()` commits the tables after
+    // that. A reader arriving in between — PAIR 7 polls readIndexHealth in a
+    // tight loop while the indexer subprocess is starting — meets one of two
+    // states, both MEASURED 10/10 as throws before this guard:
+    //
+    //   SQLITE_CANTOPEN                  the `-shm` a read-only connection
+    //                                    needs has not been written yet
+    //   `no such table: index_health`    the file opens, and is empty
+    //
+    // Pre-WAL the same window threw SQLITE_BUSY — the symptom this bead was
+    // filed for. Same defect in three costumes: "the file is there" was being
+    // read as "the database is ready".
+    //
+    // A health DB with no record is UNKNOWN. That is the documented meaning of
+    // null here and the SAFE direction: no caller may conclude HEALTHY from it,
+    // and PAIR 7's poll simply asks again. Narrow on purpose — only "not there
+    // yet" is absorbed. Any other SQLite error still throws, because "I could
+    // not read it" and "there is nothing to read yet" are different sentences
+    // and only one of them is this one.
+    let db: SqliteDb;
+    try {
+      db = new SqliteDb(path, { readonly: true });
+      // The reader half of MetaCoding-byf. A read-only connection cannot change
+      // the journal mode, but it CAN agree to wait.
+      db.exec(`PRAGMA busy_timeout=${IndexHealthStore.BUSY_TIMEOUT_MS};`);
+      const ready = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'index_health'`)
+        .get();
+      if (!ready) {
+        db.close();
+        return null;
+      }
+    } catch (err) {
+      if ((err as { code?: string }).code === "SQLITE_CANTOPEN") return null;
+      throw err;
+    }
     return new IndexHealthStore(db, dataDir);
   }
 
