@@ -346,12 +346,17 @@ def test_one_verdict_cannot_satisfy_a_build_its_name_merely_ENDS_WITH(tmp_path):
     satisfied builds called `land` and `entity-land`. A judge replaced the whole
     body with `return True` and all thirteen tests passed."""
     rows = rows_for(tmp_path, {"identity-land": {"seal": "abc", "port": "w2-identity-land"},
+                               # an older recorder convention: no wave prefix. Its
+                               # id is a SUFFIX of its neighbour's, which is the
+                               # whole defect.
+                               "land-unprefixed": {"seal": "abc", "port": "identity-land"},
                                "land": {"seal": "abc", "port": "w2-land"},
                                "entity-land": {"seal": "abc", "port": "w2-entity-land"}},
                     [("l.json", verdict("w2-identity-land", "abc"))])
     assert rows["wave2/identity-land"].state == "ok"
-    assert rows["wave2/land"].state == "missing" and rows["wave2/land"].gates
-    assert rows["wave2/entity-land"].state == "missing"
+    for other in ("wave2/land-unprefixed", "wave2/land", "wave2/entity-land"):
+        assert rows[other].state == "missing", other
+        assert rows[other].gates, other
 
 
 def test_a_verdict_from_ANOTHER_WAVE_does_not_satisfy_this_one(tmp_path):
@@ -374,6 +379,8 @@ def test_matching_is_EXACT_on_the_declared_id_or_the_build_key(tmp_path):
     assert _matches("w2-identity-a", b)          # the id its manifest declares
     assert _matches("wave2/identity-a", b)       # or its build key
     assert not _matches("identity-a", b)         # a suffix is not an identifier
+    assert not _matches("stale-w2-identity-a", b)   # nor is a string ENDING in one
+    assert not _matches("results/wave2/identity-a", b)
     assert not _matches("w2-identity-a-extra", b)
     assert not _matches("", b)
 
