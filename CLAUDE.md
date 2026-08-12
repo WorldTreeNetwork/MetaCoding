@@ -199,6 +199,10 @@ not. Ask what would satisfy the check while defeating its purpose, before shippi
   Two inputs, one verdict function returning a NAMED tag (never a boolean, never a
   throw), and tags that must differ. The argument lives in that file's header, at the
   point of import; this is a pointer, not the home.
+- **A floor is not a number** — `src/testkit/floors.ts`. It is a PAIR: a value and the
+  NAME of the field the instrument publishes it against, and a floor over a field
+  nobody emits is an INSTRUMENT failure, never a pass. Counts are derived from
+  `run.check()`, never written down. Same rule: the argument is in that file's header.
 - **Self-verification is never load-bearing.** Measured, not assumed: builds have
   documented "load-bearing" gates that were not, comments have claimed source
   semantics the code did not implement, and a test called a hook that does not
