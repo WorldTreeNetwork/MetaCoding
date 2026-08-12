@@ -36,11 +36,12 @@ import {
   type EdgeCandidate,
 } from "./edges";
 import { fileContentHash, symbolId } from "./identity";
-import { makeParser, type TsParser } from "./parser";
+import { loadLanguage, makeParser, type TsParser } from "./parser";
 import { extractTypeScript, type ExtractOpts as TsExtractOpts } from "./typescript";
 import { extractPython, type ExtractPyOpts } from "./python";
 import { extractPhp, type ExtractPhpOpts } from "./php";
 import { assertMayIngest, type IngestTicket } from "../ingest/ticket.ts";
+import { toolchainDigest } from "../toolchain/identity.ts";
 
 /**
  * Every grammar this walker can parse with, ENUMERABLE AT RUNTIME.
@@ -84,6 +85,32 @@ export interface WalkStats {
   edges: number;
   tokens: number;
   durationMs: number;
+  /**
+   * THE TOOLCHAIN THIS BUILD PARSED WITH (bead MetaCoding-0bm; blocking finding
+   * 2 on MetaCoding-0bd's judgment).
+   *
+   * src/toolchain/identity.ts could measure every loaded .wasm and fold it into
+   * `layer2Key`, and NOTHING IN PRODUCTION CALLED EITHER. A judge grepped
+   * `layer2Key|toolchainDigest|loadedArtifacts` across src/ and scripts/ and
+   * found the loader's registrations at one end, the key's fixtures at the
+   * other, and no path between them that a real index run takes. A mechanism
+   * that only its own tests execute is a document with an exit code
+   * (docs/design/enforceability.md).
+   *
+   * So the whole-tree build now STATES the digest of the toolchain that
+   * produced its facts, taken from the process registry — the same default
+   * binding F3.1b holds. 0bm's own description is what this serves: "the cache
+   * model requires a reader to RECOMPUTE a key from the artifact's own recorded
+   * inputs". This is that input, recorded, by the code path that produces the
+   * facts it describes.
+   *
+   * NOT YET the sealed keyed entry. `layer2Key` still has no production caller
+   * because there is no manifest to put a key in (bead MetaCoding-ev9, named in
+   * src/store/build.ts:33). The FOLD executes here; the KEY's other six inputs
+   * do not exist, and inventing placeholders for them would fold constants into
+   * a key, which is the defect this file's digest exists to remove.
+   */
+  toolchain_digest: string;
 }
 
 /** Directory names never descended by the walker. Exported so the index
@@ -122,8 +149,28 @@ interface ParserCache {
 }
 
 let cachedParsers: ParserCache | null = null;
+/**
+ * FOUND BY F3.5, not by review (src/extractor/walker.toolchain.test.ts).
+ *
+ * src/extractor/parser.ts:47 already had to fix exactly this: registering the
+ * digest only on the cache MISS hands out a grammar with no measurement behind
+ * it. This module has a SECOND cache in front of that one, and it had the same
+ * hole one layer up — `if (cachedParsers) return cachedParsers` returns four
+ * parsers without ever reaching `loadLanguage`, so the registry that
+ * `toolchainDigest()` reads stays as whatever the last caller left it. The
+ * fixture that emptied the registry and indexed a tree got NO_ARTIFACTS.
+ *
+ * So the hit path re-asserts through `loadLanguage`, whose own hit path
+ * re-registers from the identity it measured when it read the bytes. It is a
+ * Map lookup and a Map set per grammar; no file is re-read and no digest is
+ * recomputed, which is the point — the measurement is still the one taken from
+ * the buffer that became the grammar.
+ */
 async function getParsers(): Promise<ParserCache> {
-  if (cachedParsers) return cachedParsers;
+  if (cachedParsers) {
+    for (const g of GRAMMARS) await loadLanguage(g);
+    return cachedParsers;
+  }
   cachedParsers = {
     typescript: await makeParser("typescript"),
     tsx: await makeParser("tsx"),
@@ -142,6 +189,17 @@ export async function indexDirectory(
   const branch = opts.branch ?? "main";
   const repo = opts.repo ?? basename(resolve(rootPath));
   assertMayIngest(opts?.ticket, { repo, branch, dataDir: writer?.dataDir }, "indexDirectory");
+
+  // TOOLCHAIN BEFORE THE WALK (bead MetaCoding-0bm). The grammars are loaded —
+  // and therefore MEASURED — before the first file is read, not lazily on the
+  // first parseable one. Otherwise a tree that happens to contain no parseable
+  // file produces a build with an empty registry, and `toolchainDigest()` below
+  // would refuse a run that did nothing wrong. Loading up front makes the
+  // refusal mean the one thing it should: the loader handed out a grammar it
+  // did not measure. `getParsers` is process-cached, so this costs one wasm
+  // read per process, not per index.
+  await getParsers();
+
   const exclude = new Set([...DEFAULT_EXCLUDE_DIRS, ...(opts.excludeDirs ?? [])]);
 
   const files: ScannedFile[] = [];
@@ -191,6 +249,11 @@ export async function indexDirectory(
     edges,
     tokens,
     durationMs: performance.now() - t0,
+    // NO ARGUMENT, deliberately. The default IS the link from the loader's
+    // registry to the key (F3.1b), and this is the production call site that
+    // exercises it. A build whose parsers were never measured throws
+    // NO_ARTIFACTS here rather than reporting facts nobody can recompute.
+    toolchain_digest: toolchainDigest(),
   };
 }
 
