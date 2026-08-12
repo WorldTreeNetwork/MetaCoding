@@ -34,25 +34,65 @@ Missing, stale, unclean, or UNDETERMINABLE all exit 2. The last one is the point
 absence of an answer is never a yes. That is the discipline `hy6.25` cost two days
 to learn — a check that could not run must not contribute a pass.
 
+ONE MANIFEST IS ONE BUILD, AND ONE VERDICT SATISFIES ONE BUILD
+==============================================================
+`MetaCoding-hy6.57`: this file used to name a build after the second path
+component, so `spine-asset/build/{compost,equipment,…}` — seven ported packages —
+collapsed into ONE row with ONE seal and ONE verdict lookup. One verdict would
+have marked seven packages verified, and a per-package verdict was not even
+representable. Builds are now keyed by `<wave>/<path under the wave>`, so every
+manifest is its own row and the headline counts what it names.
+
+Matching is EXACT, against identifiers that distinguish one build from every
+other: the `port` id the manifest declares, or the build key. It used to be
+`endswith`, under which `w2-identity-land` also satisfied builds named `land` and
+`entity-land`, and nothing constrained a verdict to its wave. A judge replaced
+that body with `return True` — any verdict satisfies any build — and all thirteen
+tests still passed. If two builds declare the same port id, neither is scored:
+an ambiguous identifier is not an identifier.
+
 TIER SCOPING IS A BOUND DECISION, NOT A DEFAULT
 ===============================================
 Only IDENTITY-tier builds are gated. `MetaCoding-hy6` records the risk partition:
 *"(2) SPINE: bulk port … no per-feature ceremony — build + existing regression +
 smoke"* and *"(4) READINGS TRAIL ASYNC — packs recorded behind the builds, nothing
-blocks on them."* Duke reaffirmed it on 2026-08-11 (`hy6.51`) after step 8's first
-draft reversed it by prose. Spine builds are REPORTED and never gate; widening
-this gate means reopening the partition with a reversal condition recorded, not
-editing the constant below.
+blocks on them."* Duke reaffirmed it on 2026-08-11 (`hy6.51`). Spine builds are
+REPORTED and never gate; widening this gate means reopening the partition with a
+reversal condition recorded, not editing the constant below.
 
-Tier comes from the build directory name (`identity-*` / `spine-*`), which is the
-only place the partition is written down in the tree. A build whose tier cannot be
-read is reported as UNKNOWN and gates — an unclassifiable build is exactly the one
-nobody decided about.
+The partition itself is RECORDED DATA — `results/*/partition-*.jsonl`, one row per
+module, each with an explicit `tier`. That is what is read. It used to be read off
+the directory NAME (`identity-*` / `spine-*`), and `hy6.55` showed what a proxy for
+a bound decision costs: the name rule called `quick-folds` UNKNOWN while both
+recorded partitions call all five `quick/*` modules IDENTITY, and outside wave 2
+the rule collapses entirely (`activity/`, `harvest/`, `input/`, `observation/` are
+all UNKNOWN to it, where the partition says three are spine and one is identity).
+
+The name rule survives only as a FALLBACK for builds the partition does not name,
+and every row says which source decided it. A build tiered by the fallback is
+visible as such, because deciding a bound question by a proxy is the defect.
+
+`hy6.51`'s prose enumeration lists `quick-folds` among the spine builds; the
+recorded partition says identity. The gate follows the RECORD and prints the
+disagreement rather than quietly picking — reconciling the two is `hy6.55`'s job,
+not this file's.
+
+WAVE SCOPING FOLLOWS THE RETIREMENT RECORD, NOT RECENCY
+=======================================================
+This gate used to sweep only the newest `wave*` directory, justified by wave0's
+retired pilot packs. `hy6.56`: `port_runs/PACKS.jsonl` retires exactly two packs,
+both wave0, and its own reason text calls wave1 a LIVE lane — while the recency
+rule silently exempted wave1 (4 manifests) and wave1-c1 (2), each holding a sealed
+pack and no verdict of record. An exclusion justified by wave0-pilot's retirement
+excludes wave0-pilot. Every wave is now swept, and a build is exempt only when the
+seal its pack carries today is one PACKS.jsonl records as RETIRED. `--wave` still
+narrows the sweep by hand.
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -64,79 +104,275 @@ from ctkr.elenchus import port_workspace  # noqa: E402
 
 IDENTITY, SPINE, UNKNOWN = "identity", "spine", "unknown"
 
+NAME_RULE = "directory name (FALLBACK — the partition does not name this build)"
+
 
 def tier_of(build_name):
-    if build_name.startswith("identity-"):
-        return IDENTITY
-    if build_name.startswith("spine-"):
-        return SPINE
+    """The FALLBACK rule. Only consulted for builds the recorded partition does
+    not name; it is a proxy, and `hy6.55` is the record of what it cost."""
+    leaf = build_name.split("/")[-1] if "/" in build_name else build_name
+    for candidate in (build_name, leaf):
+        if candidate.startswith("identity-"):
+            return IDENTITY
+        if candidate.startswith("spine-"):
+            return SPINE
     return UNKNOWN
 
 
+# ---------------------------------------------------------------------------
+# the recorded risk partition
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Partition:
+    """`results/*/partition-*.jsonl` — the risk partition as DATA, one row per
+    module. Two files that disagree about a module do not get averaged: the
+    module resolves to UNKNOWN, because a gate is not the place a contradiction
+    gets quietly resolved."""
+    tier_by_module: dict = field(default_factory=dict)
+    modules_by_cluster: dict = field(default_factory=dict)
+    files: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+
+    def __bool__(self):
+        return bool(self.tier_by_module)
+
+    def unanimous(self, modules):
+        tiers = {self.tier_by_module.get(m, UNKNOWN) for m in modules}
+        if len(tiers) == 1:
+            return tiers.pop()
+        return UNKNOWN
+
+
+def load_partition(workspace):
+    """Every recorded partition row, keyed by module."""
+    p = Partition()
+    seen = {}
+    for path in sorted(glob.glob(os.path.join(workspace, "results", "*",
+                                              "partition-*.jsonl"))):
+        p.files.append(path)
+        try:
+            with open(path) as fh:
+                lines = fh.readlines()
+        except OSError as exc:
+            p.errors.append(f"cannot read {path}: {exc}")
+            continue
+        for n, line in enumerate(lines, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                p.errors.append(f"{os.path.basename(path)}:{n}: unreadable ({exc})")
+                continue
+            module, tier = str(row.get("module") or ""), str(row.get("tier") or "")
+            if not module or not tier:
+                continue
+            seen.setdefault(module, set()).add(tier)
+            cluster = str(row.get("cluster") or "")
+            if cluster:
+                p.modules_by_cluster.setdefault(cluster, [])
+                if module not in p.modules_by_cluster[cluster]:
+                    p.modules_by_cluster[cluster].append(module)
+    for module, tiers in seen.items():
+        if len(tiers) == 1:
+            p.tier_by_module[module] = tiers.pop()
+        else:
+            p.tier_by_module[module] = UNKNOWN
+            p.errors.append(f"partition rows disagree about {module}: "
+                            f"{', '.join(sorted(tiers))} — recorded as UNKNOWN, "
+                            "because a gate must not pick between two records")
+    return p
+
+
+def _norm(s):
+    return s.replace("-", "_")
+
+
+def _candidate_lookups(partition, dirname, package, feature):
+    """Ordered ways to find a build's modules in the RECORDED partition. The
+    first lookup that names any module decides, and its label is printed."""
+    tails = lambda s: [m for m in partition.tier_by_module
+                       if m.split("/")[-1] == _norm(s)]
+    out = []
+    if feature:
+        out.append((f"manifest declares module {feature}",
+                    [feature] if feature in partition.tier_by_module else []))
+    if package:
+        out.append((f"cluster {dirname} / package {package}",
+                    [m for m in partition.modules_by_cluster.get(dirname, ())
+                     if m.split("/")[-1] == _norm(package)]))
+        out.append((f"module tail {package}", tails(package)))
+    out.append((f"cluster {dirname}",
+                list(partition.modules_by_cluster.get(dirname, ()))))
+    slug = dirname
+    for word in ("identity-", "spine-"):
+        if slug.startswith(word):
+            slug = slug[len(word):]
+            break
+    as_module = _norm(slug.replace("-", "/", 1))
+    out.append((f"module {as_module}",
+                [as_module] if as_module in partition.tier_by_module else []))
+    out.append((f"module tail {slug}", tails(slug)))
+    family = dirname.split("-")[0]
+    out.append((f"module family {family}/*",
+                [m for m in partition.tier_by_module if m.split("/")[0] == family]))
+    return out
+
+
+def resolve_tier(partition, dirname, package="", feature=""):
+    """(tier, source). The partition is the source of truth; the directory name
+    is consulted only when no recorded row names this build."""
+    for how, modules in _candidate_lookups(partition, dirname, package, feature):
+        if not modules:
+            continue
+        tier = partition.unanimous(modules)
+        detail = ", ".join(sorted(modules)[:4]) + ("…" if len(modules) > 4 else "")
+        if tier == UNKNOWN:
+            return UNKNOWN, f"partition via {how} — rows disagree ({detail})"
+        return tier, f"partition via {how} ({detail})"
+    return tier_of(dirname), NAME_RULE
+
+
+# ---------------------------------------------------------------------------
+# the retirement record
+# ---------------------------------------------------------------------------
+
+def load_retirements(workspace):
+    """Seals `port_runs/PACKS.jsonl` records as RETIRED, with the reason given.
+    This — not directory recency — is what exempts a build."""
+    out, errors = {}, []
+    path = os.path.join(workspace, "port_runs", "PACKS.jsonl")
+    if not os.path.isfile(path):
+        return out, errors
+    try:
+        with open(path) as fh:
+            lines = fh.readlines()
+    except OSError as exc:
+        return out, [f"cannot read {path}: {exc} — nothing is treated as retired"]
+    for n, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError as exc:
+            errors.append(f"PACKS.jsonl:{n}: unreadable ({exc}) — "
+                          "not treated as a retirement")
+            continue
+        if str(row.get("record") or "") != "retirement":
+            continue
+        seal = str(row.get("seal") or "")
+        if seal:
+            out[seal] = str(row.get("reason") or "(no reason recorded)")
+    return out, errors
+
+
+# ---------------------------------------------------------------------------
+# discovery
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Build:
-    """One port that declares a manifest, and therefore claims it can be driven."""
+    """One port that declares a manifest, and therefore claims it can be driven.
+    One manifest, one build: `<wave>/<path under the wave>` names it."""
     name: str
     tier: str
+    tier_source: str
     manifest: str
+    dirname: str = ""         # the build directory the old name rule would read
+    port_id: str = ""         # the id its manifest declares
     seal: str = ""            # what its pack says TODAY
     seal_error: str = ""
+    id_error: str = ""
+    retired_reason: str = ""
 
 
-@dataclass
-class Row:
-    build: Build
-    state: str = ""           # ok | missing | stale | unclean | undeterminable
-    detail: str = ""
-
-    @property
-    def gates(self):
-        """Spine never gates (bound decision). Everything else gates unless ok."""
-        return self.build.tier != SPINE and self.state != "ok"
-
-
-def current_wave(workspace):
-    """The newest `wave*` directory. Scope matters: sweeping every historical wave
-    puts retired pilot builds (wave0-pilot, whose packs PACKS.jsonl records as
-    RETIRED) permanently in the failing column, and a gate that is always red is
-    ignored exactly as fast as one that is always green."""
-    runs = os.path.join(workspace, "port_runs")
-    waves = sorted(d for d in os.listdir(runs)
-                   if d.startswith("wave") and os.path.isdir(os.path.join(runs, d)))
-    return waves[-1] if waves else ""
+def _find_seal(runs, wave, parts):
+    """The seal for a manifest at `<wave>/<parts>`: the nearest `observe/
+    pack.seal.json` at or above the manifest, up to the wave root. A pack shared
+    by a whole wave (wave1-c1) and a `X-build`/`X-observe` pair (wave0-pilot) are
+    both real conventions in this tree."""
+    for depth in range(len(parts), -1, -1):
+        base = os.path.join(runs, wave, *parts[:depth])
+        cand = os.path.join(base, "observe", "pack.seal.json")
+        if os.path.isfile(cand):
+            return cand
+        if base.endswith("-build"):
+            cand = base[: -len("-build")] + "-observe/pack.seal.json"
+            if os.path.isfile(cand):
+                return cand
+    return ""
 
 
-def discover(workspace, wave):
-    """Every build in `wave` that declares a manifest, with the seal its pack
-    carries now."""
+def discover(workspace, wave=None, partition=None, retired=None):
+    """Every manifest in the workspace (or in `wave`), with the tier the recorded
+    partition gives it and the seal its pack carries now."""
+    partition = partition if partition is not None else Partition()
+    retired = retired or {}
     builds = []
     runs = os.path.join(workspace, "port_runs")
     root = os.path.join(runs, wave) if wave else runs
     for base, _dirs, files in os.walk(root):
         if "port.manifest.json" not in files:
             continue
+        manifest = os.path.join(base, "port.manifest.json")
         rel = os.path.relpath(base, runs).split(os.sep)
-        # port_runs/<wave>/<build>/... — the build is the second component.
-        name = rel[1] if len(rel) > 1 else rel[0]
-        b = Build(name=name, tier=tier_of(name),
-                  manifest=os.path.join(base, "port.manifest.json"))
-        # The seal lives with the OBSERVATIONS, not with the port: the port must
-        # not be able to state which evidence it is judged against.
-        build_root = os.path.join(runs, rel[0], name)
-        sealp = os.path.join(build_root, "observe", "pack.seal.json")
+        this_wave, parts = rel[0], rel[1:]
+        # `build/` is scaffolding, not identity — drop it from the key so the
+        # row reads `wave2/spine-asset/compost`.
+        key_parts = [p for p in parts if p != "build"]
+        dirname = key_parts[0] if key_parts else this_wave
+        package = "/".join(key_parts[1:])
+        name = "/".join([this_wave] + (key_parts or [this_wave]))
+
+        port_id, feature, doc_error = "", "", ""
         try:
-            with open(sealp) as fh:
+            with open(manifest) as fh:
                 doc = json.load(fh)
-            b.seal = str(doc.get("seal") or "")
-            if not b.seal:
-                b.seal_error = f"{sealp} carries no `seal`"
-        except FileNotFoundError:
-            b.seal_error = "no observe/pack.seal.json — this build has no sealed pack"
+            port_id = str(doc.get("port") or "")
+            feature = str(doc.get("feature") or "")
         except (OSError, ValueError) as exc:
-            b.seal_error = f"cannot read {sealp}: {exc}"
+            doc_error = f"cannot read {manifest}: {exc}"
+
+        tier, source = resolve_tier(partition, dirname, package, feature)
+        b = Build(name=name, tier=tier, tier_source=source, manifest=manifest,
+                  dirname=dirname, port_id=port_id)
+        if doc_error:
+            b.id_error = doc_error + " — its declared port id is unreadable"
+
+        sealp = _find_seal(runs, this_wave, parts)
+        if not sealp:
+            b.seal_error = "no observe/pack.seal.json — this build has no sealed pack"
+        else:
+            try:
+                with open(sealp) as fh:
+                    b.seal = str(json.load(fh).get("seal") or "")
+                if not b.seal:
+                    b.seal_error = f"{sealp} carries no `seal`"
+            except (OSError, ValueError) as exc:
+                b.seal_error = f"cannot read {sealp}: {exc}"
+        if b.seal and b.seal in retired:
+            b.retired_reason = retired[b.seal]
         builds.append(b)
+
+    # An ambiguous identifier is not an identifier: if two builds declare the
+    # same port id, a verdict naming it cannot be attributed to either.
+    counts = {}
+    for b in builds:
+        if b.port_id:
+            counts.setdefault(b.port_id, []).append(b.name)
+    for b in builds:
+        others = [n for n in counts.get(b.port_id, []) if n != b.name]
+        if others:
+            b.id_error = (f"port id {b.port_id!r} is also declared by "
+                          f"{', '.join(sorted(others))} — no verdict can be "
+                          "attributed to one of them")
     return sorted(builds, key=lambda x: (x.tier, x.name))
 
+
+# ---------------------------------------------------------------------------
+# verdicts
+# ---------------------------------------------------------------------------
 
 def load_verdicts(workspace):
     """Every recorded port-verify report, by the port it names."""
@@ -160,19 +396,47 @@ def load_verdicts(workspace):
     return out, errors
 
 
-def _matches(port_field, build_name):
-    """`w2-identity-sensor` names `identity-sensor`. Suffix match, because the
-    wave prefix is the recorder's convention and the directory is the truth."""
-    return port_field == build_name or port_field.endswith(build_name)
+def _matches(port_field, build):
+    """EXACT, against identifiers that distinguish this build from every other:
+    the port id its manifest declares, or its `<wave>/<path>` key. This was a
+    suffix test, under which one verdict satisfied every build whose name it
+    ended with, across waves (`hy6.57`)."""
+    if not port_field:
+        return False
+    return port_field == build.port_id or port_field == build.name
+
+
+@dataclass
+class Row:
+    build: Build
+    state: str = ""           # ok | missing | stale | unclean | undeterminable | retired
+    detail: str = ""
+
+    @property
+    def gates(self):
+        """Retired packs and spine never gate. Retirement is a RECORD
+        (PACKS.jsonl), spine is a BOUND DECISION (hy6). Everything else gates
+        unless ok."""
+        if self.build.retired_reason:
+            return False
+        if self.build.tier == SPINE:
+            return False
+        return self.state != "ok"
 
 
 def evaluate(builds, verdicts):
     rows = []
     for b in builds:
         r = Row(build=b)
-        found = [(fn, doc) for port, lst in verdicts.items() if _matches(port, b.name)
+        found = [(fn, doc) for port, lst in verdicts.items() if _matches(port, b)
                  for fn, doc in lst]
-        if b.seal_error:
+        if b.retired_reason:
+            r.state = "retired"
+            r.detail = f"pack {b.seal[:12]} is RETIRED in PACKS.jsonl: {b.retired_reason[:120]}"
+        elif b.id_error:
+            r.state = "undeterminable"
+            r.detail = b.id_error
+        elif b.seal_error:
             # No pack -> nothing could have been replayed. This is NOT "no verdict
             # needed"; it is the strongest form of undriven.
             r.state = "undeterminable"
@@ -200,20 +464,44 @@ def evaluate(builds, verdicts):
 
 def render(rows, extra_errors, all_tiers):
     lines = []
-    order = {"missing": 0, "stale": 1, "unclean": 2, "undeterminable": 3, "ok": 4}
+    order = {"missing": 0, "stale": 1, "unclean": 2, "undeterminable": 3,
+             "ok": 4, "retired": 5}
     shown = [r for r in rows if all_tiers or r.build.tier != SPINE]
     for r in sorted(shown, key=lambda x: (order[x.state], x.build.name)):
         mark = "ok  " if r.state == "ok" else r.state.upper()[:4]
-        gate = "  (advisory — spine, by bound decision)" if r.build.tier == SPINE else ""
+        if r.build.retired_reason:
+            gate = "  (exempt — pack RETIRED in PACKS.jsonl)"
+        elif r.build.tier == SPINE:
+            gate = "  (advisory — spine, by bound decision)"
+        else:
+            gate = ""
         lines.append(f"  {mark:5} [{r.build.tier:8}] {r.build.name}{gate}")
+        lines.append(f"          tier: {r.build.tier_source}")
         lines.append(f"          {r.detail}")
+
+    # Where the RECORD and the old proxy disagree, say so. This gate is not the
+    # place either one quietly wins (hy6.55).
+    disagree = sorted({(r.build.dirname, r.build.tier) for r in rows
+                       if r.build.tier_source != NAME_RULE
+                       and tier_of(r.build.dirname) != r.build.tier})
+    for dirname, tier in disagree:
+        lines.append(f"  NOTE  {dirname}: the recorded partition says {tier}, the "
+                     f"directory name says {tier_of(dirname)} — the record decides "
+                     "here; reconciling them is hy6.55's job.")
     for e in extra_errors:
         lines.append(f"  ERR   {e}")
-    ident = [r for r in rows if r.build.tier != SPINE]
+
+    live = [r for r in rows if not r.build.retired_reason]
+    ident = [r for r in live if r.build.tier != SPINE]
     blocking = [r for r in ident if r.gates]
+    fallback = [r for r in live if r.build.tier_source == NAME_RULE]
     lines.append("")
-    lines.append(f"{len(rows)} build(s) declare a manifest; "
-                 f"{len(ident)} gate (identity/unknown), {len(rows) - len(ident)} advisory (spine).")
+    lines.append(f"{len(rows)} build(s) declare a manifest — one row per manifest; "
+                 f"{len(rows) - len(live)} exempt (pack RETIRED).")
+    lines.append(f"of the {len(live)} live: {len(ident)} gate (identity/unknown), "
+                 f"{len(live) - len(ident)} advisory (spine).")
+    lines.append(f"{len(fallback)} build(s) were tiered by the FALLBACK name rule "
+                 "(the partition does not name them).")
     lines.append(f"{len(blocking)} gating build(s) lack a current, clean verdict.")
     return "\n".join(lines)
 
@@ -222,9 +510,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--workspace", default=None)
     ap.add_argument("--wave", default=None,
-                    help="which wave to gate. Defaults to the newest wave* directory; "
-                         "earlier waves hold retired pilot builds and gating on them "
-                         "would make this permanently red.")
+                    help="narrow the sweep to one wave. Default: every wave. "
+                         "Exemption comes from PACKS.jsonl's retirement record, "
+                         "not from a directory being old (hy6.56).")
     ap.add_argument("--all-tiers", action="store_true",
                     help="report spine builds too. They still never gate — that is a "
                          "bound decision (MetaCoding-hy6, reaffirmed hy6.51), not a flag.")
@@ -232,19 +520,22 @@ def main(argv=None):
 
     workspace = port_workspace(args.workspace)
     print(f"verdict currency: {workspace}")
-    wave = args.wave or current_wave(workspace)
-    print(f"wave: {wave or '(all)'}")
-    builds = discover(workspace, wave)
+    partition = load_partition(workspace)
+    retired, retire_errors = load_retirements(workspace)
+    print(f"wave: {args.wave or '(all, minus RETIRED packs)'}")
+    print(f"partition: {len(partition.tier_by_module)} module row(s) from "
+          f"{len(partition.files)} file(s); retirement record: {len(retired)} seal(s)")
+    builds = discover(workspace, args.wave, partition, retired)
     if not builds:
         # An empty sweep is the classic vacuous pass: no builds found reads exactly
         # like every build verified. Refuse instead.
-        print(f"REFUSING: found no port.manifest.json under port_runs/{wave}. "
+        print(f"REFUSING: found no port.manifest.json under port_runs/{args.wave or ''}. "
               "Either the workspace is wrong or the discovery is broken; neither is "
               "a clean bill of health.", file=sys.stderr)
         return 2
     verdicts, errors = load_verdicts(workspace)
     rows = evaluate(builds, verdicts)
-    print(render(rows, errors, args.all_tiers))
+    print(render(rows, errors + retire_errors + partition.errors, args.all_tiers))
 
     blocking = [r for r in rows if r.gates]
     if blocking:
