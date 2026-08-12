@@ -135,12 +135,21 @@ believed:
 
 - `verdict_currency.py` → **disposition 2, as a ratchet.** It inspects the workspace
   as a whole, so it has no import path; `bun test` is the only surface it can sit on.
-- `elenchus.py --require-current` → **disposition 3.** The irreversible step it
-  guards is a human decision with no code path, and the flags already carry the
-  advisory role correctly. Recommend deleting `--require-current` rather than
-  leaving a gate that cannot fire, and saying in the charter that the Elenchus is
-  convened consciously — which is what Duke already called it: a sadhana, not a
-  trigger.
+- `elenchus.py --require-current` → **disposition 3 when this was written; now
+  KEEP, blocked.** The recommendation was to delete it, because the irreversible
+  step it guards was a human decision with no code path. **That reasoning went
+  stale the same day.** Duke ruled that the wave transition IS a command and that
+  `wave open` refuses while the predecessor is open, with a `--force` override
+  that records its reason (`wave-transition.md`). The call site is no longer
+  absent — it is *decided and unbuilt*, which is a different status, and deleting
+  now would mean re-adding on the next commit.
+
+  The condition under which the deletion returns, stated so it is not forgotten:
+  **if wave-close does not get built, this goes.** A gate awaiting a call site
+  that never arrives is indistinguishable from a gate hung on nothing.
+
+  Note the asymmetry with `verdict_currency`, which has a SECOND home — a ratchet
+  in `bun test` — and should get it regardless of whether wave-close lands.
 
 Either outcome is fine. What is not fine is a third gate next week whose commit
 message says it will be wired as a precondition of wave-close sealing.

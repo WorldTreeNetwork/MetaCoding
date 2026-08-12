@@ -8,12 +8,20 @@
 // Run with: bun run scripts/smoke-extractor.ts
 
 import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import { Store } from "../src/store";
-// Smoke script: reaches past the ingest seam on purpose (raw primitive).
 import { indexDirectory } from "../src/extractor/walker.ts";
+import { issueIngestTicket, revokeIngestTicket } from "../src/ingest/ticket.ts";
 
-const DATA_DIR = "./tmp-extractor-smoke";
+// Absolute, both of them. Relative paths here resolve against the CALLER's cwd,
+// so the script worked from the repo root and died with ENOENT from anywhere
+// else — including from a mutation sandbox, which is where instruments get run
+// when someone is checking whether they can fail. Same cwd-assumption family as
+// MetaCoding-hy6.52.
+const REPO_ROOT = join(import.meta.dir, "..");
+const SRC_DIR = join(REPO_ROOT, "src");
+const DATA_DIR = join(REPO_ROOT, "tmp-extractor-smoke");
 
 function cleanup(): void {
   if (existsSync(DATA_DIR)) rmSync(DATA_DIR, { recursive: true, force: true });
@@ -23,12 +31,34 @@ async function main(): Promise<void> {
   cleanup();
   const store = await Store.open(DATA_DIR);
 
+  // THE SEAM IS A CAPABILITY, AND THIS SCRIPT DID NOT HAVE IT (MetaCoding-6ep).
+  // The comment this replaces said "reaches past the ingest seam on purpose (raw
+  // primitive)" — which stopped being possible at 037926f, when MetaCoding-9ed
+  // turned the seam from a scan into a capability and `indexDirectory` grew a
+  // required `opts` carrying a ticket. The script kept calling it with two
+  // arguments, so it died on `opts.branch` of undefined and took the whole smoke
+  // suite with it: `bun run smoke` fails fast, and only 2 of 22 scripts ever ran.
+  //
+  // The old comment is the interesting part. A script that declares it is
+  // deliberately bypassing a guard is a script that will be broken by the guard
+  // becoming real, silently, and stay broken — this one did, for long enough to
+  // be the standing "known baseline red" under several other changes.
+  const ticket = issueIngestTicket({
+    repo: "metacoding-smoke",
+    branch: "main",
+    runStamp: new Date().toISOString(),
+  });
+
   try {
-    const stats = await indexDirectory(store, "src");
+    const stats = await indexDirectory(store, SRC_DIR, {
+      ticket,
+      repo: "metacoding-smoke",
+      branch: "main",
+    });
     console.log(`indexed: ${JSON.stringify(stats)}`);
 
     if (stats.filesScanned === 0) {
-      throw new Error("no .ts files found under src/");
+      throw new Error(`no .ts files found under ${SRC_DIR}`);
     }
 
     // 1. The Store class itself should be in the graph.
