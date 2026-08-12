@@ -126,6 +126,47 @@ describe("F4.1 truncation", () => {
     expect(run.provenance().checks).toContain("run.check()");
   });
 
+  // MetaCoding-i0u / M28: `measure()`'s blank-field-name guard survived being
+  // replaced by `if (false)` — an unnamed measurement was published and nothing
+  // said so. A floor is a PAIR, so a measurement with no name is half a pair.
+  test("a measurement needs a FIELD NAME, and whitespace is not a name", () => {
+    const run = beginRun("x");
+    expect(() => run.measure("", 4, "counted")).toThrow(InstrumentMisuse);
+    // The whitespace case is the one that discriminates: a guard written as
+    // `field !== ""` accepts "   " and publishes under a blank key.
+    expect(() => run.measure("   ", 4, "counted")).toThrow(InstrumentMisuse);
+    expect(() =>
+      (
+        run as unknown as { measure: (f: unknown, v: number, d: string) => void }
+      ).measure(undefined, 4, "counted"),
+    ).toThrow(InstrumentMisuse);
+    // ...and NOTHING was published under any of them. `toEqual` rather than a
+    // key lookup: an accepted blank name would show up here as an extra key.
+    expect(run.publish()).toEqual({ checks: 0, pairs: 0 });
+    // CONTRAST: the same call with a name publishes, and says what derived it.
+    run.measure("rows", 4, "len(rows) returned by the query");
+    expect(run.publish()).toEqual({ checks: 0, pairs: 0, rows: 4 });
+  });
+
+  // MetaCoding-i0u / M29: deleting the already-measured guard survived — one
+  // field became writable twice, last write wins.
+  test("a field is measured ONCE: the second write is refused, not last-write-wins", () => {
+    const run = beginRun("x");
+    run.measure("rows", 4, "len(rows) returned by the query");
+    expect(() => run.measure("rows", 9000, "a bigger number")).toThrow(InstrumentMisuse);
+    // The refusal has to STICK. Without this half, a guard that threw and then
+    // overwrote anyway would pass — and the discriminating consequence is a
+    // floor: 9000 is the number the second write wanted, and the run measured 4.
+    expect(run.publish().rows).toBe(4);
+    expect(run.provenance().rows).toContain("returned by the query");
+    expect(
+      kinds(observeFloors([{ min: 9000, measuredAs: "rows", why: "w" }], run.publish())),
+    ).toEqual(["FLOOR_UNMET"]);
+    // CONTRAST: a DIFFERENT field is measurable, and both survive.
+    run.measure("sections", 3, "len(sections) in the manifest");
+    expect(run.publish()).toEqual({ checks: 0, pairs: 0, rows: 4, sections: 3 });
+  });
+
   test("the count cannot be inflated by counting one check twice", () => {
     const run = beginRun("x");
     run.check("a", true);
@@ -286,6 +327,30 @@ describe("F4.3 an empty run fails", () => {
     const run = beginRun("x");
     expect(run.publish()).toEqual({ checks: 0, pairs: 0 });
   });
+
+  // MetaCoding-i0u / M30: deleting beginRun()'s script-name guard survived. A
+  // nameless run reaches the gate and prints "_SMOKE_PASS" — a pass token that
+  // says nothing about WHAT passed, in the file whose rule is that the gate owns
+  // the token.
+  test("a run needs a SCRIPT NAME — it is the PASS token's prefix", () => {
+    expect(() => beginRun("")).toThrow(InstrumentMisuse);
+    // The discriminating half: a guard written as `script !== ""` accepts this,
+    // and the token still comes out as a bare "_SMOKE_PASS".
+    expect(() => beginRun("   ")).toThrow(InstrumentMisuse);
+
+    // CONTRAST: a named run is accepted, and its NAME is what the token carries.
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (...a: unknown[]) => void lines.push(a.map(String).join(" "));
+    try {
+      const run = beginRun("paths check");
+      run.check("a", true);
+      run.finish([{ min: 1, measuredAs: "checks", why: "one check" }]);
+    } finally {
+      console.log = realLog;
+    }
+    expect(lines).toContain("PATHS_CHECK_SMOKE_PASS");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -371,6 +436,33 @@ describe("pairs are derived from discriminate(), not declared", () => {
       cases: { A: "A", B: "B" },
     });
     expect(run.pairNames()).toEqual(["during"]);
+  });
+
+  // MetaCoding-i0u / M23: appending `.slice(0, 1)` to pairNames() SURVIVED —
+  // pairs capped at one, and every fixture and every smoke script registered at
+  // most one pair, so "pairs" was never shown to count past one. A count only
+  // ever seen at 0 or 1 is indistinguishable from a boolean.
+  test("a run counts EVERY pair it registered, not just the first", async () => {
+    resetRecordedPairs();
+    const run = beginRun("x");
+    for (const name of ["first pair", "second pair", "third pair"]) {
+      await discriminate({ name, verdict: (s: string) => s, cases: { A: "A", B: "B" } });
+    }
+    // Names, in order — not just a length, so a cap and a miscount are told apart.
+    expect(run.pairNames()).toEqual(["first pair", "second pair", "third pair"]);
+    expect(run.publish().pairs).toBe(3);
+    // The consequence, as a floor: a min-3 floor over `pairs` HOLDS here...
+    const threePairs: Floor[] = [{ min: 3, measuredAs: "pairs", why: "this run registers three" }];
+    expect(observeFloors(threePairs, run.publish()).ok).toBe(true);
+
+    // ...and CONTRAST, a run that registered only one does not satisfy it. Under
+    // the cap both runs publish pairs:1 and this pair collapses — which is the
+    // reading the old fixtures could not tell apart.
+    resetRecordedPairs();
+    const one = beginRun("x");
+    await discriminate({ name: "only pair", verdict: (s: string) => s, cases: { A: "A", B: "B" } });
+    expect(one.pairNames()).toEqual(["only pair"]);
+    expect(kinds(observeFloors(threePairs, one.publish()))).toEqual(["FLOOR_UNMET"]);
   });
 
   test("a REFUSED pair still counts as a pair that ran", async () => {
