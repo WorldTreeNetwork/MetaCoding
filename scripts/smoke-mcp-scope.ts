@@ -17,6 +17,18 @@ import { Store } from "../src/store";
 // Smoke scripts use the RAW rows, not the fitness-gated tool surface.
 import { graphNeighborRows } from "../src/mcp/tools";
 import type { Symbol } from "../src/store/types";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
+
+// Every check is COUNTED (src/testkit/floors.ts): deleting one is visible.
+const run = beginRun("mcp-scope");
+
+const FLOORS: Floor[] = [
+  {
+    min: 7,
+    measuredAs: "checks",
+    why: "counted from the source: 7 assertion sites across the 4 numbered scenarios (aaa: 2, bbb: 2, unscoped: 2, absent: 1)",
+  },
+];
 
 const TMP_DATA = "./tmp-mcp-scope-smoke-data";
 
@@ -68,10 +80,8 @@ async function main(): Promise<void> {
       edge_kinds: ["CONTAINS"],
       repo_commit_sha: "aaa",
     });
-    if (aaa.length !== 1) throw new Error(`expected 1 result for sha=aaa, got ${aaa.length}`);
-    if (aaa[0]!.symbol.id !== "bB-aaa") {
-      throw new Error(`expected bB-aaa, got ${aaa[0]!.symbol.id}`);
-    }
+    run.check("sha=aaa returns exactly 1 neighbor", aaa.length === 1, `got ${aaa.length}`);
+    run.check("sha=aaa neighbor is bB-aaa", aaa[0]!.symbol.id === "bB-aaa", `got ${aaa[0]!.symbol.id}`);
     console.log(`sha=aaa scope OK: ${aaa[0]!.symbol.id}`);
 
     // 2. Scoped to sha=bbb — should return only bB-bbb.
@@ -81,10 +91,8 @@ async function main(): Promise<void> {
       edge_kinds: ["CONTAINS"],
       repo_commit_sha: "bbb",
     });
-    if (bbb.length !== 1) throw new Error(`expected 1 result for sha=bbb, got ${bbb.length}`);
-    if (bbb[0]!.symbol.id !== "bB-bbb") {
-      throw new Error(`expected bB-bbb, got ${bbb[0]!.symbol.id}`);
-    }
+    run.check("sha=bbb returns exactly 1 neighbor", bbb.length === 1, `got ${bbb.length}`);
+    run.check("sha=bbb neighbor is bB-bbb", bbb[0]!.symbol.id === "bB-bbb", `got ${bbb[0]!.symbol.id}`);
     console.log(`sha=bbb scope OK: ${bbb[0]!.symbol.id}`);
 
     // 3. No scope — resolveSymbol arbitrarily picks one snapshot via LIMIT 1.
@@ -94,13 +102,9 @@ async function main(): Promise<void> {
       direction: "out",
       edge_kinds: ["CONTAINS"],
     });
-    if (unscoped.length !== 1) {
-      throw new Error(`expected 1 result for unscoped, got ${unscoped.length}`);
-    }
+    run.check("unscoped returns exactly 1 neighbor", unscoped.length === 1, `got ${unscoped.length}`);
     const id = unscoped[0]!.symbol.id;
-    if (id !== "bB-aaa" && id !== "bB-bbb") {
-      throw new Error(`unscoped returned unexpected id: ${id}`);
-    }
+    run.check("unscoped neighbor is one of the two snapshots", id === "bB-aaa" || id === "bB-bbb", `got ${id}`);
     console.log(`unscoped OK: ${id}`);
 
     // 4. Scoped to a non-existent sha — empty result.
@@ -110,12 +114,10 @@ async function main(): Promise<void> {
       edge_kinds: ["CONTAINS"],
       repo_commit_sha: "ccc",
     });
-    if (empty.length !== 0) {
-      throw new Error(`expected 0 results for sha=ccc, got ${empty.length}`);
-    }
+    run.check("absent sha=ccc returns 0 results", empty.length === 0, `got ${empty.length}`);
     console.log(`sha=ccc (absent) OK: 0 results`);
 
-    console.log("MCP_SCOPE_SMOKE_PASS");
+    run.finish(FLOORS);
   } finally {
     await store.close();
     cleanup();

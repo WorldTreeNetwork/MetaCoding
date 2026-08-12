@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store";
 import type { Symbol as Sym } from "../src/store/types";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
 
 function makeSym(id: string): Sym {
   return {
@@ -30,9 +31,20 @@ function makeSym(id: string): Sym {
   };
 }
 
+// Every assert is now a COUNTED check (src/testkit/floors.ts): the count is
+// derived from the calls that actually run, so deleting one is visible.
+const run = beginRun("readonly");
 function assert(cond: boolean, msg: string): void {
-  if (!cond) throw new Error(`ASSERT FAILED: ${msg}`);
+  run.check(msg, cond, `ASSERT FAILED: ${msg}`);
 }
+
+const FLOORS: Floor[] = [
+  {
+    min: 5,
+    measuredAs: "checks",
+    why: "counted from the source: this file has 5 assert() call sites across the 3 numbered scenarios",
+  },
+];
 
 const dir = mkdtempSync(join(tmpdir(), "ro-smoke-"));
 try {
@@ -73,7 +85,8 @@ try {
     console.log(`readonly post-checkpoint OK: symbols=${s.symbols} indexed=true`);
   }
 
-  console.log("READONLY_SMOKE_PASS");
+  // finish() owns the PASS token: it prints only after the floors hold.
+  run.finish(FLOORS);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

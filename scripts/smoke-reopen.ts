@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store";
 import type { Symbol as Sym } from "../src/store/types";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
 
 const SCRIPT = import.meta.path;
 
@@ -34,9 +35,19 @@ function makeSym(id: string): Sym {
   };
 }
 
+// Every assert is now a COUNTED check (src/testkit/floors.ts).
+const run = beginRun("reopen");
 function assert(cond: boolean, msg: string): void {
-  if (!cond) throw new Error(`ASSERT FAILED: ${msg}`);
+  run.check(msg, cond, `ASSERT FAILED: ${msg}`);
 }
+
+const FLOORS: Floor[] = [
+  {
+    min: 5,
+    measuredAs: "checks",
+    why: "counted from the source: 5 assert() call sites, one per numbered step (seeded generation, serve sees 1, child exit 0, generation advanced, reopened sees 2)",
+  },
+];
 
 // ---------- child writer ----------
 if (process.argv[2] === "write") {
@@ -90,7 +101,7 @@ try {
   await reopened.close();
   await serveStore.close();
 
-  console.log("REOPEN_SMOKE_PASS");
+  run.finish(FLOORS);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

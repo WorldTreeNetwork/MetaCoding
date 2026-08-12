@@ -4,11 +4,22 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { currentGitBranch } from "../src/cli/branch.ts";
+import { beginRun, type Floor } from "../src/testkit/floors.ts";
 
+// Every assert is now a COUNTED check (src/testkit/floors.ts).
+const run = beginRun("worktree-branch");
 function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(`FAIL: ${message}`);
+  run.check(message, condition, `FAIL: ${message}`);
   console.log(`PASS: ${message}`);
 }
+
+const FLOORS: Floor[] = [
+  {
+    min: 5,
+    measuredAs: "checks",
+    why: "counted from the source: 5 assert() call sites — non-git fallback, regular repo, worktree, manual .git file, malformed .git file",
+  },
+];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,4 +133,4 @@ function cleanup(dirs: string[]): void {
   }
 }
 
-console.log("\nAll smoke-worktree-branch tests passed.");
+run.finish(FLOORS);
