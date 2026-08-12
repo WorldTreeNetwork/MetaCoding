@@ -30,6 +30,11 @@
             "type": "command",
             "command": "jq -r '.tool_input.command // empty' | grep -qE 'cd[[:space:]]+[^&|;]+&&.*(python3|node|sed[[:space:]]+-i)' && printf '%s' \"{\\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PreToolUse\\\", \\\"permissionDecision\\\": \\\"deny\\\", \\\"permissionDecisionReason\\\": \\\"cwd does not reliably hold for a 'cd <path> && <interpreter>' compound in this harness, so relative reads/writes land in the REAL tree instead of your temp copy. On 2026-08-12 that put four mutations into ctkr/ctkr/verdict_currency.py and shipped a gate that passed everything (MetaCoding-hy6.52). Use absolute paths instead: python3 /abs/path/script.py, or git -C /abs/repo ..., or write the script to a file and reference every path absolutely. See docs/design/enforceability.md.\\\"}}\"; exit 0",
             "statusMessage": "checking for cd+interpreter"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | grep -qE 'git ([^|;&]* )?commit [^|;&]*(-[a-zA-Z]*a|--all)' && printf '%s' \"{\\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PreToolUse\\\", \\\"permissionDecision\\\": \\\"deny\\\", \\\"permissionDecisionReason\\\": \\\"'git commit -a' stages EVERY modified file, including work belonging to other agents running concurrently in this worktree. On 2026-08-12 it swept three other agents' uncommitted changes into a commit labelled 'fix(hy6.60)' \\\\u2014 13 files, toolchain and testkit work attributed to a verdict-currency bead \\\\u2014 and one of those agents then died before it could record its own evidence. This project's commit messages are its primary instrument; a commit that lies about what it contains damages the one artifact everything else is reconstructed from. Stage explicitly: git add <the paths you touched>, then git commit.\\\"}}\"; exit 0",
+            "statusMessage": "checking for git commit -a"
           }
         ]
       }

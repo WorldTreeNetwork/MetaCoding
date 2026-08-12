@@ -183,6 +183,26 @@ What survives the correction, because it was observed rather than inferred:
   (indexing, scip, an external process) — the advice is sound even though the example
   that motivated it was wrong.
 
+### Parallel agents share one worktree — stage by path
+
+Never use the stage-everything commit flag. It stages every modified file,
+including work belonging to other agents running at the same time. On 2026-08-12
+it swept three other agents' uncommitted changes into a commit labelled
+`fix(hy6.60)` — 13 files, toolchain and testkit work filed under a
+verdict-currency bead — and one of those agents then died before recording its own
+evidence, so its work survives under someone else's message.
+
+The commit messages are this project's best instrument: a process-observing agent
+reconstructed four days of analysis from `git log` alone. A commit that misstates
+what it contains poisons the artifact everything else is rebuilt from. A
+`PreToolUse` hook now refuses it.
+
+Also observed the same day: agents clobbering each other's mutation sandboxes in
+the shared scratchpad, and full-suite runs showing phantom failures from a
+neighbour's uncommitted edits. When dispatching parallel agents, give each one
+disjoint FILES — not just disjoint beads — tell it which paths belong to others,
+and have it stage by path.
+
 ### Absolute paths, always
 
 A `cd <path> && <interpreter>` compound does not reliably hold cwd here. On
