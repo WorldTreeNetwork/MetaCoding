@@ -111,7 +111,9 @@ interface SuiteRan {
     published: Record<string, number>;
     checkLabels: string[];
     refused: Array<{ label: string; detail: string }>;
-    floors: Array<{ min: number; measuredAs: string; basis: string }>;
+    // `why` is part of every recorded floor and the scriptsReported case below
+    // asserts on it; leaving it off this type made that assertion a type error.
+    floors: Array<{ min: number; measuredAs: string; why: string; basis: string }>;
     ok: boolean;
   } | null;
 }
