@@ -16,6 +16,12 @@
 // Both are needed and neither substitutes: F3.1b tests the link, this tests
 // that anything walks it.
 //
+// MEASURED, not assumed: the judge's N18 — `toolchainDigest`'s default replaced
+// by a CONSTANT ArtifactIdentity, which survived all 31 fixtures at the time it
+// was found — was re-applied with identity.test.ts NOT RUNNING, and this file
+// alone fails 4 of 4. So the production call site is independently sensitive to
+// the mutation that made the whole mechanism blind.
+//
 // HOW THIS WOULD BE FAKED, and what each leg does about it
 // --------------------------------------------------------
 //   "return a constant"        -> MOVEMENT: the digest must change when the
