@@ -22,6 +22,8 @@ import {
   type Layer2Inputs,
   ToolchainIdentityRefused,
   digestBytes,
+  dockerArgv,
+  dockerImageId,
   grammarLane,
   isDigest,
   layer2Key,
@@ -340,3 +342,47 @@ describe("the loader registers the blob it loaded (the import-path half)", () =>
     expect(php?.digest).toBe(digestBytes(readFileSync(REAL_PHP_WASM)));
   });
 });
+
+// ---------------------------------------------------------------------------
+// MetaCoding-9dg — a blocked docker CLI must not hang the only enforcing surface
+// ---------------------------------------------------------------------------
+// A fresh judge watched `bun test` sit at 2:17 on a live `docker image inspect`
+// child with the daemon unreachable, and had to kill it by hand. `bun test` is
+// the only surface that executes anything in this project, so an unbounded
+// subprocess here means the mechanism produces NO VERDICT — strictly worse than
+// the red one it was built to produce.
+//
+// The fixture uses a REAL blocking subprocess rather than a mock, because the
+// thing under test is precisely that a real child which never returns is bounded.
+
+test("dockerImageId is BOUNDED when the CLI never returns", () => {
+  // Drives the REAL function with an argv that blocks. The first version of this
+  // fixture spawned `sleep 60` directly with its own timeout — which proved that
+  // Bun's timeout works, not that dockerImageId uses one, and it SURVIVED the
+  // mutation that deletes the timeout. Docker answers fast on a healthy machine,
+  // so the guard is unreachable without this seam.
+  const t0 = Date.now();
+  const answer = dockerImageId("irrelevant", ["sleep", "60"]);
+  const elapsed = Date.now() - t0;
+  expect(answer).toBeNull();          // no answer, never "no drift"
+  expect(elapsed).toBeLessThan(20_000);
+}, 40_000);
+
+test("the DEFAULT argv is the docker command it claims to run", () => {
+  // The seam above is only honest if the default still asks docker. The judge
+  // found this exact shape in step 3 already (MetaCoding-0bd, 'the default
+  // argument WAS the link, and nothing held it').
+  expect(dockerArgv("img:tag")).toEqual([
+    "docker", "image", "inspect", "--format", "{{.Id}}", "img:tag",
+  ]);
+});
+
+test("dockerImageId returns null rather than blocking on an unreachable daemon", () => {
+  // An image id that cannot exist. Whatever docker does — errors fast, is absent,
+  // or blocks until the timeout — the CONTRACT is the same: null, meaning "no
+  // answer", never "no drift". Bounded so a hung daemon cannot hang the suite.
+  const t0 = Date.now();
+  const answer = dockerImageId("metacoding-9dg-no-such-image:definitely-not-pulled");
+  expect(Date.now() - t0).toBeLessThan(20_000);
+  expect(answer).toBeNull();
+}, 30_000);

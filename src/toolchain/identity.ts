@@ -250,12 +250,41 @@ export type DockerInspector = (image: string) => string | null;
  * Null means "no answer", which the preflight reports as a LOUD SKIP naming the
  * lane. It never means "no drift" (oracle_preflight.py:144's distinction).
  */
-export const dockerImageId: DockerInspector = (image: string): string | null => {
+/**
+ * How long to wait for the docker CLI before calling it UNAVAILABLE.
+ *
+ * NOT OPTIONAL, and the reason is measured (MetaCoding-9dg). With the daemon
+ * unreachable the docker CLI BLOCKS rather than erroring, and a fresh judge
+ * watched `bun test` sit at 2:17 on a live `docker image inspect` child it had to
+ * kill by hand — the same command returned in 0.235s once the daemon recovered.
+ * `bun test` is the only enforcing surface this project has (see
+ * docs/design/enforceability.md), so an unbounded call here means the mechanism
+ * can produce NO VERDICT AT ALL, which is strictly worse than a red one.
+ *
+ * This module reasoned carefully about a checker that reports clear when it could
+ * not run, and then shipped one that could not report. A timeout is how "no
+ * answer" stays an answer.
+ */
+const DOCKER_TIMEOUT_MS = 5_000;
+
+/** The argv this asks docker for. A SEAM, so a fixture can point the call at a
+ *  command that never returns and prove the timeout is real — without it the
+ *  timeout is unreachable by any test on a machine where docker answers fast,
+ *  which is how the first attempt at MetaCoding-9dg's guard proved nothing. */
+export const dockerArgv = (image: string): string[] => [
+  "docker", "image", "inspect", "--format", "{{.Id}}", image,
+];
+
+export const dockerImageId = (image: string, argv: string[] = dockerArgv(image)): string | null => {
   try {
-    const proc = Bun.spawnSync(["docker", "image", "inspect", "--format", "{{.Id}}", image], {
+    const proc = Bun.spawnSync(argv, {
       stdout: "pipe",
       stderr: "pipe",
+      timeout: DOCKER_TIMEOUT_MS,
     });
+    // A timeout kill lands here as a non-zero/!null exitCode or a signal; either
+    // way it maps to the SAME null the daemon-down path returns, so the lane
+    // becomes a LOUD SKIP naming itself rather than a hang or a false clear.
     if (proc.exitCode !== 0) return null;
     const out = proc.stdout.toString().trim();
     return /^sha256:[0-9a-f]{64}$/.test(out) ? out : null;
