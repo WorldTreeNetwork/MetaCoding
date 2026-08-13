@@ -210,6 +210,36 @@ A `cd <path> && <interpreter>` compound does not reliably hold cwd here. On
 passed everything (`MetaCoding-hy6.52`). A `PreToolUse` hook in
 `.claude/settings.json` now refuses that shape — see `docs/design/enforceability.md`.
 
+### Reading the oracle — use `tools/oracle_read.py`, and never read `[]` as "none"
+
+The live farmOS oracle is at `localhost:8095`. To read it:
+
+```bash
+python3 /Users/dukejones/work/WorldTree/farmos-port/tools/oracle_read.py /api/asset/plant
+python3 /Users/dukejones/work/WorldTree/farmos-port/tools/oracle_read.py --types
+```
+
+**An unauthenticated JSON:API read does not fail.** It returns `200` with
+`data: []` and hides the reason in `meta.omitted`. A reader who does not look at
+`meta` concludes *the oracle has no records* instead of *I am anonymous* — charter
+I3, absence of an answer read as an answer, sitting in the path of every reading.
+Measured 2026-08-12 (`MetaCoding-4ifi`): two fresh readers both named the oracle
+rule, not their time box, as what limited them, and one filed **zero of nine**
+guards as witnessed. `oracle_read.py` refuses instead of returning what it cannot
+see, and it can only issue GETs.
+
+**"GET-only" never meant "do not authenticate."** Minting a token is not a
+mutation. What is forbidden is state: no POST/PATCH/DELETE of entity data, no
+fixtures, no trace; never `drush en` a module by hand; never move an image pin;
+never `bring-up.sh` to "start" it (that runs `drush site-install` and would
+**rebuild** the site — use `tools/oracle_up.sh`); never restart it. **It is shared
+with concurrent agents** and holds the state 43 sealed packs were observed against.
+
+A `404` usually means **the module is not enabled**, not a wrong path — four of
+seven asset bundles are 404 today (`MetaCoding-ahrq`). A bundle you cannot GET is
+one no finding about it can ever witness; say so in the report rather than
+treating it as absence of evidence.
+
 ### Reporting data-dir scope on artifact-producing tasks
 
 **Anti-pattern.** In the 2026-05-28 session, three executor agents reindexed
