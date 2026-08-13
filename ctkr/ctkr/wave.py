@@ -276,6 +276,15 @@ def _bad_reason(reason):
     return len((reason or "").split()) < MIN_REASON_WORDS
 
 
+def _is_declined(value):
+    """`--affirm kernel-frozen="no: v1.4 never landed"` — an honest no."""
+    return (value or "").strip().lower().startswith("no:")
+
+
+def _decline_reason(value):
+    return (value or "").strip()[3:].strip()
+
+
 def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
           instrument=None, run_suites=True, kernel=""):
     """Returns (ok, message, row). Writes nothing — the caller appends."""
@@ -297,7 +306,22 @@ def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
     if missing:
         problems.append("UNANSWERED — these are questions only a person can answer, "
                         "and nothing here can check them:\n" +
-                        "\n".join(f"    {k}: {AFFIRMATIONS[k]}" for k in missing))
+                        "\n".join(f"    {k}: {AFFIRMATIONS[k]}" for k in missing) +
+                        "\n  Answer each with --affirm KEY=WHO, or decline it "
+                        "honestly with --affirm KEY=\"no: the reason\".")
+
+    # AN AFFIRMATION MUST BE DECLINABLE, or the ritual is a rubber stamp. The
+    # first version accepted only a name, so the sole way to close a wave was to
+    # assert all three were true — which turns "the kernel is frozen" into a
+    # sentence you type to get past a prompt. Answering NO is a legitimate close;
+    # it just has to be recorded as a no, with a reason, and it lands in the
+    # carried list where the next wave inherits it.
+    declined_thin = {k: v for k, v in affirm.items()
+                     if _is_declined(v) and _bad_reason(_decline_reason(v))}
+    if declined_thin:
+        problems.append("A DECLINED AFFIRMATION STILL NEEDS A REASON — saying no is "
+                        "fine, saying nothing is not:\n" +
+                        "\n".join(f"    {k}: {v!r}" for k, v in declined_thin.items()))
 
     results = checks(workspace, wave, elenchus=elenchus, instrument=instrument,
                      run_suites=run_suites)
@@ -326,14 +350,20 @@ def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
         "record": "close", "wave": wave, "closed_at": at,
         "elenchus": elenchus or "",
         "kernel": kernel,
-        "affirmed": [{"what": k, "by": affirm[k]} for k in sorted(affirm)],
+        "affirmed": [{"what": k, "by": affirm[k]} for k in sorted(affirm)
+                     if not _is_declined(affirm[k])],
+        "declined": [{"what": k, "reason": _decline_reason(affirm[k])}
+                     for k in sorted(affirm) if _is_declined(affirm[k])],
         "carried": [{"item": k, "reason": carry[k]} for k in sorted(carry)],
         "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in results],
     }
     passed = sum(1 for c in results if c.ok)
+    declined = len(row["declined"])
     return True, (f"{wave} closed. {passed}/{len(results)} mechanical checks green; "
                   f"{len(carry)} item(s) carried forward with reasons; "
-                  f"{len(affirm)} affirmation(s) recorded by name."), row
+                  f"{len(row['affirmed'])} affirmation(s) recorded by name" +
+                  (f"; {declined} DECLINED and recorded as such." if declined
+                   else ".")), row
 
 
 def open_(workspace, wave, *, at, force=""):

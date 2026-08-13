@@ -257,3 +257,36 @@ def test_UNTRACKED_source_cannot_pass_unmentioned(tmp_path):
     clean = W.checks(str(repo), "wave2", elenchus=None,
                      instrument=str(repo), run_suites=False)
     assert all(c.ok for c in clean if c.name.startswith(("untracked:", "committed:")))
+
+
+def test_an_affirmation_can_be_DECLINED_honestly(tmp_path, monkeypatch):
+    """Or the ritual is a rubber stamp.
+
+    The first version accepted only a name, so the only way to close a wave was
+    to assert all three affirmations were TRUE — which turns "the kernel is
+    frozen" into a sentence you type to get past a prompt. Wave 2's honest answer
+    to kernel-frozen is NO (v1.4's freeze agenda from wave 1 never landed;
+    KERNEL_VERSION is still 1.3.0), and a ritual that cannot record that is one
+    that manufactures false yeses at exactly the moment it matters.
+    """
+    monkeypatch.setattr(W, "checks", green)
+    affirm = dict(GOOD)
+    affirm["kernel-frozen"] = "no: the v1.4 freeze agenda never landed, still 1.3.0"
+    ok, msg, row = close(ws(tmp_path, [opened("wave2")]), "wave2", at=AT, affirm=affirm)
+    assert ok, msg
+    assert [d["what"] for d in row["declined"]] == ["kernel-frozen"]
+    assert "1.3.0" in row["declined"][0]["reason"]
+    # It must NOT appear as affirmed — that would be the lie the split prevents.
+    assert "kernel-frozen" not in {a["what"] for a in row["affirmed"]}
+    assert len(row["affirmed"]) == len(AFFIRMATIONS) - 1
+    assert "DECLINED" in msg
+
+
+def test_a_DECLINED_affirmation_still_needs_a_reason(tmp_path, monkeypatch):
+    """Saying no is fine. Saying nothing is not — otherwise 'no:' becomes the
+    cheapest way past all three questions."""
+    monkeypatch.setattr(W, "checks", green)
+    affirm = dict(GOOD)
+    affirm["kernel-frozen"] = "no: nope"
+    ok, msg, _ = close(ws(tmp_path, [opened("wave2")]), "wave2", at=AT, affirm=affirm)
+    assert not ok and "STILL NEEDS A REASON" in msg
