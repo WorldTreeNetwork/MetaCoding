@@ -234,6 +234,86 @@ def test_an_answered_wave_closes_clean(tmp_path):
     assert c.ok and "all answered" in c.detail
 
 
+# ---------------------------------------------------------------------------
+# what a finished build DECLARED — the half that can be enforced
+# ---------------------------------------------------------------------------
+
+def build(tmp_path, name, questions="omit", wave="wave3"):
+    d = tmp_path / "ws" / "port_runs" / wave / name
+    d.mkdir(parents=True, exist_ok=True)
+    m = {"port": name, "bridge": {"command": ["true"]}}
+    if questions != "omit":
+        m["questions"] = questions
+    (d / "port.manifest.json").write_text(json.dumps(m))
+    return str(tmp_path / "ws")
+
+
+def test_a_build_that_never_said_is_its_own_state_not_a_no(tmp_path):
+    """41 manifests were sealed before this field existed. Reading their silence
+    as "nothing came up" invents a claim nobody made; making the field required
+    would invalidate them or invite someone to retro-fill it. Both are worse than
+    recording that those builds never said."""
+    w = build(tmp_path, "old")
+    declared, silent, unreported = P.declarations(w, [], "wave3")
+    assert declared == [] and unreported == []
+    assert len(silent) == 1 and "never said" in silent[0][1]
+
+
+def test_declaring_NOTHING_requires_a_reason(tmp_path):
+    """"I hit nothing" is a claim. A claim with no reason is the rubber stamp."""
+    from ctkr.oracle.port_contract import QuestionsRaised
+    assert QuestionsRaised(raised=[], none_because="").check("q")
+    assert not QuestionsRaised(raised=[], none_because="all bound already").check("q")
+    assert not QuestionsRaised(raised=["t"]).check("q")
+
+
+def test_a_manifest_with_a_bad_questions_block_FAILS_TO_LOAD(tmp_path):
+    """Through the real loader, not the model — a validation nothing calls is the
+    defect this whole session has been about."""
+    from ctkr.oracle.port_contract import ContractError, PortManifest
+    build(tmp_path, "bad", questions={"raised": [], "none_because": ""})
+    p = tmp_path / "ws" / "port_runs" / "wave3" / "bad" / "port.manifest.json"
+    try:
+        PortManifest.load(p)
+        raise AssertionError("a bare empty questions block must not load")
+    except ContractError as exc:
+        assert "none_because" in str(exc)
+    # the contrast: the same manifest with a reason loads.
+    build(tmp_path, "bad", questions={"raised": [], "none_because": "all bound"})
+    assert PortManifest.load(p).questions.none_because == "all bound"
+
+
+def test_a_question_declared_but_NEVER_REPORTED_is_caught(tmp_path):
+    """The builder knew while it was running and said so only after the wave had
+    already built on the guess. That is exactly what the in-flight channel exists
+    to prevent, and it is invisible without this cross-check."""
+    w = build(tmp_path, "late", questions={"raised": ["a question nobody heard"]})
+    _declared, _silent, unreported = P.declarations(w, [], "wave3")
+    assert [t for _p, t in unreported] == ["a question nobody heard"]
+
+    # the contrast: the same declaration WITH an in-flight record behind it.
+    _d, _s, clean = P.declarations(w, [rec("late", "a question nobody heard", "g")],
+                                   "wave3")
+    assert clean == []
+
+
+def test_the_close_leads_with_unreported_over_merely_silent(tmp_path):
+    """Both are failures; one is worse. A build that knew and stayed quiet during
+    the wave outranks a build that predates the field."""
+    w = build(tmp_path, "silent")
+    build(tmp_path, "late", questions={"raised": ["knew and did not say"]})
+    c = W._declarations_check(w, "wave3", dd(tmp_path, []))
+    assert not c.ok and c.carryable
+    assert "no in-flight report behind them" in c.detail
+
+
+def test_all_builds_declaring_closes_clean(tmp_path):
+    w = build(tmp_path, "a", questions={"raised": [], "none_because": "all bound"})
+    build(tmp_path, "b", questions={"raised": ["t"]})
+    c = W._declarations_check(w, "wave3", dd(tmp_path, [rec("b", "t", "g")]))
+    assert c.ok and "all 2 build(s) declared" in c.detail
+
+
 def test_a_log_with_only_sub_threshold_reports_closes_clean_and_says_so(tmp_path):
     c = W._decisions_check(ws(tmp_path), dd(tmp_path, [rec("solo", "t", "g")]))
     assert c.ok

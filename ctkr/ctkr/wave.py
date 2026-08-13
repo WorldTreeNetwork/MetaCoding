@@ -268,6 +268,47 @@ def _kernel_check(workspace, wave, instrument):
                  f"whole wave")
 
 
+def _declarations_check(workspace, wave, data_dir):
+    """Every build in this wave said whether it had to guess at anything.
+
+    The end-of-build half of the in-flight channel, and it exists because the
+    running half CANNOT be enforced: nothing can make a builder notice it is
+    guessing. What can be enforced is that it answers the question — so a build
+    that hit nothing says so with a reason, and a build that says nothing at all
+    is its own reported state rather than being read as a no.
+
+    Carryable. Every manifest sealed before 2026-08-13 is silent by construction,
+    and refusing outright would make the first close after this change
+    unperformable — which is how a gate becomes something people route around.
+    """
+    try:
+        read = inflight.read(data_dir)
+        declared, silent, unreported = promotions.declarations(
+            workspace, read.records, wave)
+    except Exception as exc:                          # noqa: BLE001
+        return Check("declarations", False,
+                     f"could not read the builds' declarations: {exc}. NOT a pass.")
+    if not declared and not silent:
+        return Check("declarations", True, f"no builds found under port_runs/{wave}")
+    if unreported:
+        # The worse of the two failures, so it leads: the builder KNEW, and said
+        # so only after the wave had already built on the guess.
+        return Check("declarations", False,
+                     f"{len(unreported)} question(s) declared by a build with no "
+                     f"in-flight report behind them — the builder knew while it was "
+                     f"running and nobody could act on it: " +
+                     "; ".join(f"{lbl}:{t}" for lbl, t in unreported[:4]))
+    if silent:
+        return Check("declarations", False,
+                     f"{len(silent)} of {len(declared) + len(silent)} build(s) never "
+                     f"said whether they had to guess at anything (no `questions` "
+                     f"block in port.manifest.json): " +
+                     ", ".join(lbl for lbl, _ in silent[:5]) +
+                     (f", +{len(silent) - 5} more" if len(silent) > 5 else ""))
+    return Check("declarations", True,
+                 f"all {len(declared)} build(s) declared what they could not answer")
+
+
 def _decisions_check(workspace, data_dir):
     """Every question several builders hit has a recorded answer.
 
@@ -370,6 +411,9 @@ def checks(workspace, wave, *, elenchus=None, instrument=None, run_suites=True,
 
     # --- the kernel. Computed, never affirmed. ------------------------------
     out.append(_kernel_check(workspace, wave, instrument))
+
+    # --- what each finished build SAID about its guesses --------------------
+    out.append(_declarations_check(workspace, wave, data_dir))
 
     # --- questions builders could not answer --------------------------------
     # The A-half of `elicitation-answered`. The affirmation stays, because

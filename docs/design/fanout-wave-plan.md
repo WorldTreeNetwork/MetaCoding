@@ -70,6 +70,34 @@
 6. **Build**: one blind builder per feature ON the kernel (KindRegistry, ids/HLC,
    `pickLatest`, status gates, bound CM registry — the primitives make the
    observed failure modes unrepresentable).
+
+   **SAY WHAT YOU HAD TO GUESS AT, while you are still running** (added
+   2026-08-13). A builder hits things the brief does not decide. `ctkr decisions
+   emit --kind punt --topic … --assumption …` is the channel for saying so, and
+   **it had no caller for three weeks** while everything downstream of it was
+   already built: `promotion_candidates` computed the list, and nothing showed it
+   to anybody. Every port brief now carries the instruction and the exact command
+   (`port_brief._render_guessing_protocol`), and `wave.py elicit` renders what
+   accumulates, in plain words, for a person to decide.
+
+   `--assumption` is the field that carries the weight. Two builders guessing
+   *differently* at one question is not an open question — it is two answers
+   already written, in two places — and nothing can detect that unless both said
+   what they did.
+
+   **Then declare it in the manifest, because the running half cannot be
+   enforced.** Nothing can make a builder *notice* it is guessing; what can be
+   made unavoidable is that it answers the question. `port.manifest.json` carries
+   `questions: {raised: [...]}`, or `{raised: [], none_because: "…"}` — "nothing
+   came up" is a claim with a reason, not a blank. The wave close cross-checks
+   the two halves: a question declared at the end with **no in-flight record
+   behind it** means the builder knew while it was running and nobody could act
+   on it, which is precisely what the channel exists to prevent.
+
+   The field is optional in the schema and that is deliberate: 41 manifests were
+   sealed before it existed, and making it required would either invalidate them
+   or invite someone to retro-fill a claim their builders never made. The close
+   reports their silence as its own state instead. All 41 are silent today.
 7. **Read**: independent per-feature runner + composition smoke against the
    accumulated store + prevention checks (no ad-hoc kinds, no ordinal ids).
    (Formerly "Judge" — vocabulary per `epistemology-charter.md`.)

@@ -281,6 +281,57 @@ def render(qs, answers, ledger_read, data_dir):
     return "\n".join(lines) + "\n"
 
 
+def declarations(workspace, records, wave=None):
+    """What each finished build said about the questions it hit.
+
+    Three states, kept apart because they have different authority — the same
+    split the wave close makes between a check, an affirmation, and a silence:
+
+      * **declared** — `questions.raised` names them, or `none_because` says why
+        nothing came up. Either is a claim with an author.
+      * **silent** — no `questions` block at all. The build never said. Every
+        manifest sealed before 2026-08-13 is here, and that is the honest record:
+        retro-filling them would manufacture a claim nobody made.
+      * **unreported** — the manifest names a question with NO in-flight record
+        behind it. The builder knew, and said so only after the wave had already
+        built on the guess. That is the failure `inflight.py` was written to
+        prevent, and it is invisible without this cross-check.
+
+    Returns (declared, silent, unreported) as lists of (build_label, detail),
+    where the label is the path under `port_runs/`. NOT the containing directory
+    name: half of these builds live in `<feature>/build/`, so a basename labels
+    five different builds "build" and the reader cannot tell which to go fix.
+    """
+    root = os.path.join(workspace, "port_runs", wave) if wave else \
+        os.path.join(workspace, "port_runs")
+    reported = {r.topic for r in records}
+    declared, silent, unreported = [], [], []
+    if not os.path.isdir(root):
+        return declared, silent, unreported
+    for base, _dirs, files in os.walk(root):
+        if "port.manifest.json" not in files:
+            continue
+        path = os.path.join(base, "port.manifest.json")
+        label = os.path.relpath(base, os.path.join(workspace, "port_runs"))
+        try:
+            raw = json.load(open(path))
+        except (OSError, ValueError) as exc:
+            silent.append((label, f"unreadable ({exc})"))
+            continue
+        q = raw.get("questions")
+        if q is None:
+            silent.append((label, "no `questions` block — this build never said "
+                                  "whether it had to guess at anything"))
+            continue
+        raised = [s for s in (q.get("raised") or []) if str(s).strip()]
+        declared.append((label, f"{len(raised)} question(s)" if raised else
+                                f"none: {q.get('none_because', '')}"))
+        for topic in raised:
+            if topic not in reported:
+                unreported.append((label, topic))
+    return declared, silent, unreported
+
+
 def collect(data_dir, workspace, threshold=DEFAULT_THRESHOLD):
     """(questions, answers, raw read) — everything the menu and the check need."""
     read = inflight.read(data_dir)

@@ -296,6 +296,12 @@ def test_section_order_matches_spec() -> None:
         "## Data shapes",
         "## Behavioral spec (acceptance list)",
         "## Warnings",
+        # Added 2026-08-13 — not in §4.2's original list. The brief is the only
+        # document a blind builder is guaranteed to read, and the channel for
+        # reporting a guess (`ctkr decisions emit`) had no caller for three weeks
+        # while the mechanism consuming it was already built. Placed before the
+        # appendix because the appendix is a raw dump nobody reads to the end.
+        "## When you have to guess",
         "## Appendix — raw evidence",
     ]
     # header precedes everything (orientation → vocabulary → …).

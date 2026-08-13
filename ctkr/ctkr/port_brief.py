@@ -808,6 +808,14 @@ def render_brief(
         if target_notes and target_notes[-1] != "":
             L.append("")
 
+    # ── 8c. When you have to guess (MetaCoding, 2026-08-13) ──
+    # Deterministic, identical in every brief, and NOT derived from the card — so
+    # it is appended after the fused sections and does not enter `brief_digest`.
+    # It is here because the brief is the only document a blind builder is
+    # guaranteed to read, and `ctkr decisions emit` had no caller for three weeks
+    # while the mechanism that consumes it was already built.
+    L += _render_guessing_protocol(card.subsystem_id)
+
     # ── 9. Appendix: raw evidence (§4.2 item 9) ──
     L.append("## Appendix — raw evidence")
     L.append("")
@@ -845,6 +853,61 @@ def render_brief(
     L.append(f"_Brief digest `{dig}` · generated {gen}_")
     L.append("")
     return "\n".join(L)
+
+
+def _render_guessing_protocol(subsystem_id: str) -> list[str]:
+    """The one instruction every builder gets, in the same words.
+
+    Written plainly on purpose. The brief's own vocabulary is precise and it is
+    for describing the SOURCE; this paragraph is addressed to whoever is building
+    and has to act on it under time pressure, and an instruction phrased in terms
+    a reader has to decode is one they skip.
+    """
+    return [
+        "## When you have to guess",
+        "",
+        "You will hit things this brief does not decide. **Say so the moment it "
+        "happens, not at the end** — the point is that someone can still act on "
+        "it while you are running:",
+        "",
+        "```bash",
+        "ctkr decisions emit --kind punt \\",
+        f"  --agent <your build id> --feature {subsystem_id} \\",
+        '  --topic "<a short name for the question>" \\',
+        '  --statement "<one sentence: what could not be decided>" \\',
+        '  --assumption "<what you did instead, so the build could continue>" \\',
+        "  --at <ISO-8601>",
+        "```",
+        "",
+        "`--kind` is one of: **punt** (no answer, carried on with a guess), "
+        "**invented** (decided something nobody had specified), **conflict** "
+        "(what you need contradicts something already decided — stop, do not "
+        "settle it locally), **blocked** (cannot continue without an answer).",
+        "",
+        "**`--assumption` is the field that matters most.** When two builders "
+        "guess *differently* at the same question, the result is not an open "
+        "question — it is two different answers, already written, in two places. "
+        "Nothing can find that unless you both said what you did.",
+        "",
+        "**Use the same `--topic` wording another builder would.** Questions are "
+        "grouped by that string, and one hit by two builders independently gets "
+        "decided once for everyone; one that looks unique gets decided by you, "
+        "alone, forever.",
+        "",
+        "Then, at the end, your `port.manifest.json` must say what you hit:",
+        "",
+        "```json",
+        '"questions": { "raised": ["<the topics you emitted>"] }',
+        "```",
+        "",
+        "If nothing came up, say that and say why — it is a claim, not a blank:",
+        "",
+        "```json",
+        '"questions": { "raised": [], "none_because": "every decision this build '
+        'needed was already bound" }',
+        "```",
+        "",
+    ]
 
 
 # ---- per-element block renderers ----

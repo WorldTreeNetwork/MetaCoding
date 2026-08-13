@@ -118,6 +118,47 @@ class BridgeSpec(BaseModel):
     timeout: float = 30.0
 
 
+class QuestionsRaised(BaseModel):
+    """What the builder could not answer — declared, so silence is impossible.
+
+    A builder that guesses is the input to everything downstream: two builders
+    guessing differently at the same question is not an open question, it is two
+    answers already shipped in two places. `ctkr decisions emit` is the channel
+    for saying so WHILE running, and it had no caller for three weeks.
+
+    This is the end-of-build half, and it exists because the running half cannot
+    be enforced: nothing can make a builder NOTICE it is guessing. What can be
+    enforced is that it answers the question. So `none` is not the absence of a
+    declaration — it is a POSITIVE CLAIM with a reason attached, exactly like a
+    declined affirmation at a wave close. Absence of the block means the build
+    never said, and that is a third state the wave close names rather than reads
+    as a no.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Question slugs, matching the `topic` of the in-flight records emitted for
+    #: them. Same string on purpose: the cross-check is "did you also say so
+    #: while it could still have been acted on?"
+    raised: list[str] = Field(default_factory=list)
+    #: REQUIRED when `raised` is empty. "I hit nothing" is a claim, and a claim
+    #: with no reason is the rubber stamp this project keeps having to remove.
+    none_because: str = ""
+
+    def check(self, where: str) -> list[str]:
+        bad = [f"{where}: questions.raised[{i}] is empty"
+               for i, q in enumerate(self.raised) if not q.strip()]
+        if not self.raised and not self.none_because.strip():
+            bad.append(
+                f"{where}: questions.raised is empty and questions.none_because is "
+                f"not set. Declaring that nothing came up is a CLAIM — say why "
+                f"(e.g. 'every decision this build needed was already bound'). An "
+                f"empty block that means nothing is indistinguishable from one "
+                f"nobody filled in."
+            )
+        return bad
+
+
 class PortManifest(BaseModel):
     """``port.manifest.json`` — everything a port declares before being judged."""
 
@@ -128,6 +169,13 @@ class PortManifest(BaseModel):
     bridge: BridgeSpec
     capabilities: PortCapabilities = Field(default_factory=PortCapabilities)
     divergences: list[Divergence] = Field(default_factory=list)
+    #: OPTIONAL IN THE SCHEMA, DELIBERATELY, and not because it is optional in the
+    #: recipe. 41 manifests were sealed before this field existed; making it
+    #: required would either invalidate them or invite someone to retro-fill a
+    #: claim their builders never made. Both are worse than the truth, which is
+    #: that those builds never said. `wave close` reports absence as its own
+    #: state — see `promotions.declarations`.
+    questions: QuestionsRaised | None = None
     # NOTE: there is deliberately no `fixture_marks` field. `extra="forbid"`
     # makes a manifest that carries one FAIL TO LOAD — the pen is absent, not
     # merely ignored, so a port cannot mark its own failing evidence unscoreable.
@@ -159,6 +207,8 @@ class PortManifest(BaseModel):
     # ---- validation -------------------------------------------------------- #
     def check(self) -> None:
         problems = self.capabilities.unknown_terms()
+        if self.questions is not None:
+            problems += self.questions.check("questions")
         for d in self.divergences:
             if d.assert_ not in active_vocabulary().ASSERTION_TERMS:
                 problems.append(

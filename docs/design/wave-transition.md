@@ -121,6 +121,15 @@ how a ritual becomes a rubber stamp.
   is the third state, unanswered *and* unmentioned. A **missing** builders' log is
   also not a pass — "nobody reported a question" is not "nobody had one", and this
   check cannot tell you which.
+- **the declarations** — every build in the wave said whether it had to guess at
+  anything, via `questions` in its `port.manifest.json`. Three states, not two:
+  *declared* (a list, or `none_because` — "nothing came up" is a claim with a
+  reason), *silent* (no block at all — the build never said), and *unreported*
+  (declared at the end with no in-flight record behind it, meaning the builder
+  knew while it was running and nobody could act on it). Unreported leads the
+  detail; it is the worse failure. Carryable: all 41 existing manifests are
+  silent by construction, and a gate that makes the first close after its own
+  introduction unperformable is one people route around.
 
 ## What is actually being asked of a person — `wave.py elicit`
 
