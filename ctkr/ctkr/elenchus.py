@@ -136,7 +136,15 @@ FLAGS = [
                  "measured side never leaves one build — which is precisely "
                  "what the hy6.28 judge said twice.",
          retire_when="a wave routinely interleaves both and the signal stops "
-                     "discriminating"),
+                     "discriminating. ASSUMES A LAYOUT, and that assumption "
+                     "already expired once: instrument = MetaCoding src/ ctkr/ "
+                     "scripts/ + farmos-port tools/, measured = farmos-port "
+                     "port_runs/ (ROLE_PREFIXES). Written as tools/-in-one-repo "
+                     "on 2026-08-09, the flag went blind when the instrument "
+                     "moved and reported CLEAR through a 100%-instrument week "
+                     "(MetaCoding-vm8). RE-READ THIS ENTRY WHENEVER EITHER TREE "
+                     "IS REORGANISED — a flag calibrated against where the work "
+                     "happened to live expires silently when the work moves."),
     Flag(name="findings-cluster",
          asks="Are several open findings the same shape — patches accumulating "
               "where a better-posed question is hiding?",
@@ -194,6 +202,74 @@ def port_workspace(explicit=None):
     return sibling if os.path.isdir(sibling) else os.path.join(root, "eval", "ctkr")
 
 
+def instrument_repo(explicit=None):
+    """The tree the INSTRUMENT lives in — MetaCoding, i.e. this file's own repo.
+
+    Separate from `port_workspace()` on purpose. They were the same tree when
+    these flags were calibrated on 2026-08-09 and they are not any more, which is
+    the whole of `MetaCoding-vm8`.
+    """
+    if explicit:
+        return explicit
+    env = os.environ.get("METACODING_INSTRUMENT_REPO")
+    if env:
+        return env
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.normpath(os.path.join(here, "..", ".."))
+
+
+#: WHICH PATHS PLAY WHICH ROLE, DECLARED RATHER THAN INFERRED — MetaCoding-vm8.
+#:
+#: The first version of this flag asked one question of one tree: "does the path
+#: start with `tools/`?" That was true of the instrument on 2026-08-09 and false
+#: five days later, because the instrument MOVED to MetaCoding while the flag kept
+#: reading farmos-port. It reported CLEAR through a week in which ~120 file-touches
+#: of mechanism hardening happened in a repo it never opened — the flag's own
+#: founding shape, running dark, invisible to itself.
+#:
+#: So the roles are a DECLARATION with a repo attached, not a prefix test. When the
+#: layout moves again this is the thing that must be edited, and a wrong entry here
+#: is visible as a wrong entry rather than as silence. `retire_when` on the flag now
+#: carries the assumption too, per the bead's larger lesson: a flag calibrated
+#: against where the work happened to live expires silently when the work moves.
+#:
+#: `docs/` is deliberately NOT instrument. Design documents are the argument about
+#: the mechanism, not the mechanism; counting them would let a week of writing about
+#: a tool read as a week of hardening it — which is the inversion this flag exists
+#: to catch, inverted.
+ROLE_PREFIXES = {
+    "instrument": {
+        "instrument": ("src/", "ctkr/", "scripts/"),   # MetaCoding
+        "workspace": ("tools/",),                       # farmos-port
+    },
+    "measured": {
+        "instrument": (),
+        "workspace": ("port_runs/",),
+    },
+}
+
+
+def _commits(repo, role, window):
+    """The `window` most recent commits of one repo, newest first, with an
+    author timestamp so two histories can be merged onto one clock.
+
+    Returns [] when the repo is missing rather than raising: one absent tree must
+    degrade the reading, not abolish it. A caller that needs to know the difference
+    reads `state["errors"]`.
+    """
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return []
+    out = []
+    for line in _git(repo, "log", f"-{window}", "--format=%H %at").splitlines():
+        if not line.strip():
+            continue
+        sha, _, ts = line.partition(" ")
+        files = _git(repo, "show", "--name-only", "--format=", sha).split()
+        out.append({"sha": sha, "at": int(ts or 0), "repo": repo,
+                    "role": role, "files": files})
+    return out
+
+
 def find_elenchus_records(workspace):
     """Every file under the workspace that CARRIES an Elenchus."""
     found = []
@@ -211,10 +287,16 @@ def find_elenchus_records(workspace):
     return sorted(found)
 
 
-def gather(workspace, *, window=10):
+def gather(workspace, *, instrument=None, window=10):
     """Everything the computed flags read. Pure data, so `evaluate()` is testable
-    without a git tree, a bead store or a wave."""
-    state = {"workspace": workspace, "errors": {}}
+    without a git tree, a bead store or a wave.
+
+    TWO TREES. `workspace` holds the measured side (farmos-port/port_runs) and the
+    Elenchus records; `instrument` holds the mechanism (MetaCoding). They were one
+    tree when these flags were written — see ROLE_PREFIXES for what that cost.
+    """
+    instrument = instrument or instrument_repo()
+    state = {"workspace": workspace, "instrument": instrument, "errors": {}}
 
     records = find_elenchus_records(workspace)
     state["elenchus_records"] = records
@@ -233,22 +315,32 @@ def gather(workspace, *, window=10):
     except (RuntimeError, OSError) as exc:
         state["errors"]["history"] = str(exc)
 
-    # Instrument vs measured, per commit, over the recent window.
+    # Instrument vs measured, per commit, over the recent window — ACROSS BOTH
+    # REPOS, merged onto one clock. See ROLE_PREFIXES and MetaCoding-vm8: reading
+    # only the workspace made this flag blind to the tree the instrument moved to.
     try:
+        merged = (_commits(instrument, "instrument", window)
+                  + _commits(workspace, "workspace", window))
+        merged.sort(key=lambda c: c["at"], reverse=True)
         regime = []
-        for sha in _git(workspace, "log", f"-{window}", "--format=%H").split():
-            files = _git(workspace, "show", "--name-only", "--format=", sha).split()
+        for c in merged[:window]:
+            inst_pfx = ROLE_PREFIXES["instrument"][c["role"]]
+            meas_pfx = ROLE_PREFIXES["measured"][c["role"]]
             # A BUILD, not a file: `port_runs/wave2/identity-farm-org/...` is one
             # build however many of its files a commit rewrites. Counting files
             # would let regenerating one artifact read as broad measurement.
-            builds = {"/".join(f.split("/")[:3]) for f in files
-                      if f.startswith("port_runs/") and len(f.split("/")) > 3}
+            builds = {"/".join(f.split("/")[:3]) for f in c["files"]
+                      if f.startswith(meas_pfx) and len(f.split("/")) > 3}
             regime.append({
-                "sha": sha[:7],
-                "instrument": sum(1 for f in files if f.startswith("tools/")),
+                "sha": c["sha"][:7],
+                "repo": os.path.basename(c["repo"].rstrip("/")),
+                "instrument": sum(1 for f in c["files"] if f.startswith(inst_pfx)),
                 "builds": sorted(builds),
             })
         state["regime"] = regime
+        if not merged:
+            state["errors"]["regime"] = ("neither tree is a git repo — "
+                                         f"{instrument!r}, {workspace!r}")
     except (RuntimeError, OSError) as exc:
         state["errors"]["regime"] = str(exc)
 
@@ -337,14 +429,31 @@ def evaluate(state, findings=None, findings_error=""):
         run, touched = 0, set()
         for c in regime:                      # newest first
             if c["instrument"] == 0:
-                break
+                # MEASUREMENT ends an inversion. Anything that is NEITHER
+                # mechanism nor measurement — a design doc, a results/ write-up,
+                # a bead export — is not evidence about the regime, so it is
+                # SKIPPED rather than treated as the end of the run.
+                #
+                # The first version broke here unconditionally, which was
+                # survivable while one repo held everything and became wrong the
+                # moment two histories were merged: any prose commit in either
+                # tree would end the run. Found while fixing MetaCoding-vm8 and
+                # it is the same blindness one layer down — on 2026-08-12 this
+                # flag read "0 commits touched the instrument" purely because the
+                # three most recent commits were a synthesis and a design doc.
+                # A flag that a design document can switch off is reporting who
+                # wrote prose last, not what the regime is.
+                if c["builds"]:
+                    break
+                continue
             run += 1
             touched.update(c["builds"])
         r.lit = run >= INVERSION_RUN and len(touched) <= 1
         where = ", ".join(sorted(touched)) or "no build at all"
+        repos = sorted({c.get("repo", "?") for c in regime})
         r.evidence = (f"{run} most-recent commit(s) touched the instrument; their "
                       f"measured side reached {len(touched)} build(s): {where} "
-                      f"(of {len(regime)} commits examined)")
+                      f"(of {len(regime)} commits examined across {'+'.join(repos)})")
     out.append(r)
 
     # -- findings-cluster ---------------------------------------------------
@@ -386,6 +495,12 @@ def render(readings, state):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--workspace", default=None)
+    ap.add_argument("--instrument", default=None,
+                    help="the tree the INSTRUMENT lives in (default: this file's "
+                         "own repo). Separate from --workspace since 2026-08-12: "
+                         "they were one tree when these flags were calibrated and "
+                         "reading only the workspace made the regime flag blind "
+                         "(MetaCoding-vm8).")
     ap.add_argument("--epic", default=os.environ.get("ELENCHUS_EPIC"),
                     help="the wave whose findings to cluster, e.g. MetaCoding-hy6. "
                          "Without it the cluster flag reports UNAVAILABLE rather "
@@ -399,7 +514,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     workspace = port_workspace(args.workspace)
-    state = gather(workspace, window=args.window)
+    state = gather(workspace, instrument=instrument_repo(args.instrument),
+                   window=args.window)
     if not args.epic:
         findings, err = None, ("no wave scope: pass --epic (or set ELENCHUS_EPIC). "
                                "Clustering every open finding in the store lights "

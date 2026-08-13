@@ -52,7 +52,7 @@ def test_main_exits_zero_even_with_every_computable_flag_lit(monkeypatch):
     live inside gets gamed; an Elenchus convened to reset a threshold produces
     three tidy questions and examines nothing."""
     import ctkr.elenchus as E
-    monkeypatch.setattr(E, "gather", lambda ws, window=10: _state(
+    monkeypatch.setattr(E, "gather", lambda ws, instrument=None, window=10: _state(
         elenchus_records=[], last_elenchus=None, builds_since_elenchus=None,
         regime=[_commit(3, ["port_runs/wave2/one"])] * 4))
     monkeypatch.setattr(E, "open_findings", lambda epic: [
@@ -68,7 +68,7 @@ def test_main_exits_zero_even_with_every_computable_flag_lit(monkeypatch):
 def test_require_current_IS_a_gate_and_refuses_when_stale(monkeypatch):
     """The one legitimate gate: on the irreversible act, not on the smell."""
     import ctkr.elenchus as E
-    monkeypatch.setattr(E, "gather", lambda ws, window=10: _state(
+    monkeypatch.setattr(E, "gather", lambda ws, instrument=None, window=10: _state(
         builds_since_elenchus=STALE_AFTER_BUILDS + 1))
     monkeypatch.setattr(E, "open_findings", lambda epic: [])
     with redirect_stdout(io.StringIO()):
@@ -78,7 +78,7 @@ def test_require_current_IS_a_gate_and_refuses_when_stale(monkeypatch):
 def test_require_current_passes_when_the_reading_is_fresh(monkeypatch):
     """The contrast: a gate that refuses everything protects nothing."""
     import ctkr.elenchus as E
-    monkeypatch.setattr(E, "gather", lambda ws, window=10: _state(
+    monkeypatch.setattr(E, "gather", lambda ws, instrument=None, window=10: _state(
         builds_since_elenchus=0))
     monkeypatch.setattr(E, "open_findings", lambda epic: [])
     with redirect_stdout(io.StringIO()):
@@ -89,7 +89,7 @@ def test_require_current_refuses_when_it_CANNOT_TELL(monkeypatch):
     """Unavailable is not clear. A check that could not run must never contribute
     a pass — the hy6.25 lesson, applied to the check that decides when we look."""
     import ctkr.elenchus as E
-    monkeypatch.setattr(E, "gather", lambda ws, window=10: _state(
+    monkeypatch.setattr(E, "gather", lambda ws, instrument=None, window=10: _state(
         errors={"history": "not a git repository"}))
     monkeypatch.setattr(E, "open_findings", lambda epic: [])
     with redirect_stdout(io.StringIO()):
@@ -216,3 +216,156 @@ def test_the_rendering_says_it_decides_nothing():
     text = render(evaluate(_state()), _state())
     assert "NOT GATES" in text
     assert "QUESTION, never a findings list" in text
+
+
+# ---------------------------------------------------------------------------
+# TWO TREES — MetaCoding-vm8. These exercise gather(), not evaluate(): the
+# blindness was never in the judgement, it was in what got collected. Every
+# evaluate()-level test above passed throughout the week the flag ran dark.
+# ---------------------------------------------------------------------------
+
+def _mkrepo(path, commits, times=None):
+    """A real git repo. commits: [[relative paths]] — one commit per inner list.
+
+    `times` sets each commit's author time explicitly. Without it every commit in
+    a freshly-built test repo lands in the same second, the merge sort is a tie,
+    and any ordering assertion passes or fails by accident.
+    """
+    import os as _os
+    import subprocess
+    path.mkdir(parents=True, exist_ok=True)
+
+    def run(*a, env=None):
+        return subprocess.run(["git", "-C", str(path), *a], check=True,
+                              capture_output=True, env=env)
+
+    run("init", "-q", "-b", "main")
+    run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    for n, files in enumerate(commits):
+        for rel in files:
+            f = path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(f"c{n}\n")
+        run("add", *files)
+        env = dict(_os.environ)
+        if times:
+            stamp = f"@{times[n]} +0000"   # `@` = raw unix time; git rejects it bare
+            env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = stamp
+        run("commit", "-q", "-m", f"c{n}", env=env)
+    return str(path)
+
+
+def test_the_founding_case_LIGHTS_only_when_BOTH_trees_are_read(tmp_path):
+    """MetaCoding-vm8, as a contrast pair — the whole bead in one test.
+
+    The instrument moved to MetaCoding while the flag kept reading farmos-port,
+    and it reported CLEAR through ~120 file-touches of mechanism hardening in a
+    repo it never opened. Same history, two collectors, opposite readings: the
+    workspace-only collector is the OLD behaviour and it must go dark, and the
+    two-tree collector must light. Neither half alone proves anything.
+    """
+    from ctkr.elenchus import gather
+    inst = _mkrepo(tmp_path / "MetaCoding",
+                   [["src/testkit/floors.ts"], ["ctkr/ctkr/verdict_currency.py"],
+                    ["src/toolchain/identity.ts"]])
+    ws = _mkrepo(tmp_path / "farmos-port", [["results/wave2/notes.md"]])
+
+    both = evaluate(gather(ws, instrument=inst, window=6))
+    assert _read(both, "instrument-inversion").lit, "blind to the tree it lives in"
+
+    # The old behaviour: instrument==workspace, so `src/` and `ctkr/` are nobody's
+    # instrument and three commits of mechanism hardening read as clear.
+    old = evaluate(gather(ws, instrument=ws, window=6))
+    assert not _read(old, "instrument-inversion").lit
+
+
+def test_two_histories_are_merged_on_ONE_CLOCK_and_truly_interleave(tmp_path):
+    """Both repos' commits ordered by author time, not concatenated per repo.
+
+    Concatenating would let one busy repo's tail push the other repo's RECENT
+    commits out of the window — the flag would read a stale slice of one tree and
+    call it the regime. Times are set explicitly so the interleave is asserted,
+    not hoped for: the middle commit belongs to the OTHER repo.
+    """
+    from ctkr.elenchus import gather
+    inst = _mkrepo(tmp_path / "MetaCoding", [["src/a.ts"], ["src/b.ts"]],
+                   times=[1_000_000, 1_000_200])
+    ws = _mkrepo(tmp_path / "farmos-port", [["port_runs/wave2/x/build/s.ts"]],
+                 times=[1_000_100])
+    regime = gather(ws, instrument=inst, window=99)["regime"]
+    assert [c["repo"] for c in regime] == ["MetaCoding", "farmos-port", "MetaCoding"]
+
+
+def test_the_window_cuts_the_MERGED_history_not_each_repo(tmp_path):
+    """window=2 over 3 commits keeps the two newest OVERALL. Cutting per repo
+    first would return four commits for window=2, and the two oldest would
+    displace nothing — the window would silently stop meaning anything."""
+    from ctkr.elenchus import gather
+    inst = _mkrepo(tmp_path / "MetaCoding", [["src/a.ts"], ["src/b.ts"]],
+                   times=[1_000_000, 1_000_200])
+    ws = _mkrepo(tmp_path / "farmos-port", [["port_runs/wave2/x/build/s.ts"]],
+                 times=[1_000_100])
+    regime = gather(ws, instrument=inst, window=2)["regime"]
+    assert [c["repo"] for c in regime] == ["MetaCoding", "farmos-port"]
+
+
+def test_PROSE_does_not_end_an_inversion_but_MEASUREMENT_does(tmp_path):
+    """Found while fixing vm8, and it is the same blindness one layer down.
+
+    The collector broke its run on any commit that did not touch the instrument.
+    Merging two histories made that fatal: a design doc or a results/ write-up in
+    either tree would end the run. On 2026-08-12 this flag genuinely read '0
+    commits touched the instrument' because the three most recent commits were a
+    synthesis and a design doc — a flag a design document can switch off is
+    reporting who wrote prose last.
+
+    The contrast is the half that keeps it honest: MEASUREMENT still ends it,
+    because reaching a second build is exactly the corrective action the flag is
+    asking for.
+    """
+    from ctkr.elenchus import gather
+    ws_prose = _mkrepo(tmp_path / "fp-prose", [["results/wave2/synthesis.md"]],
+                       times=[1_000_150])
+    inst = _mkrepo(tmp_path / "MetaCoding", [["src/a.ts"], ["ctkr/b.py"]],
+                   times=[1_000_100, 1_000_120])
+    assert _read(evaluate(gather(ws_prose, instrument=inst, window=9)),
+                 "instrument-inversion").lit, "prose ended the run"
+
+    ws_meas = _mkrepo(tmp_path / "fp-meas",
+                      [["port_runs/wave2/a/build/x.ts"],
+                       ["port_runs/wave2/b/build/x.ts"]], times=[1_000_150, 1_000_160])
+    assert not _read(evaluate(gather(ws_meas, instrument=inst, window=9)),
+                     "instrument-inversion").lit, "measurement must clear it"
+
+
+def test_the_measured_side_is_read_from_the_WORKSPACE_not_the_instrument(tmp_path):
+    """Roles are per-repo. A `port_runs/` path inside MetaCoding is not a build,
+    and `src/` inside farmos-port is not the instrument — otherwise the role map
+    is just a prefix test wearing a dictionary."""
+    from ctkr.elenchus import gather
+    inst = _mkrepo(tmp_path / "MetaCoding", [["port_runs/wave2/fake/build/x.ts"]])
+    ws = _mkrepo(tmp_path / "farmos-port", [["src/notinstrument.ts"]])
+    regime = {c["repo"]: c for c in gather(ws, instrument=inst, window=6)["regime"]}
+    assert regime["MetaCoding"]["builds"] == [], "counted a build in the wrong tree"
+    assert regime["farmos-port"]["instrument"] == 0, "counted instrument in the wrong tree"
+
+
+def test_docs_are_NOT_the_instrument(tmp_path):
+    """Design documents are the argument about the mechanism, not the mechanism.
+    Counting them would let a week of WRITING about a tool read as a week of
+    hardening it — this flag's own shape, inverted."""
+    from ctkr.elenchus import gather
+    inst = _mkrepo(tmp_path / "MetaCoding",
+                   [["docs/design/a.md"], ["docs/design/b.md"], ["docs/design/c.md"]])
+    ws = _mkrepo(tmp_path / "farmos-port", [["results/x.md"]])
+    assert not _read(evaluate(gather(ws, instrument=inst, window=6)),
+                     "instrument-inversion").lit
+
+
+def test_a_MISSING_tree_is_unavailable_never_clear(tmp_path):
+    """hy6.25, again: a collector that could not run must not contribute a pass."""
+    from ctkr.elenchus import gather
+    state = gather(str(tmp_path / "nope"), instrument=str(tmp_path / "alsonope"))
+    assert "regime" in state["errors"]
+    assert _read(evaluate(state), "instrument-inversion").unavailable
+    assert not _read(evaluate(state), "instrument-inversion").lit
