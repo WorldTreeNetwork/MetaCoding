@@ -1,0 +1,7 @@
+{
+  "version": "1.4.0",
+  "fingerprint": "0335ef15",
+  "moved_at": "2026-08-13",
+  "surface_changed": false,
+  "why": "wave-3 baseline: the version stops being hand-managed and is now written by cli.ts together with the fingerprint it was correct at"
+}

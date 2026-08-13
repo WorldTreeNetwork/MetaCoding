@@ -3,6 +3,12 @@
 **Status: LAYER 1 SHIPPED and used, 2026-08-12.** `ctkr/ctkr/wave.py`,
 `port_runs/WAVES.jsonl`. **Wave 2 was closed with it the same day — the first
 use, which this document called "the honest test of whether it is usable."**
+**Kernel versioning stopped being hand-managed, 2026-08-13** — `kernel-frozen`
+moved from the B list to the A list, `src/kernel/kernel.lock.json` pairs the
+version with the fingerprint it was correct at, and `src/kernel/cli.ts bump`
+writes both. Kernel is v1.4.0 (`surface_changed: false` — the number moved, the
+answers did not; the real v1.4 is the punt-promotion still ahead).
+
 Layer 2 (`ledger.py` refuses to probe outside an open wave) is `MetaCoding-hy6.66`
 and is deliberately sequenced to land *with* the opening of wave 3, never before:
 shipping it while no wave is open would refuse every probe in the repo, which is a
@@ -94,17 +100,51 @@ how a ritual becomes a rubber stamp.
   explicit carry-forward with a reason (`verdict_currency.py`, already built)
 - the workspace is committed; no uncommitted work is being sealed
 - a current Elenchus artifact exists for this wave (the file check, not the judgment)
+- **the kernel** — `wave open` records `{version, fingerprint}` with no input from
+  anyone, and `wave close` recomputes. Three outcomes: *held* (green, silent);
+  *bumped mid-wave* (green, and the row carries both versions so no later reader
+  has to guess which kernel the wave's builds answered against); *drift* — a gate
+  edited with no version move — which is **UNSAFE and uncarryable**, because
+  closing would write a version claim into `WAVES.jsonl` that does not describe
+  the answers the wave's builds gave. The remedy is one command, so refusing
+  costs nothing that fixing it would not.
+
+  **Scope caveat, stated because the check's own wording overreaches it**
+  (`MetaCoding-wfz4`): `kernelFingerprint()` hashes only `status.ts`, which is
+  element 4 of the five frozen elements. Editing the kind taxonomy, the id/HLC
+  scheme, the latest-wins comparator, or the CM registry moves nothing, and the
+  check still says "held". That is the fake-it answer for this check, and it was
+  found by asking the question rather than by a later judge.
 - the test suites are green, or their redness is a named carry-forward (`6ep` is the
   standing example: smoke has been red at `smoke-extractor.ts` for the whole wave)
 
 **B — HUMAN. The command asks, records the answer, and cannot verify it.**
 - the elicitation menu was answered and the decisions bound
-- the kernel version is frozen
 - the Elenchus's pith was *read*, not merely produced
 
 These are recorded as affirmations with a name against them. The command must not
 pretend to check them — see `enforceability.md` disposition 3. An affirmation that
 looks like a check is worse than an honest question.
+
+**`kernel-frozen` used to be a third, and it was misfiled** (removed 2026-08-13,
+after its first and only use, where the honest answer was *no*). Disposition 3
+says an affirmation that looks like a check is worse than an honest question. The
+converse was never written down and cost the same: **a check parked on the human
+list is a toll with no epistemic value.** "Did the kernel change during this
+wave?" was computable from `kernelFingerprint()` the whole time. Duke, 2026-08-13:
+*"I don't want to manually manage kernel versioning ... The mechanism should be
+something that is managed automatically."*
+
+The part of that question that genuinely *was* his is not a yes/no and does not
+belong at close time: **should the kernel now change** — which punts recurred
+often enough to promote into the shared substrate. That is an intention, and it
+reaches a person as ranked candidates on the elicitation menu (`inflight.by_topic`
+is the punt-promotion input; `decisions.render_menu` renders it) or not at all.
+
+The general rule this yields, worth applying to the other two: **before putting a
+question on the B list, ask what would have to be true for a machine to answer
+it.** If the answer is "nothing — we already compute it", it is an A-check
+wearing a question's clothes.
 
 **C — CARRY-FORWARD. Recorded, never blocking.**
 Everything known-unfinished, each with a reason. **This list becomes the next wave's
@@ -132,6 +172,11 @@ so" is not.
 - **Carry everything forward with the reason "known".** The reason field is only as
   good as the review of the commit that adds it. This is the real weakness and it
   should be stated in the command's own output.
+- **Hand-edit `kernel.lock.json`** to match a drifted surface, and the kernel
+  check reads clean. Same status as `WAVES.jsonl` and the same defence: a ledger,
+  not a lock, and a hand-edited pair is visible in the diff.
+- **Bump with a four-word reason that says nothing.** Identical weakness to the
+  carry-forward reason, and admitted for the same reason.
 - **Never open a wave.** Work outside any registered wave dodges layer 2 entirely.
   Mitigation: `ledger.py` refuses when the wave is unregistered, so this shows up as
   a refusal at the first probe, not as silence.

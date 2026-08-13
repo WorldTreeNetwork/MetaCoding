@@ -263,30 +263,128 @@ def test_an_affirmation_can_be_DECLINED_honestly(tmp_path, monkeypatch):
     """Or the ritual is a rubber stamp.
 
     The first version accepted only a name, so the only way to close a wave was
-    to assert all three affirmations were TRUE — which turns "the kernel is
-    frozen" into a sentence you type to get past a prompt. Wave 2's honest answer
-    to kernel-frozen is NO (v1.4's freeze agenda from wave 1 never landed;
-    KERNEL_VERSION is still 1.3.0), and a ritual that cannot record that is one
-    that manufactures false yeses at exactly the moment it matters.
+    to assert every affirmation was TRUE — which turns a question into a sentence
+    you type to get past a prompt. Wave 2's honest answer to `kernel-frozen` was
+    NO (v1.4's freeze agenda from wave 1 never landed; the version was still
+    1.3.0), and a ritual that cannot record that manufactures false yeses at
+    exactly the moment it matters.
+
+    `kernel-frozen` is no longer an affirmation at all — it was a FACT on the
+    human list and is now the `kernel` A-check — so this exercises the same
+    mechanism through `pith-read`, which nothing can ever check. The history is
+    kept in the docstring because it is the reason the decline path exists.
     """
     monkeypatch.setattr(W, "checks", green)
     affirm = dict(GOOD)
-    affirm["kernel-frozen"] = "no: the v1.4 freeze agenda never landed, still 1.3.0"
+    affirm["pith-read"] = "no: the wave-2 Elenchus was produced but never read end to end"
     ok, msg, row = close(ws(tmp_path, [opened("wave2")]), "wave2", at=AT, affirm=affirm)
     assert ok, msg
-    assert [d["what"] for d in row["declined"]] == ["kernel-frozen"]
-    assert "1.3.0" in row["declined"][0]["reason"]
+    assert [d["what"] for d in row["declined"]] == ["pith-read"]
+    assert "never read" in row["declined"][0]["reason"]
     # It must NOT appear as affirmed — that would be the lie the split prevents.
-    assert "kernel-frozen" not in {a["what"] for a in row["affirmed"]}
+    assert "pith-read" not in {a["what"] for a in row["affirmed"]}
     assert len(row["affirmed"]) == len(AFFIRMATIONS) - 1
     assert "DECLINED" in msg
 
 
 def test_a_DECLINED_affirmation_still_needs_a_reason(tmp_path, monkeypatch):
     """Saying no is fine. Saying nothing is not — otherwise 'no:' becomes the
-    cheapest way past all three questions."""
+    cheapest way past every question."""
     monkeypatch.setattr(W, "checks", green)
     affirm = dict(GOOD)
-    affirm["kernel-frozen"] = "no: nope"
+    affirm["pith-read"] = "no: nope"
     ok, msg, _ = close(ws(tmp_path, [opened("wave2")]), "wave2", at=AT, affirm=affirm)
     assert not ok and "STILL NEEDS A REASON" in msg
+
+
+# ---------------------------------------------------------------------------
+# the kernel — a FACT, computed, that used to be a question put to a person
+# ---------------------------------------------------------------------------
+
+def test_kernel_frozen_is_NOT_an_affirmation_anymore(tmp_path, monkeypatch):
+    """It was a check parked on the human list, which is a toll with no
+    epistemic value — the converse of enforceability.md disposition 3, and it
+    cost the same. The first time it was asked the honest answer was no."""
+    assert "kernel-frozen" not in AFFIRMATIONS
+    # ...and closing must not secretly still demand it.
+    monkeypatch.setattr(W, "checks", green)
+    ok, msg, _ = close(ws(tmp_path, [opened("wave3")]), "wave3", at=AT, affirm=dict(GOOD))
+    assert ok, msg
+
+
+def _kstate(**over):
+    base = {"version": "1.4.0", "fingerprint": "aaaa1111",
+            "locked_fingerprint": "aaaa1111", "drift": "clean"}
+    base.update(over)
+    return base
+
+
+def test_kernel_DRIFT_is_unsafe_and_cannot_be_carried(tmp_path, monkeypatch):
+    """A gate edited without a version move. Carrying it would write a `kernel`
+    field into WAVES.jsonl that does not describe the answers the wave's builds
+    gave — the ledger would record a version claim that is false."""
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate(
+        drift="drift", fingerprint="bbbb2222"))
+    c = W._kernel_check(ws(tmp_path, [opened("wave3")]), "wave3", instrument=".")
+    assert not c.ok and not c.carryable
+    assert "DRIFT" in c.detail and "bump" in c.detail
+
+
+def test_kernel_that_HELD_passes_with_no_human_input(tmp_path, monkeypatch):
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate())
+    row = opened("wave3")
+    row["kernel"] = _kstate()
+    c = W._kernel_check(ws(tmp_path, [row]), "wave3", instrument=".")
+    assert c.ok and "held at v1.4.0" in c.detail
+
+
+def test_a_kernel_BUMPED_MID_WAVE_passes_but_says_so(tmp_path, monkeypatch):
+    """Legitimate — a decision can be re-bound mid-wave. But a reader of the
+    ledger must not have to guess which kernel the wave's builds answered
+    against, so both versions land in the detail."""
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate())
+    row = opened("wave3")
+    row["kernel"] = _kstate(version="1.3.0", fingerprint="0335ef15",
+                            locked_fingerprint="0335ef15")
+    c = W._kernel_check(ws(tmp_path, [row]), "wave3", instrument=".")
+    assert c.ok
+    assert "1.3.0" in c.detail and "1.4.0" in c.detail and "re-decided" in c.detail
+
+
+def test_a_wave_whose_open_row_has_NO_kernel_cannot_claim_it_held(tmp_path, monkeypatch):
+    """Cannot-tell is not a pass (hy6.25). Every wave opened before the open row
+    recorded a kernel lands here, and must be carried BY NAME rather than
+    silently reading as green."""
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate())
+    c = W._kernel_check(ws(tmp_path, [opened("wave2")]), "wave2", instrument=".")
+    assert not c.ok and c.carryable
+    assert "cannot be told" in c.detail
+
+
+def test_an_unreadable_kernel_is_not_a_pass(tmp_path, monkeypatch):
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: None)
+    c = W._kernel_check(ws(tmp_path, [opened("wave3")]), "wave3", instrument=".")
+    assert not c.ok and "no answer" in c.detail
+
+
+def test_open_RECORDS_the_kernel_without_being_asked(tmp_path, monkeypatch):
+    """The baseline the close is measured against. Without it, "did the kernel
+    hold?" has nothing to compare to — which is why it used to be asked of a
+    person instead of computed."""
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate())
+    ok, _msg, row = open_(ws(tmp_path), "wave3", at=AT)
+    assert ok
+    assert row["kernel"]["version"] == "1.4.0"
+    assert row["kernel"]["fingerprint"] == "aaaa1111"
+
+
+def test_close_DERIVES_the_kernel_row_rather_than_accepting_a_claim(tmp_path, monkeypatch):
+    """`--kernel "v1.4"` used to be free text on the command line: a version
+    claim nobody checked, sitting in a ledger row, in a project whose commit log
+    is its best instrument."""
+    monkeypatch.setattr(W, "checks", green)
+    monkeypatch.setattr(W, "kernel_state", lambda *_a, **_k: _kstate())
+    ok, _msg, row = close(ws(tmp_path, [opened("wave3")]), "wave3", at=AT,
+                          affirm=dict(GOOD))
+    assert ok
+    assert row["kernel"] == _kstate()

@@ -74,9 +74,25 @@ from ctkr.elenchus import port_workspace  # noqa: E402
 #: The B-list. Each must be affirmed BY NAME to close. These are questions, not
 #: checks — nothing here can verify them, and the moment one looks verified it
 #: has become a rubber stamp.
+#:
+#: `kernel-frozen` WAS HERE AND WAS MISFILED (removed 2026-08-13). It asked a
+#: person to attest to something the kernel's own fingerprint has been able to
+#: compute since `version.ts` was written — and the first time it was asked, the
+#: honest answer was no. Disposition 3 of enforceability.md says an affirmation
+#: that looks like a check is worse than an honest question; the converse was
+#: never written down and cost the same: **a check parked on the human list is a
+#: toll with no epistemic value.** It is now the `kernel` A-check below.
+#:
+#: What genuinely was Duke's in that question survives, and it is not a yes/no:
+#: *should* the kernel now change — which punts recurred often enough to promote
+#: into the shared substrate. That is an intention, it belongs on the elicitation
+#: menu next to the candidates that motivate it (`inflight.by_topic` is the
+#: punt-promotion input, `decisions.render_menu` renders it), and it reaches a
+#: person as ranked candidates or not at all. Duke, 2026-08-13: *"I'm focusing on
+#: guiding the intention. The mechanism should be something that is managed
+#: automatically."*
 AFFIRMATIONS = {
     "elicitation-answered": "the wave's elicitation menu was answered and the decisions bound",
-    "kernel-frozen": "the kernel version for this wave is frozen",
     "pith-read": "the Elenchus's pith was READ, not merely produced",
 }
 
@@ -178,6 +194,77 @@ def _git_dirty(repo):
             [l for l in lines if l.startswith("??")])
 
 
+def kernel_state(instrument):
+    """What kernel this tree is running, and whether it drifted. None if unknown.
+
+    Read, never asked. The kernel publishes `{version, fingerprint, drift}` from
+    its own answer-bearing surface (`src/kernel/cli.ts state`), so the wave close
+    does not need a human to vouch for a number it can compute.
+    """
+    rc, txt = _run(["bun", "run", os.path.join("src", "kernel", "cli.ts"), "state"],
+                   cwd=instrument, timeout=120)
+    if rc is None:
+        return None
+    try:
+        start = txt.index("{")
+        return json.loads(txt[start:txt.rindex("}") + 1])
+    except (ValueError, KeyError):
+        return None
+
+
+def _kernel_check(workspace, wave, instrument):
+    """The A-check that replaced the `kernel-frozen` affirmation.
+
+    Three outcomes, and the third is why this is mechanical:
+
+      * **held** — the surface at close is the surface at open. Green, silent.
+      * **bumped mid-wave** — the lock moved deliberately and the version says so.
+        Green, but the row records BOTH versions: builders that pinned the old
+        one were already refusing at construction, and a reader of the ledger a
+        month from now must not have to guess which kernel the wave's builds
+        answered against.
+      * **drift** — a gate or partner was edited and nobody bumped. UNSAFE, and
+        cannot be carried: the close would write a `kernel` field into
+        WAVES.jsonl that does not describe the answers the wave's builds gave.
+        The remedy is one command (`cli.ts bump --why ...`), so refusing costs
+        nothing that fixing it would not.
+    """
+    st = kernel_state(instrument)
+    if st is None:
+        return Check("kernel", False,
+                     "could not read the kernel state (`bun run src/kernel/cli.ts "
+                     "state`). NOT a pass — a check that cannot run is no answer.")
+    if st.get("drift") != "clean":
+        return Check("kernel", False,
+                     f"DRIFT: running fingerprint {st.get('fingerprint')} is not the "
+                     f"locked {st.get('locked_fingerprint')} for v{st.get('version')}. "
+                     f"A gate or partner was edited without a version move — the "
+                     f"exact silent divergence the fingerprint exists to catch. Run: "
+                     f"bun run src/kernel/cli.ts bump --at DATE --why \"...\"",
+                     carryable=False)
+
+    waves, _ = load_waves(workspace)
+    w = waves.get(wave)
+    at_open = {}
+    for row in (w.rows if w else []):
+        if row.get("record") == "open" and row.get("kernel"):
+            at_open = row["kernel"]
+    if not at_open:
+        return Check("kernel", False,
+                     f"running v{st.get('version')} ({st.get('fingerprint')}) and "
+                     f"clean, but {wave}'s open row recorded no kernel, so whether it "
+                     f"HELD across the wave cannot be told. Carry it by name.")
+
+    if at_open.get("fingerprint") != st.get("fingerprint"):
+        return Check("kernel", True,
+                     f"re-decided mid-wave: v{at_open.get('version')} "
+                     f"({at_open.get('fingerprint')}) -> v{st.get('version')} "
+                     f"({st.get('fingerprint')}). Clean against the lock.")
+    return Check("kernel", True,
+                 f"held at v{st.get('version')} ({st.get('fingerprint')}) for the "
+                 f"whole wave")
+
+
 def _run(cmd, cwd=None, timeout=600):
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -226,6 +313,9 @@ def checks(workspace, wave, *, elenchus=None, instrument=None, run_suites=True):
         out.append(Check("elenchus", False,
                          "no --elenchus given. A wave closes on a reading of the "
                          "whole, or it closes on nothing."))
+
+    # --- the kernel. Computed, never affirmed. ------------------------------
+    out.append(_kernel_check(workspace, wave, instrument))
 
     # --- verdict currency ---------------------------------------------------
     rc, txt = _run([sys.executable,
@@ -285,8 +375,13 @@ def _decline_reason(value):
     return (value or "").strip()[3:].strip()
 
 
+def _instrument_root(instrument=None):
+    return instrument or os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+
 def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
-          instrument=None, run_suites=True, kernel=""):
+          instrument=None, run_suites=True):
     """Returns (ok, message, row). Writes nothing — the caller appends."""
     waves, _ = load_waves(workspace)
     w = waves.get(wave)
@@ -346,10 +441,12 @@ def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
     if problems:
         return False, "\n\n".join(problems), None
 
+    # DERIVED, not typed. `--kernel "v1.4"` used to be free text on the command
+    # line, which is a version claim nobody checked sitting in a ledger row.
     row = {
         "record": "close", "wave": wave, "closed_at": at,
         "elenchus": elenchus or "",
-        "kernel": kernel,
+        "kernel": kernel_state(_instrument_root(instrument)) or {},
         "affirmed": [{"what": k, "by": affirm[k]} for k in sorted(affirm)
                      if not _is_declined(affirm[k])],
         "declined": [{"what": k, "reason": _decline_reason(affirm[k])}
@@ -366,8 +463,13 @@ def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
                    else ".")), row
 
 
-def open_(workspace, wave, *, at, force=""):
-    """Returns (ok, message, row). REFUSES while a predecessor is open."""
+def open_(workspace, wave, *, at, force="", instrument=None):
+    """Returns (ok, message, row). REFUSES while a predecessor is open.
+
+    The open row RECORDS THE KERNEL, with no input from whoever opens the wave.
+    Without it "did the kernel hold across this wave?" has no baseline to be
+    asked against, which is why it used to be asked of a person instead.
+    """
     waves, _ = load_waves(workspace)
     if wave in waves and waves[wave].is_open:
         return False, f"{wave} is already open.", None
@@ -386,6 +488,7 @@ def open_(workspace, wave, *, at, force=""):
                        f"reason. Say why, in a sentence."), None
 
     row = {"record": "open", "wave": wave, "opened_at": at,
+           "kernel": kernel_state(_instrument_root(instrument)) or {},
            "predecessor": still_open[0] if still_open else
                           (max((w for w in waves.values() if w.closed_at),
                                key=lambda w: w.closed_at).name if any(
@@ -422,7 +525,6 @@ def main(argv=None):
                     help="the transition timestamp, e.g. 2026-08-12. Passed in "
                          "rather than read from the clock so a close is reproducible.")
     ap.add_argument("--elenchus", default=None)
-    ap.add_argument("--kernel", default="")
     ap.add_argument("--affirm", action="append", default=[], metavar="KEY=WHO")
     ap.add_argument("--carry", action="append", default=[], metavar="NAME=REASON")
     ap.add_argument("--force", default="")
@@ -467,7 +569,7 @@ def main(argv=None):
         ok, msg, row = close(workspace, args.wave, at=args.at, elenchus=args.elenchus,
                              affirm=kv(args.affirm, "affirm"),
                              carry=kv(args.carry, "carry"),
-                             run_suites=not args.skip_suites, kernel=args.kernel)
+                             run_suites=not args.skip_suites)
     else:
         ok, msg, row = open_(workspace, args.wave, at=args.at, force=args.force)
 

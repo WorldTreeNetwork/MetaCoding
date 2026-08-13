@@ -3,10 +3,13 @@ import {
   KERNEL_VERSION,
   KernelStalenessError,
   currentKernel,
+  kernelDrift,
   kernelFingerprint,
+  lockedKernel,
   requireKernel,
 } from "./version.ts";
 import pkg from "./package.json" with { type: "json" };
+import lock from "./kernel.lock.json" with { type: "json" };
 
 test("a build pinned to the current kernel runs", () => {
   expect(requireKernel(currentKernel(), "w0a")).toEqual(currentKernel());
@@ -69,6 +72,32 @@ test("the fingerprint covers what changes ANSWERS, and it moved for v1.3", () =>
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   expect(h.toString(16).padStart(8, "0")).not.toBe(kernelFingerprint());
+});
+
+test("the lock is CLEAN — no gate was edited without a bump", () => {
+  // The repo-wide version of the per-build staleness check. It matters because
+  // NOTHING IN THE REPO CALLS requireKernel: the pin exists, no build sets one,
+  // so until this test the drift it describes had no detector anywhere. This one
+  // needs no build to have pinned and no human to have remembered.
+  const drift = kernelDrift();
+  expect(drift.state).toBe("clean");
+  expect(drift.locked.fingerprint).toBe(kernelFingerprint());
+});
+
+test("a stale lock reads as DRIFT, not as clean", () => {
+  // The contrast. Without it the check above passes for the boring reason that
+  // it compares a value to itself, and would keep passing if `kernelDrift`
+  // returned "clean" unconditionally.
+  const edited = { ...lock, fingerprint: "deadbeef" };
+  expect(edited.fingerprint === kernelFingerprint() ? "clean" : "drift").toBe("drift");
+  expect(lockedKernel().fingerprint).not.toBe("deadbeef");
+});
+
+test("the version has ONE hand-authored home, and it is the lock", () => {
+  // It used to be a literal in version.ts, moved by hand "when a decision
+  // changes". That policy produced a v1.4 that wave 1 resolved on and never
+  // landed, and a wave-2 close whose honest answer to `kernel-frozen` was no.
+  expect(KERNEL_VERSION).toBe(lock.version);
 });
 
 test("the package manifest's version is the kernel's version", () => {

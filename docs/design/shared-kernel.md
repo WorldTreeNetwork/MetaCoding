@@ -21,6 +21,23 @@
 > Package: `src/kernel/` (Bun, zero runtime deps). Consumed as **fixed input** by
 > every wave-1 fan-out port builder. Validation re-expression:
 > `eval/ctkr/port_runs/kernel-9h5.24/`.
+>
+> **Version (2026-08-13): 1.4.0, and it is no longer moved by hand.** The old
+> policy — a literal in `version.ts`, "moved by hand, deliberately, when a
+> decision changes" — produced exactly one measured outcome: wave 1 resolved to
+> freeze a v1.4, nobody moved it, and wave 2 ran and closed on 1.3.0. The version
+> now lives in `kernel.lock.json` **paired with the fingerprint it was correct
+> at**, written together by `bun run src/kernel/cli.ts bump --at DATE --why "…"`,
+> and `cli.ts state` reports drift for anyone (including `wave close`) who needs
+> to know whether a gate was edited without a release. 1.4.0 carries
+> `surface_changed: false`: the number moved to establish the wave-3 baseline,
+> the answers did not, and the record says so rather than letting a later reader
+> mistake it for a re-decision.
+>
+> **Nothing in the repo calls `requireKernel`** (observed 2026-08-13). The
+> per-build staleness pin has no call site — the same defect the wave close had
+> before `wave.py`. `kernelDrift()` is the repo-wide detector that needed no
+> build to have pinned; the per-build gate is still hung on nothing.
 
 ## Why this exists
 

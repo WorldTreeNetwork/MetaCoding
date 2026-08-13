@@ -26,15 +26,25 @@
  */
 
 import { STATUS_CONTRACT, PENDING_PARTNER, CONFIRMED_STATUS } from "./status.ts";
+import lock from "./kernel.lock.json" with { type: "json" };
 
 /**
- * The kernel's semantic version. Moved by hand, deliberately, when a decision
- * changes — and cited in `docs/design/shared-kernel.md`.
+ * The kernel's semantic version — READ FROM THE LOCK, never typed here.
  *
  * 1.0 five frozen elements · 1.1 fold library · 1.2 pending split
  * · 1.3 per-projection status gates, re-bound on observed evidence
+ * · 1.4 wave-3 baseline; the version stopped being hand-managed
+ *
+ * It used to be a hand-edited constant, "moved by hand, deliberately, when a
+ * decision changes". Measured outcome of that policy: wave 1 resolved to freeze
+ * a v1.4 and it never landed, so wave 2 ran and closed on 1.3.0 and the honest
+ * answer to the `kernel-frozen` affirmation was **no**. A version a human must
+ * remember to move is a version that records the last time someone remembered,
+ * not the last time a decision changed. The lock is written by `cli.ts bump`
+ * together with the fingerprint it was correct at, so the two cannot drift apart
+ * — which is the whole reason the pair exists.
  */
-export const KERNEL_VERSION = "1.3.0";
+export const KERNEL_VERSION: string = lock.version;
 
 /**
  * The answer-bearing surface: everything whose change silently changes what a
@@ -80,6 +90,40 @@ export interface KernelPin {
 /** The kernel this process is actually running. */
 export function currentKernel(): KernelPin {
   return { version: KERNEL_VERSION, fingerprint: kernelFingerprint() };
+}
+
+/** The (version, fingerprint) pair as last written by a deliberate bump. */
+export function lockedKernel(): KernelPin {
+  return { version: lock.version, fingerprint: lock.fingerprint };
+}
+
+/**
+ * Has the answer-bearing surface moved since the version was last moved?
+ *
+ * `"clean"` — the running surface is the one the current version was bumped at.
+ * `"drift"` — a gate or partner was edited and nobody bumped. This is the exact
+ * failure {@link KernelStalenessError} describes ("the VERSION is unchanged but
+ * the answer-bearing surface is not") lifted from per-build to repo-wide, so it
+ * can be caught by a wave close instead of only by a build that happens to have
+ * pinned — and as of today no build pins anything, so nothing was catching it.
+ *
+ * There is deliberately no third "moved with a version bump" state: `bump`
+ * rewrites both halves of the lock at once, so that case is `"clean"` by
+ * construction. Whether the version moved *during a wave* is a different
+ * question, answered by comparing against the wave's open row — not here.
+ */
+export function kernelDrift(): {
+  state: "clean" | "drift";
+  locked: KernelPin;
+  actual: KernelPin;
+} {
+  const locked = lockedKernel();
+  const actual = currentKernel();
+  return {
+    state: locked.fingerprint === actual.fingerprint ? "clean" : "drift",
+    locked,
+    actual,
+  };
 }
 
 /** Thrown when a build's pinned kernel is not the kernel it is running against. */
