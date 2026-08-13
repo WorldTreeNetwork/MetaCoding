@@ -2,6 +2,8 @@
 """The wave transition — a ritual that does not depend on remembering it.
 
     python3 ctkr/ctkr/wave.py status
+    python3 ctkr/ctkr/wave.py elicit                      # what needs deciding, in English
+    python3 ctkr/ctkr/wave.py decide "<question>" --choice shared --by X --at D --why "..."
     python3 ctkr/ctkr/wave.py close wave2 --elenchus <path> --affirm k=who --carry id="reason"
     python3 ctkr/ctkr/wave.py open  wave3 [--force "reason"]
 
@@ -69,6 +71,7 @@ from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from ctkr import inflight, promotions  # noqa: E402
 from ctkr.elenchus import port_workspace  # noqa: E402
 
 #: The B-list. Each must be affirmed BY NAME to close. These are questions, not
@@ -265,6 +268,56 @@ def _kernel_check(workspace, wave, instrument):
                  f"whole wave")
 
 
+def _decisions_check(workspace, data_dir):
+    """Every question several builders hit has a recorded answer.
+
+    CARRYABLE, never unsafe — deciding is judgment, and a wave that cannot close
+    until every open question is settled is a wave that never closes. What this
+    refuses is the third state: unanswered AND unmentioned. Answering "later" is
+    an answer for this wave and brings the question back for the next one, which
+    is what `later` is for.
+    """
+    try:
+        qs, answers, _read = promotions.collect(data_dir, workspace)
+    except Exception as exc:                          # noqa: BLE001
+        return Check("decisions", False,
+                     f"could not read the builders' question log: {exc}. NOT a "
+                     f"pass — a check that cannot run is no answer.")
+    # A MISSING LOG IS NOT AN EMPTY LOG, and reading it as one is how this
+    # project's worst failures happen: the oracle's 200-with-`data: []` read as
+    # "no records" when it meant "I am anonymous" (4ifi). Zero questions because
+    # nobody ever reported is not zero questions.
+    log = inflight.ledger_path(data_dir)
+    if not os.path.isfile(log):
+        return Check("decisions", False,
+                     f"the builders' question log does not exist ({log}). That is "
+                     f"'nobody reported a question', NOT 'nobody had one' — this "
+                     f"check cannot tell you which, and a wave may not seal on the "
+                     f"assumption it was the good one.")
+
+    open_qs = promotions.unanswered(qs, answers)
+    if not open_qs:
+        return Check("decisions", True,
+                     f"{len(qs)} question(s) raised by builders, all answered"
+                     if qs else
+                     f"{len(_read.records)} builder report(s), none hit by two or "
+                     f"more builders independently")
+    disagreed = [q for q in open_qs if q.disagree]
+    if not disagreed:
+        clash = ""
+    elif len(disagreed) == 1:
+        clash = (", and one of them was answered DIFFERENTLY by different builders "
+                 "(the port already holds every answer they gave)")
+    else:
+        clash = (f", and {len(disagreed)} of them were answered DIFFERENTLY by "
+                 f"different builders (the port already holds every answer they gave)")
+    return Check("decisions", False,
+                 f"{len(open_qs)} question(s) that two or more builders hit have "
+                 f"no recorded answer{clash}: "
+                 f"{', '.join(q.topic for q in open_qs[:4])}. "
+                 f"See `wave.py elicit`; answer with `wave.py decide`.")
+
+
 def _run(cmd, cwd=None, timeout=600):
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -273,10 +326,11 @@ def _run(cmd, cwd=None, timeout=600):
         return None, str(exc)
 
 
-def checks(workspace, wave, *, elenchus=None, instrument=None, run_suites=True):
+def checks(workspace, wave, *, elenchus=None, instrument=None, run_suites=True,
+           data_dir=None):
     """Every A-check. Pure-ish: returns Checks, never refuses on its own."""
-    instrument = instrument or os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    instrument = _instrument_root(instrument)
+    data_dir = data_dir or _data_dir(workspace)
     out = []
 
     # --- uncommitted work. UNSAFE: cannot be carried. -----------------------
@@ -316,6 +370,13 @@ def checks(workspace, wave, *, elenchus=None, instrument=None, run_suites=True):
 
     # --- the kernel. Computed, never affirmed. ------------------------------
     out.append(_kernel_check(workspace, wave, instrument))
+
+    # --- questions builders could not answer --------------------------------
+    # The A-half of `elicitation-answered`. The affirmation stays, because
+    # nothing can check that a person READ a menu — but whether every question
+    # has a recorded answer is a fact, and it was being asked of a human as part
+    # of a yes/no about a menu no command ever printed.
+    out.append(_decisions_check(workspace, data_dir))
 
     # --- verdict currency ---------------------------------------------------
     rc, txt = _run([sys.executable,
@@ -380,8 +441,31 @@ def _instrument_root(instrument=None):
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 
+def _data_dir(workspace, explicit=None):
+    """Where the builders' question log lives.
+
+    Deliberately does NOT reuse `commands._common.resolve_data_dir`, which exits
+    the process when it finds nothing. A check that kills its caller cannot
+    report "I could not tell", and "could not tell" is the answer that matters
+    here — see `_decisions_check`.
+    """
+    if explicit:
+        return explicit
+    env = os.environ.get("METACODING_DATA_DIR")
+    if env:
+        return env
+    cur = os.path.abspath(workspace)
+    while True:
+        if os.path.isdir(os.path.join(cur, ".metacoding")):
+            return os.path.join(cur, ".metacoding")
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return workspace
+        cur = parent
+
+
 def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
-          instrument=None, run_suites=True):
+          instrument=None, run_suites=True, data_dir=None):
     """Returns (ok, message, row). Writes nothing — the caller appends."""
     waves, _ = load_waves(workspace)
     w = waves.get(wave)
@@ -419,7 +503,7 @@ def close(workspace, wave, *, at, elenchus=None, affirm=None, carry=None,
                         "\n".join(f"    {k}: {v!r}" for k, v in declined_thin.items()))
 
     results = checks(workspace, wave, elenchus=elenchus, instrument=instrument,
-                     run_suites=run_suites)
+                     run_suites=run_suites, data_dir=data_dir)
     unsafe = [c for c in results if not c.ok and not c.carryable]
     if unsafe:
         problems.append("UNSAFE — cannot be carried forward:\n" +
@@ -518,13 +602,23 @@ def append(workspace, row):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("action", choices=("status", "open", "close"))
+    ap.add_argument("action", choices=("status", "open", "close", "elicit", "decide"))
     ap.add_argument("wave", nargs="?")
     ap.add_argument("--workspace", default=None)
     ap.add_argument("--at", required=False, default="",
                     help="the transition timestamp, e.g. 2026-08-12. Passed in "
                          "rather than read from the clock so a close is reproducible.")
     ap.add_argument("--elenchus", default=None)
+    ap.add_argument("--data-dir", default=None,
+                    help="where the builders' question log lives. Auto-detected "
+                         "from a .metacoding/ above the workspace when omitted.")
+    ap.add_argument("--choice", default="", choices=("", *promotions.CHOICES),
+                    help="decide: " + " | ".join(
+                        f"{k} = {v}" for k, v in promotions.CHOICES.items()))
+    ap.add_argument("--why", default="", help="decide: why. This is the record of "
+                                              "why the port works the way it does.")
+    ap.add_argument("--by", default="", help="decide: who decided. A decision has "
+                                             "an author.")
     ap.add_argument("--affirm", action="append", default=[], metavar="KEY=WHO")
     ap.add_argument("--carry", action="append", default=[], metavar="NAME=REASON")
     ap.add_argument("--force", default="")
@@ -551,6 +645,36 @@ def main(argv=None):
             print(f"  {n:14} {state:24} ({len(w.rows)} row(s))")
         return 0
 
+    data_dir = _data_dir(workspace, args.data_dir)
+
+    if args.action == "elicit":
+        qs, answers, read = promotions.collect(data_dir, workspace)
+        print(promotions.render(qs, answers, read, data_dir), end="")
+        if read.malformed:
+            print(f"\n{len(read.malformed)} unreadable report(s) in the builders' "
+                  f"log were SKIPPED — they are not counted above:", file=sys.stderr)
+            for m in read.malformed:
+                print(f"  {m}", file=sys.stderr)
+        return 0
+
+    if args.action == "decide":
+        # `wave` positionally carries the question here — it is the thing being
+        # named, and a second positional would be worse than reusing this one.
+        if not args.wave:
+            ap.error("decide needs the question, exactly as `elicit` printed it")
+        if not args.at:
+            ap.error("--at is required (the date of the decision)")
+        ok, msg, row = promotions.record_answer(
+            workspace, args.wave, args.choice or "", args.why, args.by, args.at)
+        if not ok:
+            print(f"REFUSING to record that decision:\n\n{msg}", file=sys.stderr)
+            return 2
+        if args.dry_run:
+            print(f"[dry run] would append: {json.dumps(row)}")
+            return 0
+        print(f"{msg}\nrecorded in {promotions.append(workspace, row)}")
+        return 0
+
     if not args.wave:
         ap.error(f"{args.action} needs a wave name")
     if not args.at:
@@ -569,9 +693,10 @@ def main(argv=None):
         ok, msg, row = close(workspace, args.wave, at=args.at, elenchus=args.elenchus,
                              affirm=kv(args.affirm, "affirm"),
                              carry=kv(args.carry, "carry"),
-                             run_suites=not args.skip_suites)
+                             run_suites=not args.skip_suites, data_dir=data_dir)
     else:
-        ok, msg, row = open_(workspace, args.wave, at=args.at, force=args.force)
+        ok, msg, row = open_(workspace, args.wave, at=args.at, force=args.force,
+                             instrument=None)
 
     if not ok:
         print(f"REFUSING to {args.action} {args.wave}:\n\n{msg}", file=sys.stderr)

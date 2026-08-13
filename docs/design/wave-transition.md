@@ -115,6 +115,51 @@ how a ritual becomes a rubber stamp.
   scheme, the latest-wins comparator, or the CM registry moves nothing, and the
   check still says "held". That is the fake-it answer for this check, and it was
   found by asking the question rather than by a later judge.
+- **the decisions** — every question two or more builders hit independently has a
+  recorded answer. Carryable, never unsafe: deciding is judgment, and a wave that
+  cannot close until every open question is settled never closes. What it refuses
+  is the third state, unanswered *and* unmentioned. A **missing** builders' log is
+  also not a pass — "nobody reported a question" is not "nobody had one", and this
+  check cannot tell you which.
+
+## What is actually being asked of a person — `wave.py elicit`
+
+`inflight.promotion_candidates` has computed this list since 2026-07-20 and
+**nothing ever showed it to anybody.** The close asked instead for the
+`elicitation-answered` affirmation, which is a person promising they read a menu
+no command ever printed. `promotions.py` prints it, and the close now checks the
+half of it that is a fact.
+
+**It is written in plain words, and that is a requirement rather than a
+courtesy.** Duke, 2026-08-13: *"It should be really clear. To me, or the person
+running this process, what is being elicited, what decisions are being asked
+without referencing all our special terms."* This project's internal vocabulary —
+punt, promotion, kernel, wave, blast radius, elicitation, binding, pith — is
+precise and load-bearing in the code, and unreadable to the person whose judgment
+is the entire reason for asking. A question nobody can read is a question nobody
+answers. So the translation happens once, at the boundary where a machine hands
+work to a human, and `test_promotions.py` fails if any of those words reaches the
+menu:
+
+| internal | what the menu says |
+|---|---|
+| a punt | a builder had no answer and guessed |
+| the topic | the question |
+| the kernel | the rules every builder follows |
+| promotion | decide it once, for everyone |
+| the assumption | what they did instead, in the meantime |
+| N distinct agents | how many builders hit it independently |
+
+Three answers, each named for what it costs: **shared** (decide once, everyone
+follows), **per-build** (each builder decides, and their answers differ),
+**later** (it comes back next round, with the reason recorded). Recorded in
+`port_runs/DECIDED.jsonl`, append-only — a re-decision is a new row.
+
+**The one derived fact leads every entry: did the builders guess *differently*?**
+If they did, the port does not hold an open question, it holds two answers,
+already written, in two places. That is damage rather than debt, it is the fact
+most likely to change what a person decides, and a reader must not have to notice
+it by comparing rows.
 - the test suites are green, or their redness is a named carry-forward (`6ep` is the
   standing example: smoke has been red at `smoke-extractor.ts` for the whole wave)
 
