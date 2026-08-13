@@ -1,8 +1,38 @@
 # The wave transition: a ritual that does not depend on remembering it
 
-**Status:** proposed, 2026-08-12. Duke: *"Sealing is an action that relies on my
-fallible memory to perform. And the transition from one wave to another. It seems
-like we need a ritual for this."*
+**Status: LAYER 1 SHIPPED and used, 2026-08-12.** `ctkr/ctkr/wave.py`,
+`port_runs/WAVES.jsonl`. **Wave 2 was closed with it the same day — the first
+use, which this document called "the honest test of whether it is usable."**
+Layer 2 (`ledger.py` refuses to probe outside an open wave) is `MetaCoding-hy6.66`
+and is deliberately sequenced to land *with* the opening of wave 3, never before:
+shipping it while no wave is open would refuse every probe in the repo, which is a
+self-inflicted outage rather than enforcement.
+
+Duke: *"Sealing is an action that relies on my fallible memory to perform. And the
+transition from one wave to another. It seems like we need a ritual for this."*
+
+## What the first use found — three defects, all in the design above
+
+Recorded here because "the first use is the honest test" is only true if the test
+is allowed to fail, and it did, three times:
+
+1. **The untracked-file blind spot.** The close passed cleanly on its first dry
+   run while `wave.py` — the file implementing the close — sat untracked in the
+   tree. Modified files were checked; untracked ones were filtered away entirely.
+   Untracked *source* is uncommitted work and untracked *build noise* is not, and
+   no rule tells them apart, so modified stays UNSAFE while untracked became
+   CARRYABLE: it cannot block a close and it cannot pass unmentioned.
+2. **Affirmations could not be declined.** The B list accepted only a name, so the
+   sole way to close was to assert all three were TRUE. Wave 2's honest answer to
+   `kernel-frozen` is **no** — `KERNEL_VERSION` is still 1.3.0 and wave 1's v1.4
+   freeze agenda never landed — and a ritual that cannot record that manufactures
+   a false yes at exactly the moment it matters. `--affirm k="no: reason"` now
+   records a decline in its own list, kept out of `affirmed` so the row can never
+   later be read as a yes.
+3. **The A/B split had no analogue of the carry-forward rule.** Section C already
+   said "not done" is a legitimate close and "not done and nobody said so" is not.
+   The B list was missing its version of that sentence until a real close went
+   looking for it.
 
 Depends on [enforceability.md](./enforceability.md), which is the reason this is a
 command and not a checklist.
@@ -137,9 +167,27 @@ decides, and the deciding is recorded. What it refuses is the *unrecorded* skip.
 2. **Should the Elenchus be an A-check (artifact exists) or a B-affirmation (it was
    read)?** Both, probably — but B has no teeth and A is satisfiable by producing a
    document nobody read.
-3. **What closes wave 2?** It is open now, by this design's own definition, with 49
-   open beads and 12 identity builds lacking verdicts. Closing it is the first use
-   of the ritual and the honest test of whether it is usable.
+3. ~~**What closes wave 2?**~~ **ANSWERED 2026-08-12: this did.** Duke: *"ok, it's
+   time. close the wave 2."* Sealed with 7 of 10 mechanical checks green, two
+   affirmations by name, one declined with its reason, and three items carried
+   forward:
+
+   | carried | why |
+   |---|---|
+   | `verdicts` | 19 gating builds lack a current clean verdict. Every value still reproduces — it is the *evidence* that is unverified, after `hy6.47`/`hy6.48` correctly invalidated four packs predating the mandatory preflight. `hy6.44`, `hy6.49`; remedy uncosted. |
+   | `smoke` | `smoke-extractor.ts` emits no `SMOKE_RECORD`, so the runner refuses it as silent. The original crash was fixed; the missing record was not. Standing red for the whole wave — `6ep`. |
+   | `untracked:farmos-port` | two generated `.scip` index files; build artifacts, not source. |
+
+   **This carried list is wave 3's ratchet baseline**, which is the unification
+   this document argued for: debt accepted deliberately at a boundary, by a
+   person, once — instead of accumulating silently and being found by a judge
+   three weeks later.
+
+   Answered *around* the close but still open: (1) `wave1-c1`'s status, and (2)
+   whether the Elenchus is an A-check or a B-affirmation. In practice it was
+   **both**, as this document guessed: `elenchus` is a file-existence A-check and
+   `pith-read` is a B-affirmation, because A is satisfiable by producing a
+   document nobody opened.
 
 ## What this does not solve
 
