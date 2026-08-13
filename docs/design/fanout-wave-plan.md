@@ -241,3 +241,25 @@ review, not tokens.
 - **Goalpost discipline**: any change to gates/metrics goes through
   `metric_updates.jsonl` with rationale, replacement signal, and reversal
   condition — no silent redefinition of done.
+- **The partition allocates CEREMONY, not READING** — bound by Duke 2026-08-12,
+  from the wave-2 Elenchus's third pith question
+  (`farmos-port/results/wave2/synthesis-wave2-2026-08-12.md`, `MetaCoding-hy6.64`).
+  The risk partition tiers modules by `vocab_new`, and it is a good predictor of
+  **how much a port costs** — that is what it was designed for, and `hy6.51`
+  correctly reaffirmed it for the recipe. It is **not** a predictor of **where the
+  port will be wrong**: every wave-2 defect lives in machinery identical across
+  tiers — wire normalizers, cardinality guards, length checks, teardown ordering,
+  ledger form, preflight binding — and is invisible to both the vocabulary and the
+  structural lane, because it is not a property of a module at all. The structural
+  lane, run at real cost (`role-rescore-2026-08-01.md`), found nothing the cheap
+  channels had already found.
+
+  So: **tier decides ceremony. Machinery class decides where a fresh reader goes.**
+  A reading target is *"every wire normalizer across all 21 builds"*, not
+  *"build `spine-taxonomy-a`"*. This reverses no bound decision — the partition and
+  the reading budget were never allocating the same scarce thing. The Elenchus
+  half-prototyped it with its own `throw new` / `Array.isArray` sweep across the
+  twelve builds no judge report covers, at a cost of part of one agent pass.
+
+  **Reversal condition:** a defect found in wave 3+ that a tier signal would have
+  predicted and a machinery-class sweep would have missed.
