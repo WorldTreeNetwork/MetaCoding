@@ -252,6 +252,13 @@ def _kernel_check(workspace, wave, instrument):
     for row in (w.rows if w else []):
         if row.get("record") == "open" and row.get("kernel"):
             at_open = row["kernel"]
+    if not wave:
+        # No wave is open — there is no span for it to have held ACROSS, so the
+        # only honest report is the current state. Asking "did it hold?" of a
+        # wave that does not exist is how a check invents a red.
+        return Check("kernel", True,
+                     f"v{st.get('version')} ({st.get('fingerprint')}), clean "
+                     f"against the lock; no wave open to have held across")
     if not at_open:
         return Check("kernel", False,
                      f"running v{st.get('version')} ({st.get('fingerprint')}) and "
@@ -480,6 +487,76 @@ def _decline_reason(value):
     return (value or "").strip()[3:].strip()
 
 
+#: Checks that need a subprocess measured in minutes. Everything else in
+#: `checks()` totals ~0.4s (measured 2026-08-14: git 0.18, kernel 0.10,
+#: verdict_currency 0.05, readings 0.04, the menu 0.01), which is why `brief`
+#: can run on every session start and the close is not the only time anyone
+#: learns something drifted.
+SLOW_CHECKS = ("suite:workspace", "suite:instrument", "smoke")
+
+#: Checks that only mean something AT a close. The Elenchus is a reading produced
+#: FOR the boundary; "no --elenchus given" is true and uninteresting on every day
+#: that is not a closing day, and a digest that cries every morning is one nobody
+#: reads by Thursday.
+CLOSE_ONLY = ("elenchus",)
+
+
+def brief(workspace, *, instrument=None, data_dir=None):
+    """The whole self-checking system minus the suites, in under a second.
+
+    WHY THIS EXISTS. Every check below already existed and ran EXACTLY ONCE PER
+    WAVE — inside `wave close`, which is a command a person has to remember at a
+    moment they choose. So a kernel that drifted on day 2 was found on day 21, and
+    21 decisions flagged by builders waited 11 days without anyone being told.
+    Duke, 2026-08-14: *"we had a good self-checking system, but just if it can be
+    automatically invoked without human intervention at various points."*
+
+    Nothing here is new. The only change is WHEN it runs, and that it costs a
+    person nothing to have run it.
+
+    REPORTS ONLY WHAT WANTS ATTENTION. A digest that prints a wall of green on
+    every session start is one everybody scrolls past, at which point it is
+    decoration that costs context. Silence means clean.
+    """
+    lines = []
+    waves, order = load_waves(workspace)
+    open_now = [w.name for w in open_waves(workspace)]
+    if open_now:
+        lines.append(f"WAVE {', '.join(open_now)} is open.")
+    else:
+        last = max((w for w in waves.values() if w.closed_at),
+                   key=lambda w: w.closed_at, default=None)
+        lines.append(
+            f"WAVE none open"
+            + (f" (last: {last.name} closed {last.closed_at})." if last else ".")
+            + " Open one before recording observations.")
+
+    results = [c for c in checks(workspace, open_now[0] if open_now else "",
+                                 elenchus=None, instrument=instrument,
+                                 data_dir=data_dir, run_suites=False)
+               if c.name not in SLOW_CHECKS + CLOSE_ONLY]
+
+    # The menu leads when it has anything, because it is the only item here that
+    # is waiting on a PERSON rather than on the code.
+    try:
+        qs, answers, _read = promotions.collect(
+            data_dir or _data_dir(workspace), workspace)
+        open_qs = promotions.unanswered(qs, answers)
+        if open_qs:
+            settleable = sum(1 for q in open_qs if q.reversals)
+            lines.append(
+                f"{len(open_qs)} decision(s) waiting on you — `wave.py elicit`"
+                + (f". {settleable} name the observation that would settle them "
+                   f"without a ruling." if settleable else "."))
+    except Exception as exc:                          # noqa: BLE001
+        lines.append(f"could not read the decision menu: {exc}")
+
+    for c in results:
+        if not c.ok and c.name != "decisions":   # already reported above, in full
+            lines.append(f"RED  {c.name}: {c.detail[:160]}")
+    return lines
+
+
 def _instrument_root(instrument=None):
     return instrument or os.path.normpath(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -646,7 +723,8 @@ def append(workspace, row):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("action", choices=("status", "open", "close", "elicit", "decide"))
+    ap.add_argument("action",
+                    choices=("status", "brief", "open", "close", "elicit", "decide"))
     ap.add_argument("wave", nargs="?")
     ap.add_argument("--workspace", default=None)
     ap.add_argument("--at", required=False, default="",
@@ -690,6 +768,11 @@ def main(argv=None):
         return 0
 
     data_dir = _data_dir(workspace, args.data_dir)
+
+    if args.action == "brief":
+        for ln in brief(workspace, data_dir=data_dir):
+            print(ln)
+        return 0
 
     if args.action == "elicit":
         qs, answers, read = promotions.collect(data_dir, workspace)

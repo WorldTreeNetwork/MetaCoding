@@ -259,6 +259,83 @@ def test_UNTRACKED_source_cannot_pass_unmentioned(tmp_path):
     assert all(c.ok for c in clean if c.name.startswith(("untracked:", "committed:")))
 
 
+# ---------------------------------------------------------------------------
+# brief — the same checks, fired without anyone asking
+# ---------------------------------------------------------------------------
+
+def test_brief_reports_a_RED_check_without_anyone_running_a_close(tmp_path, monkeypatch):
+    """The whole point. Every one of these checks already existed and ran EXACTLY
+    ONCE PER WAVE, inside a close a person had to remember. A kernel that drifted
+    on day 2 was found on day 21."""
+    monkeypatch.setattr(W, "checks", lambda *a, **k: [
+        Check("verdicts", False, "19 gating builds lack a current, clean verdict"),
+        Check("kernel", True, "v1.4.0 clean")])
+    monkeypatch.setattr(W.promotions, "collect", lambda *a, **k: ([], {}, None))
+    out = "\n".join(W.brief(ws(tmp_path, [opened("wave3")])))
+    assert "RED  verdicts" in out and "19 gating" in out
+    assert "kernel" not in out, "a green check must not spend a line"
+
+
+def test_brief_is_QUIET_when_nothing_wants_attention(tmp_path, monkeypatch):
+    """A digest that prints a wall of green on every session start is one people
+    scroll past, at which point it is decoration that costs context."""
+    monkeypatch.setattr(W, "checks", lambda *a, **k: [Check("verdicts", True, "all current")])
+    monkeypatch.setattr(W.promotions, "collect", lambda *a, **k: ([], {}, None))
+    out = W.brief(ws(tmp_path, [opened("wave3")]))
+    assert len(out) == 1 and "wave3 is open" in out[0]
+
+
+def test_brief_LEADS_with_what_is_waiting_on_a_person(tmp_path, monkeypatch):
+    """The only item in the digest that a machine cannot clear by itself."""
+    class Q:
+        topic, reversals = "t", ["an observation that would settle it"]
+    monkeypatch.setattr(W, "checks", lambda *a, **k: [Check("x", False, "red")])
+    monkeypatch.setattr(W.promotions, "collect", lambda *a, **k: ([Q()], {}, None))
+    monkeypatch.setattr(W.promotions, "unanswered", lambda qs, ans: qs)
+    out = W.brief(ws(tmp_path, [opened("wave3")]))
+    assert "1 decision(s) waiting on you" in out[1]
+    assert "1 name the observation" in out[1]
+    assert out.index([ln for ln in out if "waiting on you" in ln][0]) < \
+        out.index([ln for ln in out if ln.startswith("RED")][0])
+
+
+def test_brief_EXCLUDES_the_slow_and_the_close_only(tmp_path, monkeypatch):
+    """It runs on every session start, so `bun test` (130s, measured) would make
+    starting a session cost two minutes — and 'no --elenchus given' is true and
+    uninteresting on every day that is not a closing day."""
+    monkeypatch.setattr(W.promotions, "collect", lambda *a, **k: ([], {}, None))
+    seen = {}
+
+    def spy(*a, **k):
+        seen.update(k)
+        return [Check("elenchus", False, "no --elenchus given"),
+                Check("suite:workspace", False, "red")]
+    monkeypatch.setattr(W, "checks", spy)
+    out = "\n".join(W.brief(ws(tmp_path, [opened("wave3")])))
+    assert seen.get("run_suites") is False, "brief must never run the suites"
+    assert "elenchus" not in out and "suite:workspace" not in out
+
+
+def test_brief_says_NO_WAVE_IS_OPEN_rather_than_staying_silent(tmp_path, monkeypatch):
+    """Layer 2 refuses probes outside an open wave. Someone about to work needs to
+    know that before the refusal, not from it."""
+    monkeypatch.setattr(W, "checks", lambda *a, **k: [])
+    monkeypatch.setattr(W.promotions, "collect", lambda *a, **k: ([], {}, None))
+    out = W.brief(ws(tmp_path, [opened("wave2"), closed("wave2")]))
+    assert "none open" in out[0] and "wave2" in out[0]
+
+
+def test_a_broken_decision_menu_does_not_take_the_brief_down(tmp_path, monkeypatch):
+    """It runs on every session start. A digest that can abort session startup is
+    worse than no digest, and it must SAY it failed rather than print nothing."""
+    monkeypatch.setattr(W, "checks", lambda *a, **k: [])
+    def boom(*a, **k):
+        raise RuntimeError("DECIDED.jsonl:3 is unreadable")
+    monkeypatch.setattr(W.promotions, "collect", boom)
+    out = "\n".join(W.brief(ws(tmp_path, [opened("wave3")])))
+    assert "could not read the decision menu" in out and "unreadable" in out
+
+
 def test_an_affirmation_can_be_DECLINED_honestly(tmp_path, monkeypatch):
     """Or the ritual is a rubber stamp.
 

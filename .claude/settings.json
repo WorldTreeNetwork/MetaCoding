@@ -6,6 +6,10 @@
           {
             "command": "bd prime",
             "type": "command"
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/wave.py brief 2>/dev/null || true"
           }
         ],
         "matcher": ""
@@ -17,6 +21,10 @@
           {
             "command": "bd prime",
             "type": "command"
+          },
+          {
+            "type": "command",
+            "command": "python3 /Users/dukejones/work/WorldTree/MetaCoding/ctkr/ctkr/wave.py brief 2>/dev/null || true"
           }
         ],
         "matcher": ""
