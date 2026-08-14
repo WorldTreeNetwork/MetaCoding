@@ -43,7 +43,6 @@ from ctkr.oracle.fixtures import (
 from ctkr.oracle.lens import active_probe_contract
 from ctkr.oracle.steps import apply_given, apply_when, flow_now
 
-
 #: A boundary request/response pair — transport-level provenance.
 BOUNDARY_RECORD = "boundary"
 #: A witness's ``response_status`` when the source DECLINED to answer — the
