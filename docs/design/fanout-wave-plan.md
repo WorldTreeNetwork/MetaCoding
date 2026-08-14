@@ -36,6 +36,43 @@
    intuition-authored values, ever (the pure-LLM cell's wrong-guess is the
    standing proof).
 
+   **BOTH LANES, EVERY IDENTITY BUILD — bound by Duke, 2026-08-13
+   (`MetaCoding-ewgc`).** A build runs the **ledger** for the guards and the
+   **recorder** for the record. Not one or the other.
+
+   The reason is that they guard *different things*, which is why eleven wave-2
+   builds each picked one and silently lost the other:
+
+   | | guards | what it protects |
+   |---|---|---|
+   | `tools/ledger.py` | preflight refusal, try/finally cleanup, by-ID absence proof, per-section floors, drift on unchecked rows, layer 2 | **the run and the shared oracle** |
+   | `ctkr.oracle.recorder` → `seal_recording` | mandatory preflight attestation in the seal, every assertion cites a witness, orphan detection, content-addressed fixtures | **the artifact** |
+
+   Measured across wave 2's 13 observing builds, the lanes are **disjoint**: the
+   4 with a sealed pack are exactly the 4 port-verify could score, and none of
+   them used the ledger; the 7 ledger builds have the project's strongest
+   observation discipline and are unscoreable. Neither lane subsumes the other,
+   so choosing one is choosing which half to go without.
+
+   **Cost, stated plainly: this roughly doubles per-build observation work**, and
+   it was chosen over the cheaper options because both halves are load-bearing
+   and neither can be recovered after the fact. It is deliberately the
+   no-new-mechanism option — running two existing lanes, not building a third,
+   which is how eleven formats appeared the first time.
+
+   **Reversal condition.** Unify the lanes — teach the ledger to emit a
+   `SessionResult` that `seal_recording` can seal — when the doubled cost is
+   measured rather than predicted, i.e. after wave 3's first few builds report
+   real observation time. `MetaCoding-ewgc` stays open as that target.
+
+   **What "both" does NOT buy, so nobody assumes it:** the ledger cleans up *its
+   own* fixtures. The recorder has no teardown at all — no `close()` override, no
+   created-tracking, no sweep — so a recorder pass still strands what it creates
+   in the shared oracle. Read on 2026-08-13 the oracle held 38 animals and 3
+   harvest logs against 0 sensors and 0 plants; that is consistent with stranding
+   and with a later rebuild, and does not settle which. Recorder-lane cleanup is
+   unbuilt, not merely unused.
+
    **PRECONDITION — the oracle preflight, and it is not optional** (added
    2026-08-07, `MetaCoding-hy6.25`/`hy6.28`). A build may not begin probing while
    any resource type it names is unresolvable, or is provided by a module
