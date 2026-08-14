@@ -148,13 +148,20 @@ issue against `oh-my-claudecode` is tracked separately — see bead
 
 ### Command timing — MEASURED, and the number I first wrote here was wrong
 
-**Measured 2026-08-12, by running them:**
+**Measured 2026-08-14, by running them five times:**
 
 | command | wall clock |
 |---|---|
-| `bun test` (MetaCoding, 580 tests / 43 files) | **~38-41s** |
+| `bun test` (MetaCoding, 659 tests / 48 files) | **~130-140s** (5 runs: 133, 131, 133, 130, 140) |
 | `bun test` (farmos-port, 980 tests / 76 files) | **~2s** |
 | `bun run smoke` | **~0.7s** — it fails fast at `smoke-extractor.ts` (`6ep`) |
+
+**This table went stale in BOTH directions, which is the point of keeping it.** It
+first said ~16 minutes, inferred from stall-gap adjacency and written down as
+measured fact — refuted 2026-08-12 by running the command. The correction said
+~38-41s, which was true then and is 3.3x wrong now: the suite grew from 580 to 659
+tests and got slower per test. A measured number is only true at the commit it was
+measured at, and a table of them needs a date and a re-run, not trust.
 
 **Nothing in this project takes 16 minutes.** An earlier version of this section said
 `bun test` took ~16 minutes and told agents never to foreground it. That figure was
