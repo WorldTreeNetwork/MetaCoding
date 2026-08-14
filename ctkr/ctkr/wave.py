@@ -693,7 +693,7 @@ def main(argv=None):
 
     if args.action == "elicit":
         qs, answers, read = promotions.collect(data_dir, workspace)
-        print(promotions.render(qs, answers, read, data_dir), end="")
+        print(promotions.render(qs, answers, read, data_dir, workspace), end="")
         if read.malformed:
             print(f"\n{len(read.malformed)} unreadable report(s) in the builders' "
                   f"log were SKIPPED — they are not counted above:", file=sys.stderr)

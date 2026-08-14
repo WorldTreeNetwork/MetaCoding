@@ -19,9 +19,40 @@ from ctkr.inflight import InflightRecord
 
 
 def rec(agent, topic, assumption="", kind="punt", statement="s", event_kinds=()):
+    """An in-flight report — the channel every port brief points builders at."""
     return InflightRecord(agent=agent, feature="f", topic=topic, kind=kind,
                           statement=statement, assumption=assumption,
                           event_kinds=tuple(event_kinds), at="2026-08-06")
+
+
+def qs_of(*records):
+    """questions() over in-flight records, normalized the way collect() does."""
+    return P.questions(P.from_inflight(list(records)))
+
+
+def punt(build, topic, decision_taken="", flagged=True, reversal="", status=None,
+         feature="f"):
+    """A row as a BUILDER actually writes it — punts.jsonl, not the in-flight log.
+
+    This is the shape carrying the real corpus: 81 rows, 22 ledgers, 21 unsettled
+    rows flagged kernel_candidate. The menu read the other file for a day and
+    rendered 'none'."""
+    row = {"id": build, "feature": feature, "topic": topic,
+           "kernel_candidate": flagged}
+    if decision_taken:
+        row["decision_taken"] = decision_taken
+    if reversal:
+        row["reversal_condition"] = reversal
+    if status:
+        row["status"] = status
+    return row
+
+
+def punts_ws(tmp_path, rows, wave="wave3", build="b"):
+    d = tmp_path / "ws" / "port_runs" / wave / build
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "punts.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return str(tmp_path / "ws")
 
 
 def dd(tmp_path, records):
@@ -48,14 +79,14 @@ def ws(tmp_path, rows=()):
 def test_one_builder_alone_is_NOT_raised():
     """One builder hitting a wall is a report. Two hitting it independently is a
     pattern. Raising the first floods the menu, and a flooded menu is unread."""
-    qs = P.questions([rec("solo", "t", "guessed"), rec("solo", "t", "guessed")])
+    qs = qs_of(rec("solo", "t", "guessed"), rec("solo", "t", "guessed"))
     assert qs == []
 
 
 def test_two_builders_independently_IS_raised():
     """The contrast — otherwise the test above passes for a function that
     returns nothing at all."""
-    qs = P.questions([rec("a", "t", "guessed"), rec("b", "t", "guessed")])
+    qs = qs_of(rec("a", "t", "guessed"), rec("b", "t", "guessed"))
     assert [q.topic for q in qs] == ["t"]
     assert qs[0].builders == ["a", "b"]
 
@@ -72,24 +103,96 @@ def test_builders_who_guessed_DIFFERENTLY_are_flagged_and_lead():
         rec("c", "agreed", "same guess"), rec("d", "agreed", "same guess"),
         rec("x", "clashed", "one way"), rec("y", "clashed", "the other way"),
     ]
-    qs = P.questions(records)
+    qs = P.questions(P.from_inflight(records))
     assert [q.topic for q in qs] == ["clashed", "agreed"], \
         "a disagreement outranks a question more builders hit the same way"
     assert qs[0].disagree and not qs[1].disagree
 
 
 def test_agreement_is_not_reported_as_disagreement():
-    q = P.questions([rec("a", "t", "same"), rec("b", "t", "same")])[0]
+    q = qs_of(rec("a", "t", "same"), rec("b", "t", "same"))[0]
     assert not q.disagree
 
 
 def test_a_builder_that_recorded_no_assumption_cannot_manufacture_agreement():
     """Silence is not a matching guess. Two builders, one of whom said nothing,
     must not read as "they agreed" — what the port does there is unknown."""
-    q = P.questions([rec("a", "t", "one way"), rec("b", "t", "")])[0]
+    q = qs_of(rec("a", "t", "one way"), rec("b", "t", ""))[0]
     assert q.guesses == [("a", "one way")]
     assert not q.disagree          # one known guess is not a clash...
     assert len(q.builders) == 2    # ...but the second builder is still counted
+
+
+# ---------------------------------------------------------------------------
+# the repoint — reading the channel builders ACTUALLY write
+# ---------------------------------------------------------------------------
+
+def test_ONE_builder_flagging_it_reaches_the_menu(tmp_path):
+    """The bug this fixes, and it is the whole reason the menu read "none".
+
+    A threshold of 2 distinct builders on a shared topic slug returns nothing
+    forever against the real corpus: 22 punt ledgers, 81 rows, 76 topics, ALL
+    DISTINCT. Builders write topics as free prose and free prose does not
+    collide. But 21 rows carry `kernel_candidate: true` — the builder's own
+    judgment that this wants deciding once, made while it had the problem in
+    front of it. One flag IS the signal; a tally was never going to arrive.
+    """
+    w = punts_ws(tmp_path, [punt("solo-build", "a question one builder flagged",
+                                 decision_taken="shipped a guess")])
+    qs = P.questions(P.read_punts(w))
+    assert [q.topic for q in qs] == ["a question one builder flagged"]
+    assert qs[0].flagged and qs[0].builders == ["solo-build"]
+
+
+def test_an_UNFLAGGED_single_punt_stays_off_the_menu(tmp_path):
+    """The contrast. Without it the change above is "raise everything", which
+    floods the menu, and a flooded menu is unread — the same failure as an empty
+    one, reached from the other side."""
+    w = punts_ws(tmp_path, [punt("solo", "just a local call", flagged=False)])
+    assert P.questions(P.read_punts(w)) == []
+
+
+def test_a_RESOLVED_punt_is_not_still_waiting(tmp_path):
+    w = punts_ws(tmp_path, [
+        punt("b1", "settled already", status="RESOLVED 2026-08-04 (hy6.24)"),
+        punt("b2", "still open")])
+    assert [q.topic for q in P.questions(P.read_punts(w))] == ["still open"]
+
+
+def test_the_builders_REVERSAL_CONDITION_reaches_the_reader(tmp_path):
+    """13 of the 21 carry one, and it is the most decision-useful field in the
+    corpus: it names the observation that would settle the question without
+    anyone having to rule. Dropping it turns a cheap look into a judgment call."""
+    w = punts_ws(tmp_path, [punt("b", "unit-name opacity",
+                                 decision_taken="units compared exactly",
+                                 reversal="a fixture mixing unit spellings")])
+    qs = P.questions(P.read_punts(w))
+    assert qs[0].reversals == ["a fixture mixing unit spellings"]
+    out = P.render(qs, {}, P.inflight.LedgerRead(), "", w)
+    assert "What would change this" in out
+    assert "a fixture mixing unit spellings" in out
+
+
+def test_decision_taken_IS_what_the_port_does_today(tmp_path):
+    """The builders' name for the assumption. Reading it as anything else loses
+    the only record of what actually shipped."""
+    w = punts_ws(tmp_path, [punt("b", "t", decision_taken="folded over all events")])
+    q = P.questions(P.read_punts(w))[0]
+    assert q.guesses == [("b", "folded over all events")]
+    assert "what the port does today" in P.render(
+        [q], {}, P.inflight.LedgerRead(), "", w)
+
+
+def test_BOTH_channels_are_read_and_merge_on_one_topic(tmp_path):
+    """A question raised in a build record and reported in flight is ONE question,
+    not two. Otherwise wiring the second channel would double every entry."""
+    d = dd(tmp_path, [rec("live-agent", "shared topic", "guessed one way")])
+    w = punts_ws(tmp_path, [punt("build-record", "shared topic",
+                                 decision_taken="guessed the other way")])
+    qs, _answers, _read = P.collect(d, w)
+    assert len(qs) == 1
+    assert qs[0].builders == ["build-record", "live-agent"]
+    assert qs[0].disagree, "two channels, two different guesses — still a clash"
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +202,7 @@ def test_a_builder_that_recorded_no_assumption_cannot_manufacture_agreement():
 def test_LATER_brings_the_question_BACK(tmp_path):
     """That is the whole difference between 'later' and the other two. A defer
     that silently sticks is how debt accumulates unnoticed."""
-    qs = P.questions([rec("a", "t", "g"), rec("b", "t", "g")])
+    qs = qs_of(rec("a", "t", "g"), rec("b", "t", "g"))
     answers = P.read_answers(ws(tmp_path, [
         {"question": "t", "choice": "later", "why": "needs the oracle first",
          "by": "Duke", "at": "2026-08-13"}]))
@@ -107,7 +210,7 @@ def test_LATER_brings_the_question_BACK(tmp_path):
 
 
 def test_shared_and_per_build_settle_it(tmp_path):
-    qs = P.questions([rec("a", "t", "g"), rec("b", "t", "g")])
+    qs = qs_of(rec("a", "t", "g"), rec("b", "t", "g"))
     for choice in ("shared", "per-build"):
         answers = P.read_answers(ws(tmp_path / choice, [
             {"question": "t", "choice": choice, "why": "a real recorded reason",
@@ -182,16 +285,20 @@ def test_an_EMPTY_menu_says_which_kind_of_empty_it_is(tmp_path):
     was never written is the same bug wearing different clothes.
     """
     missing = str(tmp_path / "no-such-dir")
-    qs, answers, read = P.collect(missing, ws(tmp_path))
-    out = P.render(qs, answers, read, missing)
-    assert "not the same as" in out and "does not exist" in out
+    w = ws(tmp_path)
+    qs, answers, read = P.collect(missing, w)
+    out = P.render(qs, answers, read, missing, w)
     assert "nobody reported a question" in out
+    # BOTH sources must be accounted for by name. Reporting only one is how this
+    # menu said "none" for a day while 21 flagged questions sat in the other.
+    assert "punts.jsonl" in out and "does not exist" in out
+    assert "reader's fault" in out
 
     # The contrast: a log that EXISTS and holds sub-threshold reports is a
     # different sentence, and must not claim nobody ever wrote to the channel.
     d = dd(tmp_path, [rec("solo", "t", "g")])
-    qs2, answers2, read2 = P.collect(d, ws(tmp_path))
-    out2 = P.render(qs2, answers2, read2, d)
+    qs2, answers2, read2 = P.collect(d, w)
+    out2 = P.render(qs2, answers2, read2, d, w)
     assert "does not exist" not in out2
     assert "1 report" in out2
 
