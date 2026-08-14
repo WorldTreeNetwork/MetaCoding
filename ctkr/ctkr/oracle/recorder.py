@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from blake3 import blake3
@@ -962,6 +963,69 @@ class SessionResult:
     unrecorded: list[UnrecordedFlow] = field(default_factory=list)
 
 
+class WaveNotOpen(RuntimeError):
+    """Recording attempted outside any registered wave. Layer 2, this lane.
+
+    THE GAP THIS CLOSES WAS OPENED BY ITS OWN FIX (MetaCoding-hy6.66, 2026-08-13).
+    Layer 2 shipped in `farmos-port/tools/ledger.py` and made an open wave a
+    precondition of probing — for builds that go through `Ledger`. Measured the
+    same day across wave 2's 13 observing builds, the two observation lanes are
+    DISJOINT:
+
+        sealed pack, port-verify can score it   4 builds — none use the ledger
+        ledger (preflight, cleanup, floors)     7 builds — none produce a pack
+
+    So the lane layer 2 gated is exactly the lane that produces no pack, and the
+    lane that produces every scoreable pack was ungated. A guard covering the
+    half of the work that nothing downstream reads is not a guard.
+
+    Placed BEFORE `adapter.open()` so an unregistered run reaches the shared
+    oracle with zero requests — the same property `Ledger.preflight()` holds, and
+    for the same reason: the refusal must precede the first byte, or "nothing
+    followed this line" is false.
+    """
+
+
+def require_open_wave() -> str:
+    """The open wave, or raise. Reads the PORT WORKSPACE's `port_runs/WAVES.jsonl`.
+
+    Deliberately duplicated rather than imported from `ctkr.wave`: that module
+    pulls in `promotions` and `inflight`, and the recording path must not gain a
+    dependency on the decision menu to answer a question this small. The two
+    readers agree on one thing only — the last `open`/`close` row per wave wins —
+    and `test_recorder.py` pins that agreement.
+    """
+    from ctkr.elenchus import port_workspace
+
+    path = Path(port_workspace()) / "port_runs" / "WAVES.jsonl"
+    state: dict[str, bool] = {}
+    if path.is_file():
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                raise WaveNotOpen(
+                    f"WAVES.jsonl:{n} is unreadable ({exc}). This decides whether "
+                    f"this recording may touch the shared oracle; a row nobody can "
+                    f"parse is not a row that can be skipped."
+                ) from None
+            if row.get("wave") and row.get("record") in ("open", "close"):
+                state[row["wave"]] = row["record"] == "open"
+    for name, is_open in state.items():
+        if is_open:
+            return name
+    raise WaveNotOpen(
+        f"REFUSING to record: no wave is open in {path}.\n"
+        "  Observations recorded outside a registered wave belong to no boundary "
+        "— nothing will seal them, carry them, or read them.\n"
+        "  Open one:\n"
+        "      python3 ctkr/ctkr/wave.py open <name> --at DATE"
+    )
+
+
 def record_session_result(
     adapter: ImplementationAdapter,
     flows: list[FlowSpec] | None = None,
@@ -975,6 +1039,7 @@ def record_session_result(
     :class:`UnrecordedFlow` and the session continues — but it is never treated
     as a pass: the caller must report the list, and the CLI exits non-zero.
     """
+    require_open_wave()
     flows = flows if flows is not None else core_flows()
     result = SessionResult()
     adapter.open()
