@@ -9,10 +9,18 @@ version with the fingerprint it was correct at, and `src/kernel/cli.ts bump`
 writes both. Kernel is v1.4.0 (`surface_changed: false` — the number moved, the
 answers did not; the real v1.4 is the punt-promotion still ahead).
 
-Layer 2 (`ledger.py` refuses to probe outside an open wave) is `MetaCoding-hy6.66`
-and is deliberately sequenced to land *with* the opening of wave 3, never before:
-shipping it while no wave is open would refuse every probe in the repo, which is a
-self-inflicted outage rather than enforcement.
+**LAYER 2 SHIPPED 2026-08-13, in the same commit that opened wave 3**
+(`farmos-port@55a9a51`, `MetaCoding-hy6.66`). The sequencing held: the refusal and
+the thing that satisfies it landed together, because shipping it while no wave was
+open would have refused every probe in the repo — a self-inflicted outage rather
+than enforcement.
+
+`Ledger.preflight()` refuses when `WAVES.jsonl` shows no open wave, and it does so
+**before the gate's own `GET /api`** — otherwise the refusal row's claim that
+nothing followed it is false, and an unregistered run has already touched the
+oracle 43 sealed packs were observed against. Verified by mutation: `if not wave:`
+→ `if False:` fails 4 of 67 (the refusal, the exit code through `run()`, the
+recorded row, and the zero-requests property).
 
 Duke: *"Sealing is an action that relies on my fallible memory to perform. And the
 transition from one wave to another. It seems like we need a ritual for this."*
